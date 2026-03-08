@@ -1,0 +1,77 @@
+# Craft Post App — Task 定義
+# 実行: task <タスク名> または task で default を実行
+# 一覧: task --list
+#
+# Windows で tauri dev する場合: .env.example を .env にコピーし、
+# VCVARS64_BAT に vcvars64.bat の絶対パスを設定してください。
+version: '3'
+
+dotenv: ['.env']
+
+vars:
+  NPM_CMD: npm run
+
+tasks:
+  default:
+    desc: 開発サーバー起動（Tauri + Vite）。Windows では .env の VCVARS64_BAT を呼んでから実行
+    cmds:
+      - cmd: 'cmd /c "call {{.VCVARS64_BAT}}"'
+      - cmd: "{{.NPM_CMD}} tauri dev"
+
+  env:setup:
+    desc: '.env の設定。必須引数でバッチの絶対パスを指定。例: task env:setup BAT="C:\\path\\vcvars64.bat"'
+    vars:
+      BATCH_PATH: '{{.BAT}}'
+    preconditions:
+      - sh: 'test -n "{{.BATCH_PATH}}"'
+        msg: '必須引数: バッチのパスを指定してください。例: task env:setup BAT="c:\\path\\vcvars64.bat"'
+    cmds:
+      - cmd: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/set-env-vcvars.ps1 "{{.BATCH_PATH}}"
+
+  setup:
+    desc: 初回セットアップ（依存関係のインストール）
+    cmds:
+      - npm install
+
+  dev:
+    desc: 開発サーバー起動（Tauri + Vite、ホットリロード）。Windows では .env の VCVARS64_BAT を呼んでから実行
+    cmds:
+      - cmd: 'cmd /c "call {{.VCVARS64_BAT}}"'
+      - cmd: "{{.NPM_CMD}} tauri dev"
+
+  dev:web:
+    desc: フロントのみ開発サーバー（Vite、ブラウザ確認用）
+    cmds:
+      - "{{.NPM_CMD}} dev"
+
+  build:
+    desc: フロントエンドの本番ビルド（dist/ に出力）
+    cmds:
+      - "{{.NPM_CMD}} build"
+
+  build:app:
+    desc: Tauri アプリの本番ビルド（インストーラ・実行ファイル生成）
+    cmds:
+      - "{{.NPM_CMD}} tauri build"
+
+  lint:
+    desc: ESLint の実行
+    cmds:
+      - "{{.NPM_CMD}} lint"
+
+  preview:
+    desc: ビルド済みフロントのプレビューサーバー
+    cmds:
+      - "{{.NPM_CMD}} preview"
+
+  clean:
+    desc: Rust ビルドキャッシュと dist の削除
+    cmds:
+      - cargo clean
+      - cmd: Remove-Item -Recurse -Force dist -ErrorAction SilentlyContinue
+
+  check:
+    desc: 型チェック・ビルド確認（tsc + cargo check）
+    cmds:
+      - "{{.NPM_CMD}} build"
+      - cd src-tauri && cargo check

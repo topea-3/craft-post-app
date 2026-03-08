@@ -15,8 +15,11 @@
 | [docs/decisions-summary.md](docs/decisions-summary.md) | 技術決定サマリ |
 | [docs/repository-and-branch-strategy.md](docs/repository-and-branch-strategy.md) | リポジトリ・ブランチ・リリース方針 |
 | [docs/github-setup.md](docs/github-setup.md) | GitHub リポジトリ・ブランチ保護の設定手順 |
+| [docs/dev-setup.md](docs/dev-setup.md) | 開発環境の初期構築・起動方法 |
 
 ## 開発環境の準備
+
+詳細な手順は **[docs/dev-setup.md](docs/dev-setup.md)** を参照してください。
 
 1. **リポジトリのクローン**
 
@@ -25,11 +28,18 @@
    cd craft_post_root
    ```
 
-2. **ブランチ**: 通常の開発は `develop` から `feature/TOP-XX-...` を切って作業します。
+2. **前提条件**: Node.js（20.x LTS 以上）、Rust（rustup）、Windows の場合は WebView2。
 
-3. **エディタ**: ルートの [.editorconfig](.editorconfig) に従い、インデント・改行・文字コードを統一してください。
+3. **初回セットアップ**
 
-4. **Tauri プロジェクト**: アプリ本体（`src-tauri/` およびフロント）はこれから初期化する想定です。初期化後は `package.json` のスクリプトに従い、`npm install` および `npm run tauri dev` で開発サーバーを起動します。
+   ```bash
+   npm install
+   npm run tauri dev
+   ```
+
+4. **ブランチ**: 通常の開発は `develop` から `feature/TOP-XX-...` を切って作業します。
+
+5. **エディタ**: ルートの [.editorconfig](.editorconfig) に従い、インデント・改行・文字コードを統一してください。
 
 ## リリース
 
