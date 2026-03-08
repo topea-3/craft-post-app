@@ -1,0 +1,73 @@
+# Craft Post App — リポジトリ除外（モノレポ・Tauri + React 想定）
+
+# Dependencies
+node_modules/
+.pnpm-store/
+.npm
+.yarn/cache
+.yarn/install-state.gz
+.yarn/unplugged
+.yarn/build-state.yml
+.yarn/versions
+
+# Build / dist
+dist/
+build/
+out/
+*.local
+
+# Rust / Cargo
+target/
+**/target/
+
+# Tauri
+src-tauri/WixTools/
+src-tauri/gen/
+
+# Environment
+.env
+.env.local
+.env.*.local
+*.local
+
+# OS
+.DS_Store
+.DS_Store?
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# IDE / Editor
+.idea/
+*.swp
+*.swo
+*~
+.project
+.classpath
+.settings/
+*.sublime-workspace
+*.sublime-project
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Local DB（開発用にリポジトリに置く場合はコメントアウト）
+# *.db
+# *.db-journal
+# *.db-wal
+# *.db-shm
+
+# Test / Coverage
+coverage/
+*.lcov
+.cache/
+
+# Misc
+*.bak
+*.tmp
+*.temp
+.turbo
