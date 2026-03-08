@@ -1,0 +1,28 @@
+# Craft Post App — CI（main / develop への push 時）
+# リポジトリ方針: docs/repository-and-branch-strategy.md 参照
+
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  # プロジェクトに package.json が追加されたら、lint / test を有効化する
+  check:
+    name: Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check Markdown / YAML
+        run: |
+          echo "Checking repo structure..."
+          test -d docs && echo "docs/ OK" || exit 1
+          test -f .editorconfig && echo ".editorconfig OK" || exit 1
+          test -f .gitignore && echo ".gitignore OK" || exit 1
+
+  # 将来: Node セットアップと npm ci / lint / test
+  # 将来: Tauri ビルドは tauri-build.yml または release ワークフローで実行

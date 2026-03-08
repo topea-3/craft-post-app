@@ -138,6 +138,7 @@ flowchart TB
 | [data-persistence-decision.md](./data-persistence-decision.md) | データ永続化の候補比較・SQLite 採用理由・エンティティラフ |
 | [printing-layout-decision.md](./printing-layout-decision.md) | 印刷・レイアウトの候補比較・@react-pdf/renderer 採用理由 |
 | [repository-and-branch-strategy.md](./repository-and-branch-strategy.md) | リポジトリ構成（モノレポ）・ディレクトリ構成・ブランチ戦略（TOP-13） |
+| [github-setup.md](./github-setup.md) | GitHub リポジトリ作成・プッシュ・ブランチ保護の設定手順 |
 
 ---
 

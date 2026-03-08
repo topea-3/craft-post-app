@@ -1,0 +1,38 @@
+# Craft Post App — リリースビルド（タグ push 時）
+# タグ例: v1.0.0 → GitHub Releases に成果物を添付
+# リポジトリ方針: docs/repository-and-branch-strategy.md 参照
+
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  # Tauri プロジェクト作成後に有効化し、npm install / tauri build を追加する
+  build:
+    name: Build and Release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check tag
+        id: tag
+        run: echo "TAG=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+      - name: Placeholder (Tauri 未セットアップ時)
+        run: |
+          echo "Tag ${{ steps.tag.outputs.TAG }} pushed."
+          echo "Tauri プロジェクト作成後、ここで npm ci && npm run tauri build を実行し、"
+          echo "成果物を GitHub Release にアップロードするステップを追加してください。"
+
+  # 将来の例（Tauri あり）:
+  # - uses: pnpm/action-setup@v2
+  #   with: { version: 8 }
+  # - uses: actions/setup-node@v4
+  #   with: { node-version: '20', cache: 'pnpm' }
+  # - run: pnpm install --frozen-lockfile
+  # - uses: tauri-apps/tauri-action@v0
+  #   env: { GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}, TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}, TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }} }
+  #   with: { tagName: ${{ steps.tag.outputs.TAG }}, releaseName: 'Craft Post App ${{ steps.tag.outputs.TAG }}', releaseBody: '...', releaseDraft: true }

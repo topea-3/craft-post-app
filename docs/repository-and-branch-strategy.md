@@ -114,7 +114,7 @@ flowchart LR
 ### 3.4 補足
 
 - **個人開発・小規模**: 上記を厳密に守らず、main と develop を同一にして「main + feature のみ」で運用することも可能。その場合は「main が常にリリース可能」というルールだけ維持する。
-- **保護ルール**: main への直接 push 禁止、PR 必須などは、GitHub / GitLab のブランチ保護で設定することを推奨。
+- **保護ルール**: main への直接 push 禁止、PR 必須などは、GitHub / GitLab のブランチ保護で設定することを推奨。手順は [github-setup.md](./github-setup.md) を参照。
 
 ---
 
