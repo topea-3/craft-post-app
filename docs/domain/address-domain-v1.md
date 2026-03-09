@@ -24,10 +24,10 @@
 ### 2.1 AddressEntry（住所録エントリ）
 
 **役割**: はがきの宛先（および将来の差出人）として利用される 1 人〜複数人分の住所情報を表す。  
-**識別子**: 永続化層の主キー `id` によって一意に識別される。
+**識別子**: 永続化層の主キー `id`（UUID）によって一意に識別される。
 
 - **属性構成（論理モデル）**
-  - `id` : 内部 ID（例: UUID / 数値 ID）
+  - `id` : 内部 ID（UUID。SQLite では TEXT カラムで保持）
   - `primaryName` : 主たる氏名を表す `PersonName` 値オブジェクト
   - `coRecipients` : 連名用の `PersonName` 値オブジェクトの配列（0 件以上）
   - `honorific` : `Honorific` 値オブジェクト（連名全体に対して 1 つ）
@@ -54,20 +54,20 @@
 **役割**: 人名表記を表し、画面表示・ソート・敬称付与の基礎となる。  
 **利用箇所**: `AddressEntry.primaryName`（主名）および `AddressEntry.coRecipients`（連名者）で再利用する。
 - **属性**
-  - `full` : 表示用の氏名（例: `"山田 太郎"`）
   - `last` : 姓（例: `"山田"`）
   - `first` : 名（例: `"太郎"`）
-  - `kanaLast` : 姓（カナ）
-  - `kanaFirst` : 名（カナ）
+  - `kanaLast` : 姓（カナ）（例: `"ヤマダ"`）
+  - `kanaFirst` : 名（カナ）（例: `"タロウ"`）
 - **不変条件（例）**
-  - `full` は非空。
   - `last` / `first` も v1 から必須（空文字は禁止）とする。
   - 文字数上限（例: 64〜128 文字）を超えない。
 - **補助的な派生値**
+  - `display` : 表示用の氏名（例: `"山田 太郎"`）
+  - `dispalyKana` : 表示用の氏名（カナ）（例: `"ヤマダ タロウ"`）
   - `displayWithHonorific(honorific)` : `Honorific` と組み合わせた表示名（例: `"山田 太郎 様"`）。
   - 連名表示のためのユーティリティ（例）:
-    - `joinRecipients(primaryName, coRecipients, honorific)`  
-      → `["山田 太郎", "山田 花子"] + "様"` を `"山田 太郎・花子 様"` に整形する。（姓が一致している場合は連名の姓は省略する）
+    - `joinRecipients(primaryName, coRecipients)`  
+      → `["山田 太郎", "山田 花子"]` を `"山田 太郎・花子"` に整形する。（姓が一致している場合は連名の姓は省略する）
 
 ---
 
@@ -128,7 +128,7 @@
 - **属性**
   - `text` : 本文
 - **制約**
-  - 最大文字数（例: 1000 文字程度）を設け、無制限な長文を防ぐ。
+  - 最大文字数（例: 1000 文字）を設け、無制限な長文を防ぐ。
   - 検索対象に含めるか（全文検索対象にするか）は実装時に判断。
 
 ---
@@ -141,14 +141,15 @@
   - `archived = false` の `AddressEntry` を対象とする。
 - **想定表示項目**
   - 氏名＋敬称:
-    - 単名: `primaryName.displayWithHonorific(honorific)`
-    - 連名: `joinRecipients(primaryName, coRecipients, honorific)`
+    - 単名: `primaryName.display`
+    - 連名: `joinRecipients(primaryName, coRecipients)`
   - 郵便番号: `PostalCode.formatted`
   - 住所: `Address.toSingleLine()`
   - メモ（先頭数十文字をプレビュー）
   - 最終更新日時: `updatedAt`
 - **ソート／フィルタ・検索（v1 のたたき台）**
-  - デフォルトソート: `updatedAt` 降順、または 氏名昇順。
+  - デフォルトソート: 氏名（カナ）昇順。
+  - オプションソート: 氏名（カナ）（昇順・降順選択可）、更新順（昇順・降順選択可）
   - フリーテキスト検索:
     - 対象: `PersonName.full`, `Address.toSingleLine()`, `Memo.text`
 
@@ -201,11 +202,101 @@
 
 ---
 
+## 7. テーブル設計（SQLite）
+
+住所録ドメインを SQLite 上のテーブルとして表現するための設計（v1 想定）を示す。
+
+### 7.1 `address_entries` テーブル（住所録エントリ本体）
+
+**役割**: `AddressEntry` エンティティに対応。主名＋住所＋敬称など、1 件の宛先の中心となる情報を保持する。
+
+```text
+address_entries
+- id                TEXT PRIMARY KEY                       -- 内部ID（UUID文字列）
+- primary_last      TEXT    NOT NULL                       -- 主たる氏名 姓
+- primary_first     TEXT    NOT NULL                       -- 主たる氏名 名
+- primary_kana_last TEXT                                  -- 主たる氏名 カナ姓
+- primary_kana_first TEXT                                 -- 主たる氏名 カナ名
+
+- honorific         TEXT    NOT NULL                       -- 敬称（プリセットのみ）
+-- CHECK(honorific IN ('様', '御中', 'ご家族様', 'なし'))
+
+- postal_code       TEXT    NOT NULL                       -- 7 桁（"1234567"）想定
+
+- prefecture        TEXT    NOT NULL                       -- 都道府県（プリセットから選択）
+- city              TEXT    NOT NULL                       -- 市区町村
+- street            TEXT    NOT NULL                       -- 町名・番地
+- building          TEXT                                   -- 建物名・部屋番号
+
+- memo              TEXT                                   -- 備考
+- archived          INTEGER NOT NULL DEFAULT 0             -- 0:有効, 1:アーカイブ
+- created_at        TEXT    NOT NULL                       -- ISO 8601 形式（例: 2026-03-10T08:34:00+09:00）
+- updated_at        TEXT    NOT NULL                       -- ISO 8601 形式（例: 2026-03-10T08:34:00+09:00）
+```
+
+**インデックス案**
+
+```text
+CREATE INDEX idx_address_entries_archived_updated_at
+    ON address_entries (archived, updated_at DESC);
+
+CREATE INDEX idx_address_entries_name
+    ON address_entries (primary_last, primary_first);
+
+CREATE INDEX idx_address_entries_postal_code
+    ON address_entries (postal_code);
+```
+
+**ドメインとの対応**
+
+- `primaryName.full` → `primary_full`
+- `primaryName.last` / `primaryName.first` → `primary_last` / `primary_first`
+- `primaryName.kanaLast` / `primaryName.kanaFirst` → `primary_kana_last` / `primary_kana_first`
+- `honorific` → `honorific`
+- `postalCode.value` → `postal_code`
+- `address.prefecture` / `city` / `street` / `building` → 各カラムにマッピング
+- `memo.text` → `memo`
+- `archived` / `createdAt` / `updatedAt` → `archived` / `created_at` / `updated_at`
+
+---
+
+### 7.2 `address_co_recipients` テーブル（連名者）
+
+**役割**: `AddressEntry.coRecipients: PersonName[]` に対応。1 住所に対する 0 件以上の連名者を保持する。
+
+```text
+address_co_recipients
+- id                TEXT PRIMARY KEY                       -- 内部ID（UUID文字列）
+- address_entry_id  TEXT NOT NULL              -- FK -> address_entries.id（UUID）
+- order_index       INTEGER NOT NULL            -- 表示順（0,1,2,...）
+
+- last              TEXT    NOT NULL            -- 姓
+- first             TEXT    NOT NULL            -- 名
+- kana_last         TEXT                        -- カナ姓
+- kana_first        TEXT                        -- カナ名
+- archived          INTEGER NOT NULL DEFAULT 0  -- 0:有効, 1:アーカイブ
+- created_at        TEXT    NOT NULL            -- ISO 8601 形式（例: 2026-03-10T08:34:00+09:00）
+- updated_at        TEXT    NOT NULL            -- ISO 8601 形式（例: 2026-03-10T08:34:00+09:00）
+```
+
+**インデックス案**
+
+```text
+CREATE INDEX idx_address_co_recipients_entry_order
+    ON address_co_recipients (address_entry_id, order_index);
+```
+
+**ドメインとの対応**
+
+- `AddressEntry.coRecipients` の各要素（`PersonName`）が、`address_co_recipients` の 1 レコードに対応する。
+- `order_index` により、画面上での連名表示順を安定して制御できる。
+
+---
+
 ## 変更履歴
 
-
-| 日付         | 内容                                            |
-| ---------- | --------------------------------------------- |
+| 日付       | 内容                                                                 |
+|------------|----------------------------------------------------------------------|
 | 2026-03-09 | 初版。TOP-15 のたたき台として、住所録ドメインをエンティティ・値オブジェクトで整理。 |
-
+| 2026-03-09 | v1 の仕様に基づき、テーブル設計（address_entries / address_co_recipients）を追加。 |
 
