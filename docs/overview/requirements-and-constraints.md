@@ -59,10 +59,10 @@
 
 ## 6. 技術スタック（参照）
 
-- **デスクトップ**: Tauri（TOP-7 で決定）。詳細は `desktop-tech-comparison-and-decision.md` を参照。
-- **使用言語・フレームワーク**: TypeScript（フロント）+ React（UI）、Rust（Tauri シェル）。詳細は `language-and-framework-decision.md`（TOP-8）を参照。
-- **データ永続化**: SQLite（TOP-9 で決定）。詳細は `data-persistence-decision.md` を参照。
-- **印刷・レイアウト**: フロントエンドで @react-pdf/renderer を用いた PDF 生成＋コード内テンプレート（TOP-10 で決定）。詳細は `printing-layout-decision.md` を参照。
+- **デスクトップ**: Tauri（TOP-7 で決定）。詳細は `../tech-decisions/desktop-tech-comparison-and-decision.md` を参照。
+- **使用言語・フレームワーク**: TypeScript（フロント）+ React（UI）、Rust（Tauri シェル）。詳細は `../tech-decisions/language-and-framework-decision.md`（TOP-8）を参照。
+- **データ永続化**: SQLite（TOP-9 で決定）。詳細は `../tech-decisions/data-persistence-decision.md` を参照。
+- **印刷・レイアウト**: フロントエンドで @react-pdf/renderer を用いた PDF 生成＋コード内テンプレート（TOP-10 で決定）。詳細は `../tech-decisions/printing-layout-decision.md` を参照。
 
 ---
 
@@ -78,3 +78,4 @@
 ---
 
 **次のアクション**: 上記の「要確認」「要検討」箇所をプロジェクトで決定し、必要に応じて本ドキュメントを更新する。決定内容は技術選定・アーキテクチャ設計タスクの入力とする。
+

@@ -36,25 +36,35 @@ Craft Post App プロジェクトのリポジトリ構成・ブランチ戦略�
 
 ```
 （リポジトリルート）
-├── docs/                    # 設計・要件・決定事項ドキュメント
-│   ├── requirements-and-constraints.md
-│   ├── decisions-summary.md
-│   ├── architecture-overview.md
-│   ├── repository-and-branch-strategy.md  # 本ドキュメント
-│   └── （その他 各決定ドキュメント）
-├── src-tauri/               # Tauri（Rust）バックエンド
+├── docs/                        # 設計・要件・決定事項ドキュメント
+│   ├── overview/                # 全体像・要件・まとめ
+│   │   ├── requirements-and-constraints.md
+│   │   ├── decisions-summary.md
+│   │   └── architecture-overview.md
+│   ├── domain/                  # ドメインモデル設計
+│   │   └── address-domain-v1.md
+│   ├── tech-decisions/          # 技術選定・アーキテクチャ関連の決定
+│   │   ├── desktop-tech-comparison-and-decision.md
+│   │   ├── language-and-framework-decision.md
+│   │   ├── data-persistence-decision.md
+│   │   └── printing-layout-decision.md
+│   └── project-setup/           # リポジトリ・GitHub 設定など
+│       ├── dev-setup.md
+│       ├── github-setup.md
+│       └── repository-and-branch-strategy.md  # 本ドキュメント
+├── src-tauri/                   # Tauri（Rust）バックエンド
 │   ├── src/
 │   ├── Cargo.toml
 │   └── ...
-├── src/                     # フロントエンド（React + TypeScript）
+├── src/                         # フロントエンド（React + TypeScript）
 │   ├── components/
 │   ├── pages/
 │   ├── ...
 │   └── （Tauri テンプレートに依存するため、初期作成時に確定）
-├── scripts/                 # ビルド・マイグレーション・開発用スクリプト（任意）
-├── .cursor/                 # Cursor 用設定（既存）
+├── scripts/                     # ビルド・マイグレーション・開発用スクリプト（任意）
+├── .cursor/                     # Cursor 用設定（既存）
 ├── package.json
-├── Cargo.toml               # ワークスペース用の場合
+├── Cargo.toml                   # ワークスペース用の場合
 └── README.md
 ```
 
@@ -194,3 +204,4 @@ flowchart LR
 |------------|------|
 | 2026-03-08 | 初版。TOP-13「リポジトリ構成・ブランチ戦略の方針決定」に基づき作成。モノレポ・ディレクトリ構成・ブランチ戦略を整理した。 |
 | 2026-03-08 | 4. リリース方法を追加。バージョニング（SemVer）・ビルド・配布（GitHub Releases）・アップデート方針・リリースの流れを記載。5. まとめにリリース関連項目を追加。 |
+
