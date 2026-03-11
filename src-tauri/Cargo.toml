@@ -26,3 +26,5 @@ tauri-plugin-log = "2"
 chrono = { version = "0.4", features = ["clock", "serde"] }
 uuid = { version = "1", features = ["serde", "v4"] }
 thiserror = "1"
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "sqlite", "chrono", "uuid", "macros", "migrate"] }
+async-trait = "0.1"
