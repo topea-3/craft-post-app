@@ -134,7 +134,15 @@ export const toPersonNameDto = (form: PersonNameForm): PersonNameDto => ({
 
 export const toAddressEntryDtoInput = (form: AddressEntryFormValues): AddressEntryDtoInput => ({
   primary_name: toPersonNameDto(form.primaryName),
-  co_recipients: form.coRecipients.map(toPersonNameDto),
+  co_recipients: form.coRecipients
+    .filter((co) => {
+      const last = co.last.trim()
+      const first = co.first.trim()
+      const kanaLast = co.kanaLast?.trim()
+      const kanaFirst = co.kanaFirst?.trim()
+      return Boolean(last || first || kanaLast || kanaFirst)
+    })
+    .map(toPersonNameDto),
   honorific: form.honorific,
   postal_code: form.address.postalCode,
   address: {
