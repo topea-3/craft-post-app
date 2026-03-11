@@ -1,3 +1,4 @@
+import type React from 'react'
 import { FormSection } from '../../components/form/FormSection'
 import { PrimaryNameForm } from './PrimaryNameForm'
 import { CoRecipientsForm } from './CoRecipientsForm'
@@ -46,8 +47,14 @@ export function AddressEntryForm({
     onSubmit()
   }
 
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLFormElement>) => {
+    if (e.key === 'Enter' && e.target instanceof HTMLInputElement) {
+      e.preventDefault()
+    }
+  }
+
   return (
-    <form className="address-entry-form" onSubmit={handleSubmit}>
+    <form className="address-entry-form" onSubmit={handleSubmit} onKeyDown={handleKeyDown}>
       {errors.form ? <div className="form-error-banner">{errors.form}</div> : null}
 
       <FormSection title="宛先情報（氏名・連名・敬称）">

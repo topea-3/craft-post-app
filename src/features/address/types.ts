@@ -33,6 +33,19 @@ export type AddressEntryListItem = {
   archived: boolean
 }
 
+export type AddressEntryDto = {
+  id: string
+  primary_name: PersonNameDto
+  co_recipients: PersonNameDto[]
+  honorific: string
+  postal_code: string
+  address: AddressDto
+  memo?: string | null
+  archived: boolean
+  created_at: string
+  updated_at: string
+}
+
 // DTO 形は src-tauri/src/lib.rs の AddressEntryDtoInput, PersonNameDto, AddressDto に対応させる
 
 export type PersonNameDto = {
@@ -164,6 +177,34 @@ export const toAddressEntryDtoInput = (form: AddressEntryFormValues): AddressEnt
     building: form.address.building ? form.address.building : null,
   },
   memo: form.memo ? form.memo : null,
+})
+
+export const fromAddressEntryDto = (dto: AddressEntryDto): AddressEntryListItem => ({
+  id: dto.id,
+  primaryName: {
+    last: dto.primary_name.last,
+    first: dto.primary_name.first,
+    kanaLast: dto.primary_name.kana_last ?? undefined,
+    kanaFirst: dto.primary_name.kana_first ?? undefined,
+  },
+  coRecipients: dto.co_recipients.map((co) => ({
+    last: co.last,
+    first: co.first,
+    kanaLast: co.kana_last ?? undefined,
+    kanaFirst: co.kana_first ?? undefined,
+  })),
+  honorific: dto.honorific,
+  postalCode: dto.postal_code,
+  address: {
+    postalCode: dto.postal_code,
+    prefecture: dto.address.prefecture,
+    city: dto.address.city,
+    street: dto.address.street,
+    building: dto.address.building ?? undefined,
+  },
+  memo: dto.memo ?? undefined,
+  updatedAt: dto.updated_at,
+  archived: dto.archived,
 })
 
 export const formatDisplayName = (

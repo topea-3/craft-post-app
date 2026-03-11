@@ -370,3 +370,13 @@
   min-width: 3rem;
   text-align: center;
 }
+
+.address-list-loading {
+  font-size: 0.9rem;
+  color: #9ca3af;
+}
+
+.address-list-error {
+  font-size: 0.9rem;
+  color: #f97373;
+}

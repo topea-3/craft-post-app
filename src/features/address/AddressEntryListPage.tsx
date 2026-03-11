@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { invoke } from '@tauri-apps/api/core'
 import type { AddressEntryListItem } from './types'
 import {
   formatAddressSingleLine,
@@ -6,9 +7,8 @@ import {
   formatPostalCode,
   formatUpdatedAt,
 } from './types'
-
-type SortKey = 'nameKana' | 'updatedAt'
-type SortOrder = 'asc' | 'desc'
+import { useAddressEntryList } from './useAddressEntryList'
+import type { ListSortKey, ListSortOrder } from './useAddressEntryList'
 
 type AddressEntryListPageProps = {
   onClickCreate: () => void
@@ -19,63 +19,6 @@ type AddressEntryListPageProps = {
 
 const PAGE_SIZE = 20
 
-const MOCK_ITEMS: AddressEntryListItem[] = [
-  {
-    id: '1',
-    primaryName: { last: '山田', first: '太郎', kanaLast: 'ヤマダ', kanaFirst: 'タロウ' },
-    coRecipients: [],
-    honorific: '様',
-    postalCode: '1500001',
-    address: {
-      postalCode: '1500001',
-      prefecture: '東京都',
-      city: '渋谷区',
-      street: '神南 1-1-1',
-      building: '○○ビル 3F',
-    },
-    memo: '会社の取引先。年賀状のみ送付。',
-    updatedAt: '2026-03-10T08:34:00+09:00',
-    archived: false,
-  },
-  {
-    id: '2',
-    primaryName: { last: '佐藤', first: '花子', kanaLast: 'サトウ', kanaFirst: 'ハナコ' },
-    coRecipients: [
-      { last: '佐藤', first: '一郎' },
-      { last: '佐藤', first: '二郎' },
-    ],
-    honorific: 'ご家族様',
-    postalCode: '9800001',
-    address: {
-      postalCode: '9800001',
-      prefecture: '宮城県',
-      city: '仙台市青葉区',
-      street: '中央 1-2-3',
-      building: '',
-    },
-    memo: '友人家族。暑中見舞いも送付。',
-    updatedAt: '2026-03-11T12:01:00+09:00',
-    archived: false,
-  },
-  {
-    id: '3',
-    primaryName: { last: '株式会社', first: 'サンプル印刷' },
-    coRecipients: [],
-    honorific: '御中',
-    postalCode: '1010001',
-    address: {
-      postalCode: '1010001',
-      prefecture: '東京都',
-      city: '千代田区',
-      street: '神田 1-2-3',
-      building: 'ビルディング 10F',
-    },
-    memo: '印刷会社。取引停止のためアーカイブ予定。',
-    updatedAt: '2026-03-09T09:00:00+09:00',
-    archived: true,
-  },
-]
-
 export function AddressEntryListPage({
   onClickCreate,
   onSelectDetail,
@@ -84,66 +27,32 @@ export function AddressEntryListPage({
 }: AddressEntryListPageProps) {
   const [isFilterOpen, setIsFilterOpen] = useState(false)
   const [searchText, setSearchText] = useState('')
-  const [sortKey, setSortKey] = useState<SortKey>('nameKana')
-  const [sortOrder, setSortOrder] = useState<SortOrder>('asc')
+  const [sortKey, setSortKey] = useState<ListSortKey>('nameKana')
+  const [sortOrder, setSortOrder] = useState<ListSortOrder>('asc')
   const [page, setPage] = useState(1)
 
-  const activeItems = useMemo(
-    () => MOCK_ITEMS.filter((item) => !item.archived),
-    [],
+  const { items, isLoading, error, reload } = useAddressEntryList({
+    searchText,
+    sortKey,
+    sortOrder,
+  })
+
+  const sortedItems: AddressEntryListItem[] = useMemo(
+    () => items.filter((item) => !item.archived),
+    [items],
   )
-
-  const filteredItems = useMemo(() => {
-    if (!searchText.trim()) return activeItems
-
-    const keyword = searchText.trim()
-    return activeItems.filter((item) => {
-      const displayName = formatDisplayName(item.primaryName, item.coRecipients)
-      const addressLine = formatAddressSingleLine(item.address)
-      const memo = item.memo ?? ''
-      return (
-        displayName.includes(keyword) ||
-        addressLine.includes(keyword) ||
-        memo.includes(keyword)
-      )
-    })
-  }, [activeItems, searchText])
-
-  const sortedItems = useMemo(() => {
-    const items = [...filteredItems]
-    items.sort((a, b) => {
-      if (sortKey === 'nameKana') {
-        const aKana = `${a.primaryName.kanaLast ?? ''}${a.primaryName.kanaFirst ?? ''}${
-          a.primaryName.last
-        }${a.primaryName.first}`
-        const bKana = `${b.primaryName.kanaLast ?? ''}${b.primaryName.kanaFirst ?? ''}${
-          b.primaryName.last
-        }${b.primaryName.first}`
-        if (aKana < bKana) return sortOrder === 'asc' ? -1 : 1
-        if (aKana > bKana) return sortOrder === 'asc' ? 1 : -1
-        return 0
-      }
-
-      const aTime = new Date(a.updatedAt).getTime()
-      const bTime = new Date(b.updatedAt).getTime()
-      if (aTime < bTime) return sortOrder === 'asc' ? -1 : 1
-      if (aTime > bTime) return sortOrder === 'asc' ? 1 : -1
-      return 0
-    })
-    return items
-  }, [filteredItems, sortKey, sortOrder])
 
   const totalPages = Math.max(1, Math.ceil(sortedItems.length / PAGE_SIZE))
   const currentPage = Math.min(page, totalPages)
   const startIndex = (currentPage - 1) * PAGE_SIZE
   const pagedItems = sortedItems.slice(startIndex, startIndex + PAGE_SIZE)
 
-  const handleChangeSortKey = (value: SortKey) => {
+  const handleChangeSortKey = (value: ListSortKey) => {
     setSortKey(value)
     setPage(1)
   }
 
-  const handleChangeSortOrder = (value: SortOrder) => {
+  const handleChangeSortOrder = (value: ListSortOrder) => {
     setSortOrder(value)
     setPage(1)
   }
@@ -174,7 +83,20 @@ export function AddressEntryListPage({
       return
     }
     // eslint-disable-next-line no-alert
-    alert(`ID: ${id} の住所録をアーカイブする処理は今後実装予定です。`)
+    const confirmed = window.confirm(
+      'この住所録エントリをアーカイブしますか？一覧からは非表示になりますが、データは保持されます。',
+    )
+    if (!confirmed) return
+
+    ;(async () => {
+      try {
+        await invoke('archive_address_entry', { id })
+        reload()
+      } catch (e) {
+        // eslint-disable-next-line no-alert
+        alert(String(e))
+      }
+    })()
   }
 
   const handlePrevPage = () => {
@@ -185,7 +107,7 @@ export function AddressEntryListPage({
     setPage((prev) => Math.min(totalPages, prev + 1))
   }
 
-  const hasAnyItems = activeItems.length > 0
+  const hasAnyItems = items.length > 0
   const hasResults = pagedItems.length > 0
 
   return (
@@ -240,27 +162,29 @@ export function AddressEntryListPage({
       <div className="address-list-sort">
         <label>
           並び替え:
-          <select
-            value={sortKey}
-            onChange={(e) => handleChangeSortKey(e.target.value as SortKey)}
-          >
+          <select value={sortKey} onChange={(e) => handleChangeSortKey(e.target.value as ListSortKey)}>
             <option value="nameKana">氏名（カナ）</option>
             <option value="updatedAt">最終更新日時</option>
           </select>
         </label>
         <label>
           順序:
-          <select
-            value={sortOrder}
-            onChange={(e) =>
-              handleChangeSortOrder(e.target.value as SortOrder)
-            }
-          >
+          <select value={sortOrder} onChange={(e) => handleChangeSortOrder(e.target.value as ListSortOrder)}>
             <option value="asc">昇順</option>
             <option value="desc">降順</option>
           </select>
         </label>
       </div>
+
+      {isLoading && (
+        <p className="address-list-loading">読み込み中です…</p>
+      )}
+
+      {error && (
+        <p className="address-list-error">
+          一覧の取得に失敗しました: {error}
+        </p>
+      )}
 
       {!hasAnyItems && (
         <div className="address-list-empty">
