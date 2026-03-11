@@ -2,14 +2,20 @@ import { useCallback } from 'react'
 import { useAddressEntryForm } from './useAddressEntryForm'
 import { AddressEntryForm } from './AddressEntryForm'
 
-export function AddressEntryCreatePage() {
+export type AddressEntryCreatePageProps = {
+  onCreated?: () => void
+  onCancel?: () => void
+}
+
+export function AddressEntryCreatePage({ onCreated, onCancel }: AddressEntryCreatePageProps) {
   const handleSuccess = useCallback(() => {
-    // v1: 作成後は一覧（ADDR001）想定だが、まだ一覧画面がないため
-    // 当面は簡易的なアラートで通知のみ行う。
-    // 一覧画面実装時にここで画面遷移を行う。
+    if (onCreated) {
+      onCreated()
+      return
+    }
     // eslint-disable-next-line no-alert
     alert('住所録を登録しました。')
-  }, [])
+  }, [onCreated])
 
   const {
     values,
@@ -30,11 +36,14 @@ export function AddressEntryCreatePage() {
     if (isDirty) {
       // eslint-disable-next-line no-alert
       const confirmed = window.confirm(
-        '編集中の内容を破棄して一覧に戻ります。よろしいですか？（一覧画面は今後実装予定です）',
+        '編集中の内容を破棄して一覧に戻ります。よろしいですか？',
       )
       if (!confirmed) return
     }
-    // 一覧画面未実装のため、現状は単にリロードして初期状態に戻す。
+    if (onCancel) {
+      onCancel()
+      return
+    }
     window.location.reload()
   }
 

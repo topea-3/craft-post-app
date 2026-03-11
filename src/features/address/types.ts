@@ -21,6 +21,18 @@ export type AddressEntryFormValues = {
   memo?: string
 }
 
+export type AddressEntryListItem = {
+  id: string
+  primaryName: PersonNameForm
+  coRecipients: PersonNameForm[]
+  honorific: string
+  postalCode: string
+  address: AddressFormValues
+  memo?: string
+  updatedAt: string
+  archived: boolean
+}
+
 // DTO 形は src-tauri/src/lib.rs の AddressEntryDtoInput, PersonNameDto, AddressDto に対応させる
 
 export type PersonNameDto = {
@@ -153,4 +165,55 @@ export const toAddressEntryDtoInput = (form: AddressEntryFormValues): AddressEnt
   },
   memo: form.memo ? form.memo : null,
 })
+
+export const formatDisplayName = (
+  primaryName: PersonNameForm,
+  coRecipients: PersonNameForm[],
+): string => {
+  const primaryLast = primaryName.last.trim()
+  const primaryFirst = primaryName.first.trim()
+  const primaryFull = `${primaryLast} ${primaryFirst}`.trim()
+  if (coRecipients.length === 0) return primaryFull
+
+  const sameLastName = coRecipients.every(
+    (co) => co.last.trim() === primaryLast,
+  )
+  const coNames = coRecipients
+    .map((co) => {
+      const last = co.last.trim()
+      const first = co.first.trim()
+      if (!last && !first) return ''
+      if (sameLastName) return first
+      return `${last} ${first}`.trim()
+    })
+    .filter((name) => name !== '')
+
+  return [primaryFull, ...coNames].join('・')
+}
+
+export const formatPostalCode = (postalCode: string): string => {
+  const trimmed = postalCode.replace(/[^0-9]/g, '')
+  if (trimmed.length !== 7) return postalCode
+  return `${trimmed.slice(0, 3)}-${trimmed.slice(3)}`
+}
+
+export const formatAddressSingleLine = (address: AddressFormValues): string => {
+  const { prefecture, city, street, building } = address
+  const base = `${prefecture}${city}${street}`.trim()
+  if (!building) return base
+  return `${base} ${building}`.trim()
+}
+
+export const formatUpdatedAt = (updatedAt: string): string => {
+  const date = new Date(updatedAt)
+  if (Number.isNaN(date.getTime())) return updatedAt
+
+  return new Intl.DateTimeFormat('ja-JP', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date)
+}
 
