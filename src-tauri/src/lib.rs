@@ -1,7 +1,7 @@
 mod domain;
 mod infrastructure;
 
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use sqlx::SqlitePool;
 use tauri::{Manager, State};
 use uuid::Uuid;
@@ -43,7 +43,8 @@ pub fn run() {
       update_address_entry,
       list_address_entries,
       search_address_entries,
-      archive_address_entry
+      archive_address_entry,
+      get_address_entry,
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");
@@ -319,4 +320,23 @@ async fn archive_address_entry(
     .await
     .map_err(|e| AppError::Repository(e.to_string()))?;
   Ok(())
+}
+
+#[tauri::command]
+async fn get_address_entry(
+  pool: State<'_, SqlitePool>,
+  id: String,
+) -> Result<AddressEntryDto, String> {
+  let uuid =
+    Uuid::parse_str(&id).map_err(|e| AppError::Validation(e.to_string()).to_string())?;
+  let id = AddressEntryId::from_uuid(uuid);
+  let repo = SqlxAddressEntryRepository::new(pool.inner().clone());
+
+  let entry = repo
+    .find_by_id(&id)
+    .await
+    .map_err(|e| AppError::Repository(e.to_string()))?
+    .ok_or_else(|| AppError::Validation("address entry not found".to_string()).to_string())?;
+
+  Ok(AddressEntryDto::from(entry))
 }

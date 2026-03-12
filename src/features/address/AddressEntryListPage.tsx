@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
+import { useNavigate } from 'react-router-dom'
 import type { AddressEntryListItem } from './types'
 import {
   formatAddressSingleLine,
@@ -11,7 +12,7 @@ import { useAddressEntryList } from './useAddressEntryList'
 import type { ListSortKey, ListSortOrder } from './useAddressEntryList'
 
 type AddressEntryListPageProps = {
-  onClickCreate: () => void
+  onClickCreate?: () => void
   onSelectDetail?: (id: string) => void
   onClickEdit?: (id: string) => void
   onClickArchive?: (id: string) => void
@@ -25,6 +26,7 @@ export function AddressEntryListPage({
   onClickEdit,
   onClickArchive,
 }: AddressEntryListPageProps) {
+  const navigate = useNavigate()
   const [isFilterOpen, setIsFilterOpen] = useState(false)
   const [searchText, setSearchText] = useState('')
   const [sortKey, setSortKey] = useState<ListSortKey>('nameKana')
@@ -65,7 +67,9 @@ export function AddressEntryListPage({
   const handleClickRow = (id: string) => {
     if (onSelectDetail) {
       onSelectDetail(id)
+      return
     }
+    navigate(`/addresses/${id}`)
   }
 
   const handleClickEdit = (id: string) => {
@@ -125,7 +129,13 @@ export function AddressEntryListPage({
           <button
             type="button"
             className="address-list-create-button"
-            onClick={onClickCreate}
+            onClick={() => {
+              if (onClickCreate) {
+                onClickCreate()
+                return
+              }
+              navigate('/addresses/new')
+            }}
           >
             新規作成
           </button>

@@ -33,6 +33,10 @@ export type AddressEntryListItem = {
   archived: boolean
 }
 
+export type AddressEntryDetail = AddressEntryListItem & {
+  createdAt: string
+}
+
 export type AddressEntryDto = {
   id: string
   primary_name: PersonNameDto
@@ -207,6 +211,13 @@ export const fromAddressEntryDto = (dto: AddressEntryDto): AddressEntryListItem 
   archived: dto.archived,
 })
 
+export const fromAddressEntryDtoToDetail = (
+  dto: AddressEntryDto,
+): AddressEntryDetail => ({
+  ...fromAddressEntryDto(dto),
+  createdAt: dto.created_at,
+})
+
 export const formatDisplayName = (
   primaryName: PersonNameForm,
   coRecipients: PersonNameForm[],
@@ -246,8 +257,12 @@ export const formatAddressSingleLine = (address: AddressFormValues): string => {
 }
 
 export const formatUpdatedAt = (updatedAt: string): string => {
-  const date = new Date(updatedAt)
-  if (Number.isNaN(date.getTime())) return updatedAt
+  return formatDateTime(updatedAt)
+}
+
+export const formatDateTime = (value: string): string => {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
 
   return new Intl.DateTimeFormat('ja-JP', {
     year: 'numeric',
