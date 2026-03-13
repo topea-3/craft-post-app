@@ -1,4 +1,5 @@
 import { useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useAddressEntryForm } from './useAddressEntryForm'
 import { AddressEntryForm } from './AddressEntryForm'
 
@@ -8,6 +9,8 @@ export type AddressEntryCreatePageProps = {
 }
 
 export function AddressEntryCreatePage({ onCreated, onCancel }: AddressEntryCreatePageProps) {
+  const navigate = useNavigate()
+
   const handleSuccess = useCallback(() => {
     if (onCreated) {
       onCreated()
@@ -15,7 +18,8 @@ export function AddressEntryCreatePage({ onCreated, onCancel }: AddressEntryCrea
     }
     // eslint-disable-next-line no-alert
     alert('住所録を登録しました。')
-  }, [onCreated])
+    navigate('/addresses')
+  }, [navigate, onCreated])
 
   const {
     values,
@@ -44,7 +48,7 @@ export function AddressEntryCreatePage({ onCreated, onCancel }: AddressEntryCrea
       onCancel()
       return
     }
-    window.location.reload()
+    navigate('/addresses')
   }
 
   return (

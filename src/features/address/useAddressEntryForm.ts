@@ -1,5 +1,6 @@
-import { useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
+import { isKanaOnly } from './kana'
 import {
   type AddressEntryFormValues,
   type AddressFormValues,
@@ -7,6 +8,7 @@ import {
   createEmptyPersonName,
   createInitialAddressEntryFormValues,
   toAddressEntryDtoInput,
+  type AddressEntryDtoInput,
 } from './types'
 
 export type AddressEntryFormErrors = {
@@ -54,127 +56,144 @@ type UseAddressEntryFormResult = {
 const MAX_TEXT_LENGTH = 256
 const MAX_MEMO_LENGTH = 1000
 
-export function useAddressEntryForm(onSuccess: () => void): UseAddressEntryFormResult {
-  const [values, setValues] = useState<AddressEntryFormValues>(createInitialAddressEntryFormValues)
+const validateAddressEntryForm = (current: AddressEntryFormValues): AddressEntryFormErrors => {
+  const next: AddressEntryFormErrors = {}
+
+  const primaryErrors: NonNullable<AddressEntryFormErrors['primaryName']> = {}
+  if (!current.primaryName.last.trim()) {
+    primaryErrors.last = '姓は必須です。'
+  }
+  if (!current.primaryName.first.trim()) {
+    primaryErrors.first = '名は必須です。'
+  }
+  if (current.primaryName.last.length > MAX_TEXT_LENGTH) {
+    primaryErrors.last = `姓は${MAX_TEXT_LENGTH}文字以内で入力してください。`
+  }
+  if (current.primaryName.first.length > MAX_TEXT_LENGTH) {
+    primaryErrors.first = `名は${MAX_TEXT_LENGTH}文字以内で入力してください。`
+  }
+  if (current.primaryName.kanaLast && current.primaryName.kanaLast.length > MAX_TEXT_LENGTH) {
+    primaryErrors.kanaLast = `カナ（姓）は${MAX_TEXT_LENGTH}文字以内で入力してください。`
+  }
+  if (current.primaryName.kanaFirst && current.primaryName.kanaFirst.length > MAX_TEXT_LENGTH) {
+    primaryErrors.kanaFirst = `カナ（名）は${MAX_TEXT_LENGTH}文字以内で入力してください。`
+  }
+  if (current.primaryName.kanaLast && !isKanaOnly(current.primaryName.kanaLast)) {
+    primaryErrors.kanaLast = 'カナ（姓）はひらがな・カタカナで入力してください。'
+  }
+  if (current.primaryName.kanaFirst && !isKanaOnly(current.primaryName.kanaFirst)) {
+    primaryErrors.kanaFirst = 'カナ（名）はひらがな・カタカナで入力してください。'
+  }
+  if (Object.keys(primaryErrors).length > 0) {
+    next.primaryName = primaryErrors
+  }
+
+  if (current.coRecipients.length > 0) {
+    const coErrors: NonNullable<AddressEntryFormErrors['coRecipients']> = {}
+    current.coRecipients.forEach((co, index) => {
+      const e: NonNullable<AddressEntryFormErrors['primaryName']> = {}
+      const lastTrim = co.last.trim()
+      const firstTrim = co.first.trim()
+      const hasAnyField =
+        lastTrim.length > 0 ||
+        firstTrim.length > 0 ||
+        (co.kanaLast && co.kanaLast.trim().length > 0) ||
+        (co.kanaFirst && co.kanaFirst.trim().length > 0)
+
+      if (!hasAnyField) {
+        return
+      }
+
+      if (!lastTrim) {
+        e.last = '連名の姓を入力するか、行を削除してください。'
+      }
+      if (!firstTrim) {
+        e.first = '連名の名を入力するか、行を削除してください。'
+      }
+      if (co.last.length > MAX_TEXT_LENGTH) {
+        e.last = `姓は${MAX_TEXT_LENGTH}文字以内で入力してください。`
+      }
+      if (co.first.length > MAX_TEXT_LENGTH) {
+        e.first = `名は${MAX_TEXT_LENGTH}文字以内で入力してください。`
+      }
+      if (co.kanaLast && co.kanaLast.length > MAX_TEXT_LENGTH) {
+        e.kanaLast = `カナ（姓）は${MAX_TEXT_LENGTH}文字以内で入力してください。`
+      }
+      if (co.kanaFirst && co.kanaFirst.length > MAX_TEXT_LENGTH) {
+        e.kanaFirst = `カナ（名）は${MAX_TEXT_LENGTH}文字以内で入力してください。`
+      }
+      if (co.kanaLast && !isKanaOnly(co.kanaLast)) {
+        e.kanaLast = 'カナ（姓）はひらがな・カタカナで入力してください。'
+      }
+      if (co.kanaFirst && !isKanaOnly(co.kanaFirst)) {
+        e.kanaFirst = 'カナ（名）はひらがな・カタカナで入力してください。'
+      }
+      if (Object.keys(e).length > 0) {
+        coErrors[index] = e
+      }
+    })
+    if (Object.keys(coErrors).length > 0) {
+      next.coRecipients = coErrors
+    }
+  }
+
+  const addrErrors: NonNullable<AddressEntryFormErrors['address']> = {}
+  const { postalCode, prefecture, city, street, building } = current.address
+  if (!postalCode.trim()) {
+    addrErrors.postalCode = '郵便番号は必須です。'
+  } else if (!/^\d{7}$/.test(postalCode)) {
+    addrErrors.postalCode = '郵便番号は 7 桁の半角数字で入力してください。'
+  }
+  if (!prefecture.trim()) {
+    addrErrors.prefecture = '都道府県は必須です。'
+  }
+  if (!city.trim()) {
+    addrErrors.city = '市区町村は必須です。'
+  } else if (city.length > MAX_TEXT_LENGTH) {
+    addrErrors.city = `市区町村は${MAX_TEXT_LENGTH}文字以内で入力してください。`
+  }
+  if (!street.trim()) {
+    addrErrors.street = '町名・番地は必須です。'
+  } else if (street.length > MAX_TEXT_LENGTH) {
+    addrErrors.street = `町名・番地は${MAX_TEXT_LENGTH}文字以内で入力してください。`
+  }
+  if (building && building.length > MAX_TEXT_LENGTH) {
+    addrErrors.building = `建物名・部屋番号は${MAX_TEXT_LENGTH}文字以内で入力してください。`
+  }
+  if (Object.keys(addrErrors).length > 0) {
+    next.address = addrErrors
+  }
+
+  if (current.memo && current.memo.length > MAX_MEMO_LENGTH) {
+    next.memo = `メモは${MAX_MEMO_LENGTH}文字以内で入力してください。`
+  }
+
+  return next
+}
+
+const useAddressEntryFormBase = (
+  initialValues: AddressEntryFormValues,
+  submitToServer: (dto: AddressEntryDtoInput) => Promise<void>,
+  onSuccess: () => void,
+): UseAddressEntryFormResult => {
+  const [values, setValues] = useState<AddressEntryFormValues>(initialValues)
   const [errors, setErrors] = useState<AddressEntryFormErrors>({})
   const [isSubmitting, setSubmitting] = useState(false)
   const [isDirty, setDirty] = useState(false)
+
+  useEffect(() => {
+    setValues(initialValues)
+    setErrors({})
+    setDirty(false)
+  }, [initialValues])
 
   const setValue = (patch: Partial<AddressEntryFormValues>) => {
     setValues((prev) => ({ ...prev, ...patch }))
     setDirty(true)
   }
 
-  const validate = (current: AddressEntryFormValues): AddressEntryFormErrors => {
-    const next: AddressEntryFormErrors = {}
-
-    // primary name
-    const primaryErrors: NonNullable<AddressEntryFormErrors['primaryName']> = {}
-    if (!current.primaryName.last.trim()) {
-      primaryErrors.last = '姓は必須です。'
-    }
-    if (!current.primaryName.first.trim()) {
-      primaryErrors.first = '名は必須です。'
-    }
-    if (current.primaryName.last.length > MAX_TEXT_LENGTH) {
-      primaryErrors.last = `姓は${MAX_TEXT_LENGTH}文字以内で入力してください。`
-    }
-    if (current.primaryName.first.length > MAX_TEXT_LENGTH) {
-      primaryErrors.first = `名は${MAX_TEXT_LENGTH}文字以内で入力してください。`
-    }
-    if (current.primaryName.kanaLast && current.primaryName.kanaLast.length > MAX_TEXT_LENGTH) {
-      primaryErrors.kanaLast = `カナ（姓）は${MAX_TEXT_LENGTH}文字以内で入力してください。`
-    }
-    if (current.primaryName.kanaFirst && current.primaryName.kanaFirst.length > MAX_TEXT_LENGTH) {
-      primaryErrors.kanaFirst = `カナ（名）は${MAX_TEXT_LENGTH}文字以内で入力してください。`
-    }
-    if (Object.keys(primaryErrors).length > 0) {
-      next.primaryName = primaryErrors
-    }
-
-    // co recipients
-    if (current.coRecipients.length > 0) {
-      const coErrors: NonNullable<AddressEntryFormErrors['coRecipients']> = {}
-      current.coRecipients.forEach((co, index) => {
-        const e: NonNullable<AddressEntryFormErrors['primaryName']> = {}
-        const lastTrim = co.last.trim()
-        const firstTrim = co.first.trim()
-        const hasAnyField =
-          lastTrim.length > 0 ||
-          firstTrim.length > 0 ||
-          (co.kanaLast && co.kanaLast.trim().length > 0) ||
-          (co.kanaFirst && co.kanaFirst.trim().length > 0)
-
-        if (!hasAnyField) {
-          // 完全に空の連名行は「未使用行」とみなしてバリデーションしない。
-          return
-        }
-
-        if (!lastTrim) {
-          e.last = '連名の姓を入力するか、行を削除してください。'
-        }
-        if (!firstTrim) {
-          e.first = '連名の名を入力するか、行を削除してください。'
-        }
-        if (co.last.length > MAX_TEXT_LENGTH) {
-          e.last = `姓は${MAX_TEXT_LENGTH}文字以内で入力してください。`
-        }
-        if (co.first.length > MAX_TEXT_LENGTH) {
-          e.first = `名は${MAX_TEXT_LENGTH}文字以内で入力してください。`
-        }
-        if (co.kanaLast && co.kanaLast.length > MAX_TEXT_LENGTH) {
-          e.kanaLast = `カナ（姓）は${MAX_TEXT_LENGTH}文字以内で入力してください。`
-        }
-        if (co.kanaFirst && co.kanaFirst.length > MAX_TEXT_LENGTH) {
-          e.kanaFirst = `カナ（名）は${MAX_TEXT_LENGTH}文字以内で入力してください。`
-        }
-        if (Object.keys(e).length > 0) {
-          coErrors[index] = e
-        }
-      })
-      if (Object.keys(coErrors).length > 0) {
-        next.coRecipients = coErrors
-      }
-    }
-
-    // address
-    const addrErrors: NonNullable<AddressEntryFormErrors['address']> = {}
-    const { postalCode, prefecture, city, street, building } = current.address
-    if (!postalCode.trim()) {
-      addrErrors.postalCode = '郵便番号は必須です。'
-    } else if (!/^\d{7}$/.test(postalCode)) {
-      addrErrors.postalCode = '郵便番号は 7 桁の半角数字で入力してください。'
-    }
-    if (!prefecture.trim()) {
-      addrErrors.prefecture = '都道府県は必須です。'
-    }
-    if (!city.trim()) {
-      addrErrors.city = '市区町村は必須です。'
-    } else if (city.length > MAX_TEXT_LENGTH) {
-      addrErrors.city = `市区町村は${MAX_TEXT_LENGTH}文字以内で入力してください。`
-    }
-    if (!street.trim()) {
-      addrErrors.street = '町名・番地は必須です。'
-    } else if (street.length > MAX_TEXT_LENGTH) {
-      addrErrors.street = `町名・番地は${MAX_TEXT_LENGTH}文字以内で入力してください。`
-    }
-    if (building && building.length > MAX_TEXT_LENGTH) {
-      addrErrors.building = `建物名・部屋番号は${MAX_TEXT_LENGTH}文字以内で入力してください。`
-    }
-    if (Object.keys(addrErrors).length > 0) {
-      next.address = addrErrors
-    }
-
-    // memo
-    if (current.memo && current.memo.length > MAX_MEMO_LENGTH) {
-      next.memo = `メモは${MAX_MEMO_LENGTH}文字以内で入力してください。`
-    }
-
-    return next
-  }
-
   const submit = async () => {
-    const validation = validate(values)
+    const validation = validateAddressEntryForm(values)
     setErrors(validation)
     if (Object.keys(validation).length > 0) {
       return false
@@ -183,11 +202,10 @@ export function useAddressEntryForm(onSuccess: () => void): UseAddressEntryFormR
     setSubmitting(true)
     try {
       const dto = toAddressEntryDtoInput(values)
-      await invoke('create_address_entry', { dto })
+      await submitToServer(dto)
       onSuccess()
       return true
     } catch (e) {
-      // サーバー側のバリデーションなどはフォーム全体エラーとして表示
       setErrors((prev) => ({
         ...prev,
         form: String(e),
@@ -258,5 +276,27 @@ export function useAddressEntryForm(onSuccess: () => void): UseAddressEntryFormR
     updateMemo,
     submit,
   }
+}
+
+export function useAddressEntryForm(onSuccess: () => void): UseAddressEntryFormResult {
+  const initialValues = useMemo(createInitialAddressEntryFormValues, [])
+  const submitToServer = useCallback(async (dto: AddressEntryDtoInput) => {
+    await invoke('create_address_entry', { dto })
+  }, [])
+  return useAddressEntryFormBase(initialValues, submitToServer, onSuccess)
+}
+
+export function useAddressEntryEditForm(
+  id: string,
+  initialValues: AddressEntryFormValues,
+  onSuccess: () => void,
+): UseAddressEntryFormResult {
+  const submitToServer = useCallback(
+    async (dto: AddressEntryDtoInput) => {
+      await invoke('update_address_entry', { id, dto })
+    },
+    [id],
+  )
+  return useAddressEntryFormBase(initialValues, submitToServer, onSuccess)
 }
 

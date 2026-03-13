@@ -325,7 +325,9 @@ impl AddressEntryRepository for SqlxAddressEntryRepository {
           updated_at
         FROM address_entries
         WHERE archived = 0
-        ORDER BY primary_kana_last, primary_kana_first
+        ORDER BY
+          COALESCE(primary_kana_last, primary_last) ASC,
+          COALESCE(primary_kana_first, primary_first) ASC
         LIMIT ? OFFSET ?
       "#,
     )
@@ -384,13 +386,21 @@ impl AddressEntryRepository for SqlxAddressEntryRepository {
     }
 
     sql.push_str(" ORDER BY ");
-    match query.sort_key {
-      SortKey::NameKana => sql.push_str("primary_kana_last, primary_kana_first"),
-      SortKey::UpdatedAt => sql.push_str("updated_at"),
-    }
-    match query.sort_order {
-      SortOrder::Asc => sql.push_str(" ASC"),
-      SortOrder::Desc => sql.push_str(" DESC"),
+    match (query.sort_key, query.sort_order) {
+      (SortKey::NameKana, SortOrder::Asc) => {
+        sql.push_str(
+          "COALESCE(primary_kana_last, primary_last) ASC, \
+           COALESCE(primary_kana_first, primary_first) ASC",
+        );
+      }
+      (SortKey::NameKana, SortOrder::Desc) => {
+        sql.push_str(
+          "COALESCE(primary_kana_last, primary_last) DESC, \
+           COALESCE(primary_kana_first, primary_first) DESC",
+        );
+      }
+      (SortKey::UpdatedAt, SortOrder::Asc) => sql.push_str("updated_at ASC"),
+      (SortKey::UpdatedAt, SortOrder::Desc) => sql.push_str("updated_at DESC"),
     }
 
     let mut q = sqlx::query(&sql);

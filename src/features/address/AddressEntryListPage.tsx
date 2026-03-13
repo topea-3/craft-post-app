@@ -11,21 +11,9 @@ import {
 import { useAddressEntryList } from './useAddressEntryList'
 import type { ListSortKey, ListSortOrder } from './useAddressEntryList'
 
-type AddressEntryListPageProps = {
-  onClickCreate?: () => void
-  onSelectDetail?: (id: string) => void
-  onClickEdit?: (id: string) => void
-  onClickArchive?: (id: string) => void
-}
-
 const PAGE_SIZE = 20
 
-export function AddressEntryListPage({
-  onClickCreate,
-  onSelectDetail,
-  onClickEdit,
-  onClickArchive,
-}: AddressEntryListPageProps) {
+export function AddressEntryListPage() {
   const navigate = useNavigate()
   const [isFilterOpen, setIsFilterOpen] = useState(false)
   const [searchText, setSearchText] = useState('')
@@ -65,27 +53,14 @@ export function AddressEntryListPage({
   }
 
   const handleClickRow = (id: string) => {
-    if (onSelectDetail) {
-      onSelectDetail(id)
-      return
-    }
     navigate(`/addresses/${id}`)
   }
 
   const handleClickEdit = (id: string) => {
-    if (onClickEdit) {
-      onClickEdit(id)
-      return
-    }
-    // eslint-disable-next-line no-alert
-    alert('編集画面（ADDR003）は今後実装予定です。')
+    navigate(`/addresses/${id}/edit`)
   }
 
   const handleClickArchive = (id: string) => {
-    if (onClickArchive) {
-      onClickArchive(id)
-      return
-    }
     // eslint-disable-next-line no-alert
     const confirmed = window.confirm(
       'この住所録エントリをアーカイブしますか？一覧からは非表示になりますが、データは保持されます。',
@@ -130,10 +105,6 @@ export function AddressEntryListPage({
             type="button"
             className="address-list-create-button"
             onClick={() => {
-              if (onClickCreate) {
-                onClickCreate()
-                return
-              }
               navigate('/addresses/new')
             }}
           >
@@ -202,7 +173,9 @@ export function AddressEntryListPage({
           <button
             type="button"
             className="address-list-create-button-primary"
-            onClick={onClickCreate}
+            onClick={() => {
+              navigate('/addresses/new')
+            }}
           >
             新規作成
           </button>

@@ -53,6 +53,19 @@ export function AddressEntryDetailPage() {
     navigate('/addresses')
   }
 
+  const handleEdit = () => {
+    if (!id && !entry) {
+      navigate('/addresses')
+      return
+    }
+    const targetId = id ?? entry?.id
+    if (!targetId) {
+      navigate('/addresses')
+      return
+    }
+    navigate(`/addresses/${targetId}/edit`)
+  }
+
   const handleArchive = async () => {
     if (!entry) return
     const confirmed = window.confirm(
@@ -133,11 +146,7 @@ export function AddressEntryDetailPage() {
         <div className="address-detail-header-actions">
           <button
             type="button"
-            onClick={() => {
-              // 編集画面（ADDR003）は別タスクで実装予定
-              // eslint-disable-next-line no-alert
-              alert('編集画面（ADDR003）は今後実装予定です。')
-            }}
+            onClick={handleEdit}
           >
             編集
           </button>
@@ -231,7 +240,14 @@ export function AddressEntryDetailPage() {
         <section className="address-detail-section">
           <h2 className="address-detail-section-title">メモ</h2>
           <div className="address-detail-memo">
-            {entry.memo && entry.memo.trim() ? entry.memo : '—'}
+            {entry.memo && entry.memo.trim()
+              ? entry.memo.split('\n').map((line, index) => (
+                  <span key={index}>
+                    {line}
+                    {index < entry.memo!.split('\n').length - 1 && <br />}
+                  </span>
+                ))
+              : '—'}
           </div>
         </section>
 

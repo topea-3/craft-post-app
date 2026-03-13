@@ -1,8 +1,9 @@
 import './App.css'
 import { BrowserRouter, Route, Routes } from 'react-router-dom'
-import { AddressEntryCreatePage } from './features/address/AddressEntryCreatePage.tsx'
-import { AddressEntryListPage } from './features/address/AddressEntryListPage.tsx'
-import { AddressEntryDetailPage } from './features/address/AddressEntryDetailPage.tsx'
+import { AddressEntryCreatePage } from './features/address/AddressEntryCreatePage'
+import { AddressEntryListPage } from './features/address/AddressEntryListPage'
+import { AddressEntryDetailPage } from './features/address/AddressEntryDetailPage'
+import { AddressEntryEditPage } from './features/address/AddressEntryEditPage'
 
 function App() {
   return (
@@ -25,6 +26,10 @@ function App() {
             <Route
               path="/addresses/:id"
               element={<AddressEntryDetailPage />}
+            />
+            <Route
+              path="/addresses/:id/edit"
+              element={<AddressEntryEditPage />}
             />
           </Routes>
         </main>
