@@ -17,6 +17,8 @@ use crate::domain::address::person_name::PersonName;
 use crate::domain::address::postal_code::PostalCode;
 use crate::infrastructure::address::sqlx_address_entry_repository::SqlxAddressEntryRepository;
 
+const MAX_PAGE_LIMIT: i64 = 200;
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   tauri::Builder::default()
@@ -60,7 +62,12 @@ pub enum AppError {
 
 impl From<AppError> for String {
   fn from(err: AppError) -> Self {
-    err.to_string()
+    match err {
+      AppError::Validation(msg) => msg,
+      AppError::Repository(msg) => {
+        format!("内部エラーが発生しました（詳細: {}）", msg)
+      }
+    }
   }
 }
 
@@ -204,7 +211,10 @@ async fn create_address_entry(
   repo
     .create(&entry)
     .await
-    .map_err(|e| AppError::Repository(e.to_string()))?;
+    .map_err(|e| {
+      log::error!("create_address_entry failed: {:?}", e);
+      AppError::Repository("ADDR_CREATE_FAILED".to_string())
+    })?;
   Ok(())
 }
 
@@ -223,7 +233,7 @@ async fn update_address_entry(
   let existing = repo
     .find_by_id(&id)
     .await
-    .map_err(|e| AppError::Repository(e.to_string()))?
+    .map_err(|e| AppError::Repository(e.to_string()).to_string())?
     .ok_or_else(|| AppError::Validation("address entry not found".to_string()))?;
 
   let new_values =
@@ -246,7 +256,10 @@ async fn update_address_entry(
   repo
     .update(&entry)
     .await
-    .map_err(|e| AppError::Repository(e.to_string()))?;
+    .map_err(|e| {
+      log::error!("update_address_entry failed: {:?}", e);
+      AppError::Repository("ADDR_UPDATE_FAILED".to_string())
+    })?;
   Ok(())
 }
 
@@ -256,11 +269,24 @@ async fn list_address_entries(
   limit: i64,
   offset: i64,
 ) -> Result<Vec<AddressEntryDto>, String> {
+  if limit < 1 || limit > MAX_PAGE_LIMIT {
+    return Err(
+      AppError::Validation(format!("limit must be between 1 and {}", MAX_PAGE_LIMIT))
+        .to_string(),
+    );
+  }
+  if offset < 0 {
+    return Err(AppError::Validation("offset must be >= 0".to_string()).to_string());
+  }
+
   let repo = SqlxAddressEntryRepository::new(pool.inner().clone());
   let entries = repo
     .list_active(Pagination { limit, offset })
     .await
-    .map_err(|e| AppError::Repository(e.to_string()))?;
+    .map_err(|e| {
+      log::error!("list_address_entries failed: {:?}", e);
+      AppError::Repository("ADDR_LIST_FAILED".to_string())
+    })?;
 
   Ok(entries.into_iter().map(AddressEntryDto::from).collect())
 }
@@ -283,8 +309,20 @@ async fn search_address_entries(
     "desc" => SortOrder::Desc,
     _ => SortOrder::Asc,
   };
+
   let pagination = match (limit, offset) {
-    (Some(l), Some(o)) => Some(Pagination { limit: l, offset: o }),
+    (Some(l), Some(o)) => {
+      if l < 1 || l > MAX_PAGE_LIMIT {
+        return Err(
+          AppError::Validation(format!("limit must be between 1 and {}", MAX_PAGE_LIMIT))
+            .to_string(),
+        );
+      }
+      if o < 0 {
+        return Err(AppError::Validation("offset must be >= 0".to_string()).to_string());
+      }
+      Some(Pagination { limit: l, offset: o })
+    }
     _ => None,
   };
 
@@ -300,7 +338,10 @@ async fn search_address_entries(
   let entries = repo
     .search(query)
     .await
-    .map_err(|e| AppError::Repository(e.to_string()))?;
+    .map_err(|e| {
+      log::error!("search_address_entries failed: {:?}", e);
+      AppError::Repository("ADDR_SEARCH_FAILED".to_string())
+    })?;
 
   Ok(entries.into_iter().map(AddressEntryDto::from).collect())
 }
@@ -318,7 +359,10 @@ async fn archive_address_entry(
   repo
     .archive(&id)
     .await
-    .map_err(|e| AppError::Repository(e.to_string()))?;
+    .map_err(|e| {
+      log::error!("archive_address_entry failed: {:?}", e);
+      AppError::Repository("ADDR_ARCHIVE_FAILED".to_string())
+    })?;
   Ok(())
 }
 
@@ -335,7 +379,10 @@ async fn get_address_entry(
   let entry = repo
     .find_by_id(&id)
     .await
-    .map_err(|e| AppError::Repository(e.to_string()))?
+    .map_err(|e| {
+      log::error!("get_address_entry failed: {:?}", e);
+      AppError::Repository("ADDR_GET_FAILED".to_string())
+    })?
     .ok_or_else(|| AppError::Validation("address entry not found".to_string()).to_string())?;
 
   Ok(AddressEntryDto::from(entry))

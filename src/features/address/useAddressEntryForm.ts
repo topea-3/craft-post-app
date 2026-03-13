@@ -279,7 +279,7 @@ const useAddressEntryFormBase = (
 }
 
 export function useAddressEntryForm(onSuccess: () => void): UseAddressEntryFormResult {
-  const initialValues = useMemo(createInitialAddressEntryFormValues, [])
+  const initialValues = useMemo(() => createInitialAddressEntryFormValues(), [])
   const submitToServer = useCallback(async (dto: AddressEntryDtoInput) => {
     await invoke('create_address_entry', { dto })
   }, [])

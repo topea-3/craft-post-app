@@ -433,7 +433,7 @@ impl AddressEntryRepository for SqlxAddressEntryRepository {
     let id_str = id.as_uuid().to_string();
     let now = Utc::now().to_rfc3339();
 
-    sqlx::query(
+    let result = sqlx::query(
       r#"
         UPDATE address_entries
         SET archived = 1, updated_at = ?
@@ -444,6 +444,10 @@ impl AddressEntryRepository for SqlxAddressEntryRepository {
     .bind(id_str)
     .execute(&self.pool)
     .await?;
+
+    if result.rows_affected() == 0 {
+      return Err(AddressRepositoryError::NotFound);
+    }
 
     Ok(())
   }

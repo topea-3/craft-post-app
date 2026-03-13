@@ -14,6 +14,8 @@ pub enum AddressRepositoryError {
   Db(#[from] sqlx::Error),
   #[error("invalid persisted data: {0}")]
   InvalidPersistedData(String),
+  #[error("address entry not found")]
+  NotFound,
 }
 
 /// 一覧取得時のページング情報。

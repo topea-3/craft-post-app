@@ -167,7 +167,7 @@ export function AddressEntryListPage() {
         </p>
       )}
 
-      {!hasAnyItems && (
+      {!isLoading && !error && !hasAnyItems && (
         <div className="address-list-empty">
           <p>まだ住所録が登録されていません。</p>
           <button

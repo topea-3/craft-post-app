@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { invoke } from '@tauri-apps/api/core'
 import { AddressEntryForm } from './AddressEntryForm'
@@ -87,7 +87,10 @@ export function AddressEntryEditPage() {
     submit,
   } = useAddressEntryEditForm(
     id ?? '',
-    initialValues ?? createInitialAddressEntryFormValues(),
+    useMemo(
+      () => initialValues ?? createInitialAddressEntryFormValues(),
+      [initialValues],
+    ),
     handleSuccess,
   )
 

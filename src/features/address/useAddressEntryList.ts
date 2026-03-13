@@ -52,6 +52,7 @@ export function useAddressEntryList(
       } catch (e) {
         if (cancelled) return
         setError(String(e))
+        setItems([])
       } finally {
         if (!cancelled) {
           setIsLoading(false)
