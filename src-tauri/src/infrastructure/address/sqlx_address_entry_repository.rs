@@ -403,6 +403,10 @@ impl AddressEntryRepository for SqlxAddressEntryRepository {
       (SortKey::UpdatedAt, SortOrder::Desc) => sql.push_str("updated_at DESC"),
     }
 
+    if query.pagination.is_some() {
+      sql.push_str(" LIMIT ? OFFSET ?");
+    }
+
     let mut q = sqlx::query(&sql);
 
     if let Some(keyword) = query.keyword.as_ref() {
