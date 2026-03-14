@@ -33,8 +33,9 @@ export function AddressEntryDetailPage() {
         if (cancelled) return
         setEntry(fromAddressEntryDtoToDetail(dto))
         setError(null)
-      } catch (e) {
+      } catch (error) {
         if (cancelled) return
+        console.error('Failed to fetch address entry detail:', error)
         setError(ADDRESS_OPERATION_ERROR_MESSAGE)
       } finally {
         if (!cancelled) {
@@ -77,10 +78,9 @@ export function AddressEntryDetailPage() {
     try {
       await invoke('archive_address_entry', { id: entry.id })
       setEntry({ ...entry, archived: true })
-      // eslint-disable-next-line no-alert
       alert('住所録エントリをアーカイブしました。')
-    } catch (e) {
-      // eslint-disable-next-line no-alert
+    } catch (error) {
+      console.error('Failed to archive address entry:', error)
       alert(ADDRESS_OPERATION_ERROR_MESSAGE)
     }
   }

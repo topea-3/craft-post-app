@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { useNavigate } from 'react-router-dom'
 import {
@@ -20,22 +20,22 @@ export function AddressEntryListPage() {
   const [sortKey, setSortKey] = useState<ListSortKey>('nameKana')
   const [sortOrder, setSortOrder] = useState<ListSortOrder>('asc')
   const [page, setPage] = useState(1)
-  const totalRef = useRef(0)
-
-  const totalPagesForRequest = Math.max(1, Math.ceil(totalRef.current / PAGE_SIZE))
-  const requestPage = Math.min(page, totalPagesForRequest)
 
   const { items, total, isLoading, error, reload } = useAddressEntryList({
     searchText,
     sortKey,
     sortOrder,
-    page: requestPage,
+    page,
     pageSize: PAGE_SIZE,
   })
-  totalRef.current = total
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
   const currentPage = Math.min(page, totalPages)
+
+  if (total > 0 && page > totalPages) {
+    setPage(totalPages)
+  }
+
   const pagedItems = items
 
   const handleChangeSortKey = (value: ListSortKey) => {
@@ -62,7 +62,6 @@ export function AddressEntryListPage() {
   }
 
   const handleClickArchive = (id: string) => {
-    // eslint-disable-next-line no-alert
     const confirmed = window.confirm(
       'この住所録エントリをアーカイブしますか？一覧からは非表示になりますが、データは保持されます。',
     )
@@ -72,8 +71,8 @@ export function AddressEntryListPage() {
       try {
         await invoke('archive_address_entry', { id })
         reload()
-      } catch (e) {
-        // eslint-disable-next-line no-alert
+      } catch (error) {
+        console.error('Failed to archive address entry:', error)
         alert(ADDRESS_OPERATION_ERROR_MESSAGE)
       }
     })()

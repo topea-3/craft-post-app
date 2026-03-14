@@ -209,7 +209,8 @@ const useAddressEntryFormBase = (
       await submitToServer(dto)
       onSuccess()
       return true
-    } catch (e) {
+    } catch (error) {
+      console.error('Failed to submit address entry:', error)
       setErrors((prev) => ({
         ...prev,
         form: ADDRESS_OPERATION_ERROR_MESSAGE,

@@ -60,8 +60,9 @@ export function useAddressEntryList(
         setItems(result.items.map(fromAddressEntryDto))
         setTotal(result.total)
         setError(null)
-      } catch (e) {
+      } catch (error) {
         if (cancelled) return
+        console.error('Failed to fetch address entry list:', error)
         setError(ADDRESS_OPERATION_ERROR_MESSAGE)
         setItems([])
         setTotal(0)

@@ -27,7 +27,6 @@ export function AddressEntryEditPage() {
       navigate('/addresses')
       return
     }
-    // eslint-disable-next-line no-alert
     alert('住所録を更新しました。')
     navigate(`/addresses/${id}`)
   }, [id, navigate])
@@ -56,8 +55,9 @@ export function AddressEntryEditPage() {
           memo: d.memo,
         })
         setError(null)
-      } catch (e) {
+      } catch (error) {
         if (cancelled) return
+        console.error('Failed to fetch address entry detail:', error)
         setError(ADDRESS_OPERATION_ERROR_MESSAGE)
       } finally {
         if (!cancelled) {
@@ -97,7 +97,6 @@ export function AddressEntryEditPage() {
 
   const handleCancel = () => {
     if (isDirty) {
-      // eslint-disable-next-line no-alert
       const confirmed = window.confirm(
         '編集中の内容を破棄して詳細画面に戻ります。よろしいですか？',
       )
@@ -171,11 +170,10 @@ export function AddressEntryEditPage() {
               if (!confirmed) return
               try {
                 await invoke('archive_address_entry', { id: detail.id })
-                // eslint-disable-next-line no-alert
                 alert('住所録エントリをアーカイブしました。')
                 navigate('/addresses')
-              } catch (e) {
-                // eslint-disable-next-line no-alert
+              } catch (error) {
+                console.error('Failed to archive address entry:', error)
                 alert(ADDRESS_OPERATION_ERROR_MESSAGE)
               }
             }}
