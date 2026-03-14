@@ -33,13 +33,13 @@ fn build_search_where_clause(query: &AddressSearchQuery) -> String {
 fn build_search_order_clause(sort_key: SortKey, sort_order: SortOrder) -> String {
   let order = match (sort_key, sort_order) {
     (SortKey::NameKana, SortOrder::Asc) => {
-      "COALESCE(primary_kana_last, primary_last) ASC, COALESCE(primary_kana_first, primary_first) ASC"
+      "COALESCE(primary_kana_last, primary_last) ASC, COALESCE(primary_kana_first, primary_first) ASC, id ASC"
     }
     (SortKey::NameKana, SortOrder::Desc) => {
-      "COALESCE(primary_kana_last, primary_last) DESC, COALESCE(primary_kana_first, primary_first) DESC"
+      "COALESCE(primary_kana_last, primary_last) DESC, COALESCE(primary_kana_first, primary_first) DESC, id ASC"
     }
-    (SortKey::UpdatedAt, SortOrder::Asc) => "updated_at ASC",
-    (SortKey::UpdatedAt, SortOrder::Desc) => "updated_at DESC",
+    (SortKey::UpdatedAt, SortOrder::Asc) => "updated_at ASC, id ASC",
+    (SortKey::UpdatedAt, SortOrder::Desc) => "updated_at DESC, id ASC",
   };
   format!(" ORDER BY {}", order)
 }

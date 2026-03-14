@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useRef, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { useNavigate } from 'react-router-dom'
 import {
@@ -20,25 +20,23 @@ export function AddressEntryListPage() {
   const [sortKey, setSortKey] = useState<ListSortKey>('nameKana')
   const [sortOrder, setSortOrder] = useState<ListSortOrder>('asc')
   const [page, setPage] = useState(1)
+  const totalRef = useRef(0)
+
+  const totalPagesForRequest = Math.max(1, Math.ceil(totalRef.current / PAGE_SIZE))
+  const requestPage = Math.min(page, totalPagesForRequest)
 
   const { items, total, isLoading, error, reload } = useAddressEntryList({
     searchText,
     sortKey,
     sortOrder,
-    page,
+    page: requestPage,
     pageSize: PAGE_SIZE,
   })
+  totalRef.current = total
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
   const currentPage = Math.min(page, totalPages)
   const pagedItems = items
-
-  // 検索結果が減って現在ページが範囲外になったら先頭ページへ
-  useEffect(() => {
-    if (totalPages > 0 && page > totalPages) {
-      setPage(totalPages)
-    }
-  }, [totalPages, page])
 
   const handleChangeSortKey = (value: ListSortKey) => {
     setSortKey(value)
@@ -89,8 +87,10 @@ export function AddressEntryListPage() {
     setPage((prev) => Math.min(totalPages, prev + 1))
   }
 
-  const hasAnyItems = total > 0
-  const hasResults = pagedItems.length > 0
+  const isFiltering = searchText.trim().length > 0
+  const isNoData = !isFiltering && total === 0
+  const isNoSearchResult = isFiltering && total === 0
+  const hasItems = total > 0
 
   return (
     <div className="address-list-container">
@@ -170,7 +170,7 @@ export function AddressEntryListPage() {
         </p>
       )}
 
-      {!isLoading && !error && !hasAnyItems && (
+      {!isLoading && !error && isNoData && (
         <div className="address-list-empty">
           <p>まだ住所録が登録されていません。</p>
           <button
@@ -185,7 +185,7 @@ export function AddressEntryListPage() {
         </div>
       )}
 
-      {hasAnyItems && !hasResults && (
+      {!isLoading && !error && isNoSearchResult && (
         <div className="address-list-no-results">
           <p>該当する住所録が見つかりませんでした。</p>
           <button type="button" onClick={handleClearSearch}>
@@ -194,7 +194,7 @@ export function AddressEntryListPage() {
         </div>
       )}
 
-      {hasAnyItems && hasResults && (
+      {!isLoading && !error && hasItems && (
         <>
           <table
             className="address-list-table"
