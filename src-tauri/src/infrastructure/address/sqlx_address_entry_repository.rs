@@ -361,7 +361,8 @@ impl AddressEntryRepository for SqlxAddressEntryRepository {
         WHERE archived = 0
         ORDER BY
           COALESCE(primary_kana_last, primary_last) ASC,
-          COALESCE(primary_kana_first, primary_first) ASC
+          COALESCE(primary_kana_first, primary_first) ASC,
+          id ASC
         LIMIT ? OFFSET ?
       "#,
     )

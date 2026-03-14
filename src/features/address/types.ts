@@ -154,11 +154,17 @@ export const createInitialAddressEntryFormValues = (): AddressEntryFormValues =>
   memo: '',
 })
 
+/** 送信前の正規化: 前後空白を除去し、空のオプション文字列は null にする */
+function trimOptional(value: string | undefined): string | null {
+  const s = (value ?? '').trim()
+  return s === '' ? null : s
+}
+
 export const toPersonNameDto = (form: PersonNameForm): PersonNameDto => ({
-  last: form.last,
-  first: form.first,
-  kana_last: form.kanaLast ? form.kanaLast : null,
-  kana_first: form.kanaFirst ? form.kanaFirst : null,
+  last: form.last.trim(),
+  first: form.first.trim(),
+  kana_last: trimOptional(form.kanaLast),
+  kana_first: trimOptional(form.kanaFirst),
 })
 
 export const toAddressEntryDtoInput = (form: AddressEntryFormValues): AddressEntryDtoInput => ({
@@ -172,15 +178,15 @@ export const toAddressEntryDtoInput = (form: AddressEntryFormValues): AddressEnt
       return Boolean(last || first || kanaLast || kanaFirst)
     })
     .map(toPersonNameDto),
-  honorific: form.honorific,
-  postal_code: form.address.postalCode,
+  honorific: form.honorific.trim(),
+  postal_code: form.address.postalCode.trim(),
   address: {
-    prefecture: form.address.prefecture,
-    city: form.address.city,
-    street: form.address.street,
-    building: form.address.building ? form.address.building : null,
+    prefecture: form.address.prefecture.trim(),
+    city: form.address.city.trim(),
+    street: form.address.street.trim(),
+    building: trimOptional(form.address.building),
   },
-  memo: form.memo ? form.memo : null,
+  memo: trimOptional(form.memo),
 })
 
 export const fromAddressEntryDto = (dto: AddressEntryDto): AddressEntryListItem => ({
