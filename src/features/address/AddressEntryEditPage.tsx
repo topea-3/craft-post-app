@@ -11,6 +11,7 @@ import {
 } from './types'
 import { useAddressEntryEditForm } from './useAddressEntryForm'
 import { formatDisplayName } from './types'
+import { ADDRESS_OPERATION_ERROR_MESSAGE } from './messages'
 
 export function AddressEntryEditPage() {
   const { id } = useParams<{ id: string }>()
@@ -57,7 +58,7 @@ export function AddressEntryEditPage() {
         setError(null)
       } catch (e) {
         if (cancelled) return
-        setError(String(e))
+        setError(ADDRESS_OPERATION_ERROR_MESSAGE)
       } finally {
         if (!cancelled) {
           setIsLoading(false)
@@ -175,7 +176,7 @@ export function AddressEntryEditPage() {
                 navigate('/addresses')
               } catch (e) {
                 // eslint-disable-next-line no-alert
-                alert(String(e))
+                alert(ADDRESS_OPERATION_ERROR_MESSAGE)
               }
             }}
           >

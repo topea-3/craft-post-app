@@ -1,13 +1,13 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { useNavigate } from 'react-router-dom'
-import type { AddressEntryListItem } from './types'
 import {
   formatAddressSingleLine,
   formatDisplayName,
   formatPostalCode,
   formatUpdatedAt,
 } from './types'
+import { ADDRESS_OPERATION_ERROR_MESSAGE } from './messages'
 import { useAddressEntryList } from './useAddressEntryList'
 import type { ListSortKey, ListSortOrder } from './useAddressEntryList'
 
@@ -21,21 +21,24 @@ export function AddressEntryListPage() {
   const [sortOrder, setSortOrder] = useState<ListSortOrder>('asc')
   const [page, setPage] = useState(1)
 
-  const { items, isLoading, error, reload } = useAddressEntryList({
+  const { items, total, isLoading, error, reload } = useAddressEntryList({
     searchText,
     sortKey,
     sortOrder,
+    page,
+    pageSize: PAGE_SIZE,
   })
 
-  const sortedItems: AddressEntryListItem[] = useMemo(
-    () => items.filter((item) => !item.archived),
-    [items],
-  )
-
-  const totalPages = Math.max(1, Math.ceil(sortedItems.length / PAGE_SIZE))
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
   const currentPage = Math.min(page, totalPages)
-  const startIndex = (currentPage - 1) * PAGE_SIZE
-  const pagedItems = sortedItems.slice(startIndex, startIndex + PAGE_SIZE)
+  const pagedItems = items
+
+  // 検索結果が減って現在ページが範囲外になったら先頭ページへ
+  useEffect(() => {
+    if (totalPages > 0 && page > totalPages) {
+      setPage(totalPages)
+    }
+  }, [totalPages, page])
 
   const handleChangeSortKey = (value: ListSortKey) => {
     setSortKey(value)
@@ -73,7 +76,7 @@ export function AddressEntryListPage() {
         reload()
       } catch (e) {
         // eslint-disable-next-line no-alert
-        alert(String(e))
+        alert(ADDRESS_OPERATION_ERROR_MESSAGE)
       }
     })()
   }
@@ -86,7 +89,7 @@ export function AddressEntryListPage() {
     setPage((prev) => Math.min(totalPages, prev + 1))
   }
 
-  const hasAnyItems = items.length > 0
+  const hasAnyItems = total > 0
   const hasResults = pagedItems.length > 0
 
   return (
@@ -144,7 +147,7 @@ export function AddressEntryListPage() {
         <label>
           並び替え:
           <select value={sortKey} onChange={(e) => handleChangeSortKey(e.target.value as ListSortKey)}>
-            <option value="nameKana">氏名（カナ）</option>
+            <option value="nameKana">氏名</option>
             <option value="updatedAt">最終更新日時</option>
           </select>
         </label>

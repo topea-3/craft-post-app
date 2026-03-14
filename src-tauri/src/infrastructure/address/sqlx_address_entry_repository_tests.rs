@@ -1,11 +1,12 @@
 #[cfg(test)]
 mod tests {
-  use chrono::Utc;
   use sqlx::SqlitePool;
 
   use crate::domain::address::address::Address;
   use crate::domain::address::address_entry::AddressEntry;
-  use crate::domain::address::address_entry_repository::{AddressSearchQuery, Pagination, SortKey, SortOrder};
+  use crate::domain::address::address_entry_repository::{
+    AddressEntryRepository, AddressSearchQuery, Pagination, SortKey, SortOrder,
+  };
   use crate::domain::address::honorific::Honorific;
   use crate::domain::address::memo::Memo;
   use crate::domain::address::person_name::PersonName;
@@ -13,8 +14,13 @@ mod tests {
   use crate::infrastructure::address::sqlx_address_entry_repository::SqlxAddressEntryRepository;
 
   async fn setup_pool() -> SqlitePool {
+    use std::path::PathBuf;
     let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
-    sqlx::migrate!("../migrations").run(&pool).await.unwrap();
+    let migrations_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("migrations");
+    let migrator = sqlx::migrate::Migrator::new(migrations_path)
+      .await
+      .expect("migrations dir");
+    migrator.run(&pool).await.unwrap();
     pool
   }
 
@@ -106,8 +112,9 @@ mod tests {
       pagination: Some(Pagination { limit: 10, offset: 0 }),
     };
 
-    let results = repo.search(query).await.unwrap();
-    assert_eq!(results.len(), 1);
+    let (entries, total) = repo.search(query).await.unwrap();
+    assert_eq!(entries.len(), 1);
+    assert_eq!(total, 1);
   }
 }
 

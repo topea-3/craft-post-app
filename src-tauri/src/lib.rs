@@ -64,9 +64,8 @@ impl From<AppError> for String {
   fn from(err: AppError) -> Self {
     match err {
       AppError::Validation(msg) => msg,
-      AppError::Repository(msg) => {
-        format!("内部エラーが発生しました（詳細: {}）", msg)
-      }
+      // クライアントには固定コードのみ返却し、内部詳細はログに限定する
+      AppError::Repository(code) => code,
     }
   }
 }
@@ -109,6 +108,13 @@ pub struct AddressEntryDto {
   pub archived: bool,
   pub created_at: String,
   pub updated_at: String,
+}
+
+/// 検索 API の戻り値（ページング用に total を含む）。
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+pub struct AddressEntrySearchResult {
+  pub items: Vec<AddressEntryDto>,
+  pub total: i64,
 }
 
 impl TryFrom<AddressEntryDtoInput> for AddressEntry {
@@ -233,7 +239,10 @@ async fn update_address_entry(
   let existing = repo
     .find_by_id(&id)
     .await
-    .map_err(|e| AppError::Repository(e.to_string()).to_string())?
+    .map_err(|e| {
+      log::error!("update_address_entry find_by_id failed: {:?}", e);
+      String::from(AppError::Repository("ADDR_UPDATE_FAILED".to_string()))
+    })?
     .ok_or_else(|| AppError::Validation("address entry not found".to_string()))?;
 
   let new_values =
@@ -291,6 +300,9 @@ async fn list_address_entries(
   Ok(entries.into_iter().map(AddressEntryDto::from).collect())
 }
 
+const DEFAULT_SEARCH_LIMIT: i64 = 50;
+const DEFAULT_SEARCH_OFFSET: i64 = 0;
+
 #[tauri::command]
 async fn search_address_entries(
   pool: State<'_, SqlitePool>,
@@ -300,7 +312,7 @@ async fn search_address_entries(
   include_archived: bool,
   limit: Option<i64>,
   offset: Option<i64>,
-) -> Result<Vec<AddressEntryDto>, String> {
+) -> Result<AddressEntrySearchResult, String> {
   let sort_key = match sort_key.as_str() {
     "updated_at" => SortKey::UpdatedAt,
     _ => SortKey::NameKana,
@@ -310,40 +322,39 @@ async fn search_address_entries(
     _ => SortOrder::Asc,
   };
 
-  let pagination = match (limit, offset) {
-    (Some(l), Some(o)) => {
-      if l < 1 || l > MAX_PAGE_LIMIT {
-        return Err(
-          AppError::Validation(format!("limit must be between 1 and {}", MAX_PAGE_LIMIT))
-            .to_string(),
-        );
-      }
-      if o < 0 {
-        return Err(AppError::Validation("offset must be >= 0".to_string()).to_string());
-      }
-      Some(Pagination { limit: l, offset: o })
-    }
-    _ => None,
-  };
+  // limit/offset が未指定の場合はデフォルトを補完（全件取得を防ぐ）。
+  let (l, o) = (limit.unwrap_or(DEFAULT_SEARCH_LIMIT), offset.unwrap_or(DEFAULT_SEARCH_OFFSET));
+  if l < 1 || l > MAX_PAGE_LIMIT {
+    return Err(
+      AppError::Validation(format!("limit must be between 1 and {}", MAX_PAGE_LIMIT)).to_string(),
+    );
+  }
+  if o < 0 {
+    return Err(AppError::Validation("offset must be >= 0".to_string()).to_string());
+  }
+  let pagination = Pagination { limit: l, offset: o };
 
   let query = AddressSearchQuery {
     keyword,
     sort_key,
     sort_order,
     include_archived,
-    pagination,
+    pagination: Some(pagination),
   };
 
   let repo = SqlxAddressEntryRepository::new(pool.inner().clone());
-  let entries = repo
+  let (entries, total) = repo
     .search(query)
     .await
     .map_err(|e| {
       log::error!("search_address_entries failed: {:?}", e);
-      AppError::Repository("ADDR_SEARCH_FAILED".to_string())
+      String::from(AppError::Repository("ADDR_SEARCH_FAILED".to_string()))
     })?;
 
-  Ok(entries.into_iter().map(AddressEntryDto::from).collect())
+  Ok(AddressEntrySearchResult {
+    items: entries.into_iter().map(AddressEntryDto::from).collect(),
+    total,
+  })
 }
 
 #[tauri::command]

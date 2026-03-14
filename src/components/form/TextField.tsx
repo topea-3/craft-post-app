@@ -36,6 +36,8 @@ export function TextField({
           name={name}
           value={value}
           placeholder={placeholder}
+          required={required}
+          aria-required={required}
           maxLength={maxLength}
           onChange={(e) => onChange(e.target.value)}
         />

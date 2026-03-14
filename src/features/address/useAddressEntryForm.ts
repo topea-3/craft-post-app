@@ -10,6 +10,7 @@ import {
   toAddressEntryDtoInput,
   type AddressEntryDtoInput,
 } from './types'
+import { ADDRESS_OPERATION_ERROR_MESSAGE } from './messages'
 
 export type AddressEntryFormErrors = {
   primaryName?: {
@@ -53,7 +54,10 @@ type UseAddressEntryFormResult = {
   submit: () => Promise<boolean>
 }
 
-const MAX_TEXT_LENGTH = 256
+/** 氏名・カナの最大文字数。バックエンド PersonName::MAX_LEN と一致させること。 */
+const PERSON_NAME_MAX_LENGTH = 128
+/** 住所フィールドの最大文字数。バックエンド Address::MAX_LEN と一致させること。 */
+const ADDRESS_FIELD_MAX_LENGTH = 256
 const MAX_MEMO_LENGTH = 1000
 
 const validateAddressEntryForm = (current: AddressEntryFormValues): AddressEntryFormErrors => {
@@ -66,17 +70,17 @@ const validateAddressEntryForm = (current: AddressEntryFormValues): AddressEntry
   if (!current.primaryName.first.trim()) {
     primaryErrors.first = '名は必須です。'
   }
-  if (current.primaryName.last.length > MAX_TEXT_LENGTH) {
-    primaryErrors.last = `姓は${MAX_TEXT_LENGTH}文字以内で入力してください。`
+  if (current.primaryName.last.length > PERSON_NAME_MAX_LENGTH) {
+    primaryErrors.last = `姓は${PERSON_NAME_MAX_LENGTH}文字以内で入力してください。`
   }
-  if (current.primaryName.first.length > MAX_TEXT_LENGTH) {
-    primaryErrors.first = `名は${MAX_TEXT_LENGTH}文字以内で入力してください。`
+  if (current.primaryName.first.length > PERSON_NAME_MAX_LENGTH) {
+    primaryErrors.first = `名は${PERSON_NAME_MAX_LENGTH}文字以内で入力してください。`
   }
-  if (current.primaryName.kanaLast && current.primaryName.kanaLast.length > MAX_TEXT_LENGTH) {
-    primaryErrors.kanaLast = `カナ（姓）は${MAX_TEXT_LENGTH}文字以内で入力してください。`
+  if (current.primaryName.kanaLast && current.primaryName.kanaLast.length > PERSON_NAME_MAX_LENGTH) {
+    primaryErrors.kanaLast = `カナ（姓）は${PERSON_NAME_MAX_LENGTH}文字以内で入力してください。`
   }
-  if (current.primaryName.kanaFirst && current.primaryName.kanaFirst.length > MAX_TEXT_LENGTH) {
-    primaryErrors.kanaFirst = `カナ（名）は${MAX_TEXT_LENGTH}文字以内で入力してください。`
+  if (current.primaryName.kanaFirst && current.primaryName.kanaFirst.length > PERSON_NAME_MAX_LENGTH) {
+    primaryErrors.kanaFirst = `カナ（名）は${PERSON_NAME_MAX_LENGTH}文字以内で入力してください。`
   }
   if (current.primaryName.kanaLast && !isKanaOnly(current.primaryName.kanaLast)) {
     primaryErrors.kanaLast = 'カナ（姓）はひらがな・カタカナで入力してください。'
@@ -110,17 +114,17 @@ const validateAddressEntryForm = (current: AddressEntryFormValues): AddressEntry
       if (!firstTrim) {
         e.first = '連名の名を入力するか、行を削除してください。'
       }
-      if (co.last.length > MAX_TEXT_LENGTH) {
-        e.last = `姓は${MAX_TEXT_LENGTH}文字以内で入力してください。`
+      if (co.last.length > PERSON_NAME_MAX_LENGTH) {
+        e.last = `姓は${PERSON_NAME_MAX_LENGTH}文字以内で入力してください。`
       }
-      if (co.first.length > MAX_TEXT_LENGTH) {
-        e.first = `名は${MAX_TEXT_LENGTH}文字以内で入力してください。`
+      if (co.first.length > PERSON_NAME_MAX_LENGTH) {
+        e.first = `名は${PERSON_NAME_MAX_LENGTH}文字以内で入力してください。`
       }
-      if (co.kanaLast && co.kanaLast.length > MAX_TEXT_LENGTH) {
-        e.kanaLast = `カナ（姓）は${MAX_TEXT_LENGTH}文字以内で入力してください。`
+      if (co.kanaLast && co.kanaLast.length > PERSON_NAME_MAX_LENGTH) {
+        e.kanaLast = `カナ（姓）は${PERSON_NAME_MAX_LENGTH}文字以内で入力してください。`
       }
-      if (co.kanaFirst && co.kanaFirst.length > MAX_TEXT_LENGTH) {
-        e.kanaFirst = `カナ（名）は${MAX_TEXT_LENGTH}文字以内で入力してください。`
+      if (co.kanaFirst && co.kanaFirst.length > PERSON_NAME_MAX_LENGTH) {
+        e.kanaFirst = `カナ（名）は${PERSON_NAME_MAX_LENGTH}文字以内で入力してください。`
       }
       if (co.kanaLast && !isKanaOnly(co.kanaLast)) {
         e.kanaLast = 'カナ（姓）はひらがな・カタカナで入力してください。'
@@ -149,16 +153,16 @@ const validateAddressEntryForm = (current: AddressEntryFormValues): AddressEntry
   }
   if (!city.trim()) {
     addrErrors.city = '市区町村は必須です。'
-  } else if (city.length > MAX_TEXT_LENGTH) {
-    addrErrors.city = `市区町村は${MAX_TEXT_LENGTH}文字以内で入力してください。`
+  } else if (city.length > ADDRESS_FIELD_MAX_LENGTH) {
+    addrErrors.city = `市区町村は${ADDRESS_FIELD_MAX_LENGTH}文字以内で入力してください。`
   }
   if (!street.trim()) {
     addrErrors.street = '町名・番地は必須です。'
-  } else if (street.length > MAX_TEXT_LENGTH) {
-    addrErrors.street = `町名・番地は${MAX_TEXT_LENGTH}文字以内で入力してください。`
+  } else if (street.length > ADDRESS_FIELD_MAX_LENGTH) {
+    addrErrors.street = `町名・番地は${ADDRESS_FIELD_MAX_LENGTH}文字以内で入力してください。`
   }
-  if (building && building.length > MAX_TEXT_LENGTH) {
-    addrErrors.building = `建物名・部屋番号は${MAX_TEXT_LENGTH}文字以内で入力してください。`
+  if (building && building.length > ADDRESS_FIELD_MAX_LENGTH) {
+    addrErrors.building = `建物名・部屋番号は${ADDRESS_FIELD_MAX_LENGTH}文字以内で入力してください。`
   }
   if (Object.keys(addrErrors).length > 0) {
     next.address = addrErrors
@@ -208,7 +212,7 @@ const useAddressEntryFormBase = (
     } catch (e) {
       setErrors((prev) => ({
         ...prev,
-        form: String(e),
+        form: ADDRESS_OPERATION_ERROR_MESSAGE,
       }))
       return false
     } finally {

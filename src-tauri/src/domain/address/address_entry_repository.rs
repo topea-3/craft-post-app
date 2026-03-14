@@ -66,10 +66,11 @@ pub trait AddressEntryRepository {
     pagination: Pagination,
   ) -> Result<Vec<AddressEntry>, AddressRepositoryError>;
 
+  /// 検索結果と総件数を返す。pagination が None の場合は全件取得（非推奨・後方互換用）。
   async fn search(
     &self,
     query: AddressSearchQuery,
-  ) -> Result<Vec<AddressEntry>, AddressRepositoryError>;
+  ) -> Result<(Vec<AddressEntry>, i64), AddressRepositoryError>;
 
   async fn archive(&self, id: &AddressEntryId) -> Result<(), AddressRepositoryError>;
 }

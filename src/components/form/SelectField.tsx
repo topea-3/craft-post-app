@@ -35,6 +35,8 @@ export function SelectField({
           className={`field-input ${error ? 'field-input-error' : ''}`}
           name={name}
           value={value}
+          required={required}
+          aria-required={required}
           onChange={(e) => onChange(e.target.value)}
         >
           {options.map((opt) => (

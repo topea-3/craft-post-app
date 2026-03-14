@@ -10,6 +10,40 @@ use crate::domain::address::address_entry_repository::{
   DbCoRecipientRow, Pagination, SortKey, SortOrder,
 };
 
+fn build_search_where_clause(query: &AddressSearchQuery) -> String {
+  let mut s = String::new();
+  if !query.include_archived {
+    s.push_str(" AND archived = 0");
+  }
+  if query.keyword.is_some() {
+    s.push_str(
+      " AND (
+          primary_last      LIKE ? OR
+          primary_first     LIKE ? OR
+          primary_kana_last LIKE ? OR
+          primary_kana_first LIKE ? OR
+          prefecture || city || street || IFNULL(building, '') LIKE ? OR
+          IFNULL(memo, '') LIKE ?
+        )",
+    );
+  }
+  s
+}
+
+fn build_search_order_clause(sort_key: SortKey, sort_order: SortOrder) -> String {
+  let order = match (sort_key, sort_order) {
+    (SortKey::NameKana, SortOrder::Asc) => {
+      "COALESCE(primary_kana_last, primary_last) ASC, COALESCE(primary_kana_first, primary_first) ASC"
+    }
+    (SortKey::NameKana, SortOrder::Desc) => {
+      "COALESCE(primary_kana_last, primary_last) DESC, COALESCE(primary_kana_first, primary_first) DESC"
+    }
+    (SortKey::UpdatedAt, SortOrder::Asc) => "updated_at ASC",
+    (SortKey::UpdatedAt, SortOrder::Desc) => "updated_at DESC",
+  };
+  format!(" ORDER BY {}", order)
+}
+
 pub struct SqlxAddressEntryRepository {
   pool: SqlitePool,
 }
@@ -342,8 +376,25 @@ impl AddressEntryRepository for SqlxAddressEntryRepository {
   async fn search(
     &self,
     query: AddressSearchQuery,
-  ) -> Result<Vec<AddressEntry>, AddressRepositoryError> {
-    let mut sql = String::from(
+  ) -> Result<(Vec<AddressEntry>, i64), AddressRepositoryError> {
+    let where_clause = build_search_where_clause(&query);
+    let order_clause = build_search_order_clause(query.sort_key.clone(), query.sort_order.clone());
+
+    // 総件数取得（同じ WHERE で COUNT）
+    let count_sql = format!("SELECT COUNT(*) AS cnt FROM address_entries WHERE 1 = 1 {}", where_clause);
+    let mut count_q = sqlx::query(&count_sql);
+    if let Some(keyword) = query.keyword.as_ref() {
+      let kw = format!("%{}%", keyword);
+      for _ in 0..6 {
+        count_q = count_q.bind(kw.clone());
+      }
+    }
+    let total: i64 = count_q
+      .fetch_one(&self.pool)
+      .await?
+      .get("cnt");
+
+    let mut sql = format!(
       r#"
         SELECT
           id,
@@ -363,45 +414,12 @@ impl AddressEntryRepository for SqlxAddressEntryRepository {
           updated_at
         FROM address_entries
         WHERE 1 = 1
+        {}
+        {}
       "#,
+      where_clause,
+      order_clause,
     );
-
-    if !query.include_archived {
-      sql.push_str(" AND archived = 0");
-    }
-
-    if let Some(keyword) = query.keyword.as_ref() {
-      sql.push_str(
-        "
-        AND (
-          primary_last      LIKE ? OR
-          primary_first     LIKE ? OR
-          primary_kana_last LIKE ? OR
-          primary_kana_first LIKE ? OR
-          prefecture || city || street || IFNULL(building, '') LIKE ? OR
-          IFNULL(memo, '') LIKE ?
-        )
-      ",
-      );
-    }
-
-    sql.push_str(" ORDER BY ");
-    match (query.sort_key, query.sort_order) {
-      (SortKey::NameKana, SortOrder::Asc) => {
-        sql.push_str(
-          "COALESCE(primary_kana_last, primary_last) ASC, \
-           COALESCE(primary_kana_first, primary_first) ASC",
-        );
-      }
-      (SortKey::NameKana, SortOrder::Desc) => {
-        sql.push_str(
-          "COALESCE(primary_kana_last, primary_last) DESC, \
-           COALESCE(primary_kana_first, primary_first) DESC",
-        );
-      }
-      (SortKey::UpdatedAt, SortOrder::Asc) => sql.push_str("updated_at ASC"),
-      (SortKey::UpdatedAt, SortOrder::Desc) => sql.push_str("updated_at DESC"),
-    }
 
     if query.pagination.is_some() {
       sql.push_str(" LIMIT ? OFFSET ?");
@@ -411,14 +429,9 @@ impl AddressEntryRepository for SqlxAddressEntryRepository {
 
     if let Some(keyword) = query.keyword.as_ref() {
       let kw = format!("%{}%", keyword);
-      // 同じキーワードを 6 箇所にバインド（所有権を渡してライフタイム問題を避ける）
-      q = q
-        .bind(kw.clone())
-        .bind(kw.clone())
-        .bind(kw.clone())
-        .bind(kw.clone())
-        .bind(kw.clone())
-        .bind(kw);
+      for _ in 0..6 {
+        q = q.bind(kw.clone());
+      }
     }
 
     if let Some(p) = query.pagination {
@@ -426,7 +439,8 @@ impl AddressEntryRepository for SqlxAddressEntryRepository {
     }
 
     let rows = q.fetch_all(&self.pool).await?;
-    build_entries_with_co_recipients(rows, &self.pool).await
+    let entries = build_entries_with_co_recipients(rows, &self.pool).await?;
+    Ok((entries, total))
   }
 
   async fn archive(&self, id: &AddressEntryId) -> Result<(), AddressRepositoryError> {
@@ -485,56 +499,60 @@ async fn build_entries_with_co_recipients(
     });
   }
 
-  // 連名を一括取得。
-  let placeholders = ids
-    .iter()
-    .enumerate()
-    .map(|(i, _)| format!("?{}", i + 1))
-    .collect::<Vec<_>>()
-    .join(",");
-
-  let sql = format!(
-    r#"
-      SELECT
-        id,
-        address_entry_id,
-        order_index,
-        last,
-        first,
-        kana_last,
-        kana_first,
-        archived,
-        created_at,
-        updated_at
-      FROM address_co_recipients
-      WHERE address_entry_id IN ({})
-      ORDER BY address_entry_id, order_index
-    "#,
-    placeholders
-  );
-
-  let mut q = sqlx::query(&sql);
-  for id in &ids {
-    q = q.bind(id);
-  }
-
-  let co_rows_raw = q.fetch_all(pool).await?;
+  // 連名を一括取得（IN 句のバインド数上限を避けるためチャンク分割）。
+  const IN_CHUNK_SIZE: usize = 100;
   let mut grouped: HashMap<String, Vec<DbCoRecipientRow>> = HashMap::new();
-  for r in co_rows_raw {
-    let entry_id: String = r.get("address_entry_id");
-    let row = DbCoRecipientRow {
-      id: r.get("id"),
-      address_entry_id: entry_id.clone(),
-      order_index: r.get("order_index"),
-      last: r.get("last"),
-      first: r.get("first"),
-      kana_last: r.get("kana_last"),
-      kana_first: r.get("kana_first"),
-      archived: r.get::<i64, _>("archived") != 0,
-      created_at: r.get("created_at"),
-      updated_at: r.get("updated_at"),
-    };
-    grouped.entry(entry_id).or_default().push(row);
+
+  for chunk in ids.chunks(IN_CHUNK_SIZE) {
+    let placeholders = chunk
+      .iter()
+      .enumerate()
+      .map(|(i, _)| format!("?{}", i + 1))
+      .collect::<Vec<_>>()
+      .join(",");
+
+    let sql = format!(
+      r#"
+        SELECT
+          id,
+          address_entry_id,
+          order_index,
+          last,
+          first,
+          kana_last,
+          kana_first,
+          archived,
+          created_at,
+          updated_at
+        FROM address_co_recipients
+        WHERE address_entry_id IN ({})
+        ORDER BY address_entry_id, order_index
+      "#,
+      placeholders
+    );
+
+    let mut q = sqlx::query(&sql);
+    for id in chunk {
+      q = q.bind(id);
+    }
+
+    let co_rows_raw = q.fetch_all(pool).await?;
+    for r in co_rows_raw {
+      let entry_id: String = r.get("address_entry_id");
+      let row = DbCoRecipientRow {
+        id: r.get("id"),
+        address_entry_id: entry_id.clone(),
+        order_index: r.get("order_index"),
+        last: r.get("last"),
+        first: r.get("first"),
+        kana_last: r.get("kana_last"),
+        kana_first: r.get("kana_first"),
+        archived: r.get::<i64, _>("archived") != 0,
+        created_at: r.get("created_at"),
+        updated_at: r.get("updated_at"),
+      };
+      grouped.entry(entry_id).or_default().push(row);
+    }
   }
 
   let mut result = Vec::with_capacity(entry_rows.len());

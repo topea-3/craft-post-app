@@ -75,3 +75,9 @@ tasks:
     cmds:
       - "{{.NPM_CMD}} build"
       - cd src-tauri && cargo check
+
+  test:
+    desc: テストの実行
+    dir: src-tauri
+    cmds:
+      - cargo test

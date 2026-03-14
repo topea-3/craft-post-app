@@ -9,6 +9,7 @@ import {
   formatPostalCode,
   fromAddressEntryDtoToDetail,
 } from './types'
+import { ADDRESS_OPERATION_ERROR_MESSAGE } from './messages'
 
 export function AddressEntryDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -34,7 +35,7 @@ export function AddressEntryDetailPage() {
         setError(null)
       } catch (e) {
         if (cancelled) return
-        setError(String(e))
+        setError(ADDRESS_OPERATION_ERROR_MESSAGE)
       } finally {
         if (!cancelled) {
           setIsLoading(false)
@@ -80,7 +81,7 @@ export function AddressEntryDetailPage() {
       alert('住所録エントリをアーカイブしました。')
     } catch (e) {
       // eslint-disable-next-line no-alert
-      alert(String(e))
+      alert(ADDRESS_OPERATION_ERROR_MESSAGE)
     }
   }
 
