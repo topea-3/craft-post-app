@@ -10,7 +10,6 @@ on:
     branches: [main, develop]
 
 jobs:
-  # プロジェクトに package.json が追加されたら、lint / test を有効化する
   check:
     name: Check
     runs-on: ubuntu-latest
@@ -24,5 +23,49 @@ jobs:
           test -f .editorconfig && echo ".editorconfig OK" || exit 1
           test -f .gitignore && echo ".gitignore OK" || exit 1
 
-  # 将来: Node セットアップと npm ci / lint / test
-  # 将来: Tauri ビルドは tauri-build.yml または release ワークフローで実行
+  frontend:
+    name: Frontend (lint & build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build
+        run: npm run build
+
+  backend:
+    name: Backend (test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Tauri dependencies (Linux)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libsqlite3-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - name: Run tests
+        run: cargo test
+        working-directory: src-tauri
