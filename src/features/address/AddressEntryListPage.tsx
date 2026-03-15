@@ -32,10 +32,6 @@ export function AddressEntryListPage() {
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
   const currentPage = Math.min(page, totalPages)
 
-  if (total > 0 && page > totalPages) {
-    setPage(totalPages)
-  }
-
   const pagedItems = items
 
   const handleChangeSortKey = (value: ListSortKey) => {

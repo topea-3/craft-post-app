@@ -18,6 +18,8 @@ use crate::domain::address::postal_code::PostalCode;
 use crate::infrastructure::address::sqlx_address_entry_repository::SqlxAddressEntryRepository;
 
 const MAX_PAGE_LIMIT: i64 = 200;
+/// 連名の上限（UI と同一。API 直叩き対策でサーバー側でも検証する）
+const MAX_CO_RECIPIENTS: usize = 3;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -121,6 +123,14 @@ impl TryFrom<AddressEntryDtoInput> for AddressEntry {
   type Error = AppError;
 
   fn try_from(value: AddressEntryDtoInput) -> Result<Self, Self::Error> {
+    if value.co_recipients.len() > MAX_CO_RECIPIENTS {
+      return Err(AppError::Validation(format!(
+        "連名は{}件までです（{}件指定されています）",
+        MAX_CO_RECIPIENTS,
+        value.co_recipients.len()
+      )));
+    }
+
     let primary = PersonName::new(
       value.primary_name.last,
       value.primary_name.first,

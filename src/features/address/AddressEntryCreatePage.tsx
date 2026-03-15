@@ -16,7 +16,6 @@ export function AddressEntryCreatePage({ onCreated, onCancel }: AddressEntryCrea
       onCreated()
       return
     }
-    // eslint-disable-next-line no-alert
     alert('住所録を登録しました。')
     navigate('/addresses')
   }, [navigate, onCreated])
@@ -38,7 +37,6 @@ export function AddressEntryCreatePage({ onCreated, onCancel }: AddressEntryCrea
 
   const handleCancel = () => {
     if (isDirty) {
-      // eslint-disable-next-line no-alert
       const confirmed = window.confirm(
         '編集中の内容を破棄して一覧に戻ります。よろしいですか？',
       )

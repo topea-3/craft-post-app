@@ -23,10 +23,13 @@ type UseAddressEntryListResult = {
   reload: () => void
 }
 
+const SEARCH_DEBOUNCE_MS = 300
+
 export function useAddressEntryList(
   params: UseAddressEntryListParams,
 ): UseAddressEntryListResult {
   const { searchText, sortKey, sortOrder, page, pageSize } = params
+  const [debouncedSearchText, setDebouncedSearchText] = useState(searchText)
   const [items, setItems] = useState<AddressEntryListItem[]>([])
   const [total, setTotal] = useState(0)
   const [isLoading, setIsLoading] = useState(false)
@@ -34,11 +37,18 @@ export function useAddressEntryList(
   const [reloadToken, setReloadToken] = useState(0)
 
   useEffect(() => {
+    const id = window.setTimeout(() => {
+      setDebouncedSearchText(searchText)
+    }, SEARCH_DEBOUNCE_MS)
+    return () => window.clearTimeout(id)
+  }, [searchText])
+
+  useEffect(() => {
     let cancelled = false
     const fetchList = async () => {
       setIsLoading(true)
       try {
-        const keyword = searchText.trim() || null
+        const keyword = debouncedSearchText.trim() || null
         const sortKeyArg = sortKey === 'updatedAt' ? 'updated_at' : 'name_kana'
         const sortOrderArg = sortOrder === 'desc' ? 'desc' : 'asc'
         const limit = pageSize
@@ -78,7 +88,7 @@ export function useAddressEntryList(
     return () => {
       cancelled = true
     }
-  }, [searchText, sortKey, sortOrder, page, pageSize, reloadToken])
+  }, [debouncedSearchText, sortKey, sortOrder, page, pageSize, reloadToken])
 
   const reload = () => {
     setReloadToken((prev) => prev + 1)

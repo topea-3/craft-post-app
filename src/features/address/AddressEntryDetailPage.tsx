@@ -122,6 +122,9 @@ export function AddressEntryDetailPage() {
   }
 
   const displayName = formatDisplayName(entry.primaryName, entry.coRecipients)
+  const primaryDisplayName =
+    `${entry.primaryName.last.trim()} ${entry.primaryName.first.trim()}`.trim() ||
+    '—'
   const postalCode = formatPostalCode(entry.postalCode)
   const addressLine = formatAddressSingleLine(entry.address)
   const createdAt = formatDateTime(entry.createdAt)
@@ -172,7 +175,7 @@ export function AddressEntryDetailPage() {
           <dl className="address-detail-grid">
             <div className="address-detail-row">
               <dt>主たる氏名</dt>
-              <dd>{displayName}</dd>
+              <dd>{primaryDisplayName}</dd>
             </div>
             <div className="address-detail-row">
               <dt>主たる氏名（カナ）</dt>
