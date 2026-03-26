@@ -57,6 +57,13 @@
 | 最終更新日時 | 例: `2026/03/11 12:01` | `updatedAt` |
 | ステータス  | 例: `有効` / `アーカイブ済み`   | `archived`  |
 
+#### 1.5 紐づき差出人（読み取り専用）※任意
+
+- 差出人が紐づいている場合:
+  - 表示: `SenderLabel.value` / `joinRecipients(primaryName, coRecipients)`
+  - 住所・郵便番号は必要なら補足表示（`PostalCode.formatted` / `Address.toSingleLine()`）
+- 紐づきがない場合:
+  - 「差出人未設定」
 
 ---
 

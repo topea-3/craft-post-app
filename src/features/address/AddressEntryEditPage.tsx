@@ -12,6 +12,10 @@ import {
 import { useAddressEntryEditForm } from './useAddressEntryForm'
 import { formatDisplayName } from './types'
 import { ADDRESS_OPERATION_ERROR_MESSAGE } from './messages'
+import { FormSection } from '../../components/form/FormSection'
+import { SelectField } from '../../components/form/SelectField'
+import type { SenderEntryDto } from '../sender/types'
+import { formatSenderDisplayName, fromSenderEntryDto } from '../sender/types'
 
 export function AddressEntryEditPage() {
   const { id } = useParams<{ id: string }>()
@@ -21,6 +25,10 @@ export function AddressEntryEditPage() {
   const [initialValues, setInitialValues] = useState<AddressEntryFormValues | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [senderOptions, setSenderOptions] = useState<{ value: string; label: string }[]>([
+    { value: '', label: '未設定' },
+  ])
+  const [linkedSenderId, setLinkedSenderId] = useState<string>('')
 
   const handleSuccess = useCallback(() => {
     if (!id) {
@@ -68,6 +76,58 @@ export function AddressEntryEditPage() {
 
     fetchDetail()
 
+    return () => {
+      cancelled = true
+    }
+  }, [id])
+
+  useEffect(() => {
+    let cancelled = false
+    const fetchSenders = async () => {
+      try {
+        const dtos = await invoke<SenderEntryDto[]>('list_sender_entries', {
+          limit: 200,
+          offset: 0,
+        })
+        if (cancelled) return
+        const items = dtos.map(fromSenderEntryDto)
+        const opts = [
+          { value: '', label: '未設定' },
+          ...items.map((s) => ({
+            value: s.id,
+            label: `${s.label}（${formatSenderDisplayName(s.primaryName, s.coRecipients) || '—'}）`,
+          })),
+        ]
+        setSenderOptions(opts)
+      } catch (e) {
+        if (cancelled) return
+        console.error('Failed to fetch sender entries:', e)
+        setSenderOptions([{ value: '', label: '未設定' }])
+      }
+    }
+    fetchSenders()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!id) return
+    let cancelled = false
+    const fetchLinkedSender = async () => {
+      try {
+        const senderId = await invoke<string | null>('get_sender_id_by_address_entry_id', {
+          addressEntryId: id,
+        })
+        if (cancelled) return
+        setLinkedSenderId(senderId ?? '')
+      } catch (e) {
+        if (cancelled) return
+        console.error('Failed to fetch linked sender:', e)
+        setLinkedSenderId('')
+      }
+    }
+    fetchLinkedSender()
     return () => {
       cancelled = true
     }
@@ -205,6 +265,38 @@ export function AddressEntryEditPage() {
           onChangeHonorific={updateHonorific}
           onChangeMemo={updateMemo}
         />
+
+        <FormSection title="差出人の紐づけ">
+          <SelectField
+            label="差出人"
+            value={linkedSenderId}
+            options={senderOptions}
+            onChange={async (value) => {
+              if (!id) return
+              if (value === linkedSenderId) return
+
+              // 付け替え時のみ確認（既存がある & 新しい値がある）
+              if (linkedSenderId && value) {
+                const confirmed = window.confirm(
+                  'この宛名はすでに別の差出人に紐づいています。置き換えますか？',
+                )
+                if (!confirmed) return
+              }
+
+              try {
+                await invoke('set_sender_for_address_entry', {
+                  addressEntryId: id,
+                  senderId: value.trim() === '' ? null : value,
+                })
+                setLinkedSenderId(value)
+              } catch (e) {
+                console.error('Failed to set sender for address:', e)
+                alert(ADDRESS_OPERATION_ERROR_MESSAGE)
+              }
+            }}
+            helperText="この宛名に印字する差出人を設定できます。"
+          />
+        </FormSection>
       </main>
     </div>
   )
