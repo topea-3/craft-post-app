@@ -1,5 +1,7 @@
 mod domain;
 mod infrastructure;
+#[cfg(test)]
+mod command_tests;
 
 use chrono::Utc;
 use sqlx::{Row, SqlitePool};
@@ -22,6 +24,7 @@ use crate::domain::sender::sender_entry_repository::{
 };
 use crate::domain::sender::sender_label::SenderLabel;
 use crate::infrastructure::address::sqlx_address_entry_repository::SqlxAddressEntryRepository;
+use crate::infrastructure::address::sqlx_address_entry_repository::build_entries_with_co_recipients as build_address_entries_with_co_recipients;
 use crate::infrastructure::sender::sqlx_sender_entry_repository::SqlxSenderEntryRepository;
 
 const MAX_PAGE_LIMIT: i64 = 200;
@@ -65,7 +68,6 @@ pub fn run() {
       update_sender_entry_links,
       list_sender_linked_addresses,
       get_sender_id_by_address_entry_id,
-      search_unlinked_address_entries,
       set_sender_for_address_entry,
     ])
     .run(tauri::generate_context!())
@@ -545,9 +547,13 @@ async fn create_sender_entry(
   pool: State<'_, SqlitePool>,
   dto: SenderEntryDtoInput,
 ) -> Result<(), String> {
+  create_sender_entry_impl(pool.inner(), dto).await
+}
+
+async fn create_sender_entry_impl(pool: &SqlitePool, dto: SenderEntryDtoInput) -> Result<(), String> {
   let entry =
     SenderEntry::try_from(dto).map_err::<String, _>(|e| e.into()).map_err(|e| e.to_string())?;
-  let repo = SqlxSenderEntryRepository::new(pool.inner().clone());
+  let repo = SqlxSenderEntryRepository::new(pool.clone());
   let duplicated = repo
     .exists_active_label(entry.label().value(), None)
     .await
@@ -576,10 +582,18 @@ async fn update_sender_entry(
   id: String,
   dto: SenderEntryDtoInput,
 ) -> Result<(), String> {
+  update_sender_entry_impl(pool.inner(), id, dto).await
+}
+
+async fn update_sender_entry_impl(
+  pool: &SqlitePool,
+  id: String,
+  dto: SenderEntryDtoInput,
+) -> Result<(), String> {
   let uuid =
     Uuid::parse_str(&id).map_err(|e| AppError::Validation(e.to_string()).to_string())?;
   let id = SenderEntryId::from_uuid(uuid);
-  let repo = SqlxSenderEntryRepository::new(pool.inner().clone());
+  let repo = SqlxSenderEntryRepository::new(pool.clone());
 
   let existing = repo
     .find_by_id(&id)
@@ -702,6 +716,14 @@ async fn update_sender_entry_links(
   sender_id: String,
   address_entry_ids: Vec<String>,
 ) -> Result<(), String> {
+  update_sender_entry_links_impl(pool.inner(), sender_id, address_entry_ids).await
+}
+
+async fn update_sender_entry_links_impl(
+  pool: &SqlitePool,
+  sender_id: String,
+  address_entry_ids: Vec<String>,
+) -> Result<(), String> {
   let sender_uuid =
     Uuid::parse_str(&sender_id).map_err(|e| AppError::Validation(e.to_string()).to_string())?;
   let sender_entry_id = SenderEntryId::from_uuid(sender_uuid);
@@ -713,7 +735,25 @@ async fn update_sender_entry_links(
     parsed_address_ids.push(parsed);
   }
 
-  let repo = SqlxSenderEntryRepository::new(pool.inner().clone());
+  let repo = SqlxSenderEntryRepository::new(pool.clone());
+  // sender の実在 + archived = 0 を検証
+  let sender = repo
+    .find_by_id(&sender_entry_id)
+    .await
+    .map_err(|e| {
+      log::error!("update_sender_entry_links find_by_id failed: {:?}", e);
+      AppError::Repository("SENDER_LINK_UPDATE_FAILED".to_string())
+    })?
+    .ok_or_else(|| AppError::Validation("sender entry not found".to_string()).to_string())?;
+  if sender.archived() {
+    return Err(AppError::Validation("sender entry is archived".to_string()).to_string());
+  }
+
+  // address_entries の実在 + archived = 0 を検証（0件は解除扱いなのでOK）
+  if !parsed_address_ids.is_empty() {
+    validate_active_address_entries(pool, &parsed_address_ids).await?;
+  }
+
   repo
     .replace_links_for_sender(&sender_entry_id, &parsed_address_ids)
     .await
@@ -731,35 +771,48 @@ async fn list_sender_linked_addresses(
 ) -> Result<Vec<AddressEntryDto>, String> {
   let sender_uuid =
     Uuid::parse_str(&sender_id).map_err(|e| AppError::Validation(e.to_string()).to_string())?;
-  let sender_entry_id = SenderEntryId::from_uuid(sender_uuid);
 
-  let sender_repo = SqlxSenderEntryRepository::new(pool.inner().clone());
-  let address_ids = sender_repo
-    .list_linked_address_entry_ids(&sender_entry_id)
+  // address_entries をリンク順でまとめて取得し、co_recipients もバッチで構築する
+  let rows = sqlx::query(
+    r#"
+      SELECT
+        ae.id,
+        ae.primary_last,
+        ae.primary_first,
+        ae.primary_kana_last,
+        ae.primary_kana_first,
+        ae.honorific,
+        ae.postal_code,
+        ae.prefecture,
+        ae.city,
+        ae.street,
+        ae.building,
+        ae.memo,
+        ae.archived,
+        ae.created_at,
+        ae.updated_at
+      FROM sender_address_links sal
+      JOIN address_entries ae ON ae.id = sal.address_entry_id
+      WHERE sal.sender_entry_id = ?
+      ORDER BY sal.updated_at DESC, sal.id ASC
+    "#,
+  )
+  .bind(sender_uuid.to_string())
+  .fetch_all(pool.inner())
+  .await
+  .map_err(|e| {
+    log::error!("list_sender_linked_addresses query failed: {:?}", e);
+    AppError::Repository("SENDER_LINK_LIST_FAILED".to_string())
+  })?;
+
+  let entries = build_address_entries_with_co_recipients(rows, pool.inner())
     .await
     .map_err(|e| {
-      log::error!("list_sender_linked_addresses list_linked_address_entry_ids failed: {:?}", e);
+      log::error!("list_sender_linked_addresses build failed: {:?}", e);
       AppError::Repository("SENDER_LINK_LIST_FAILED".to_string())
     })?;
 
-  let address_repo = SqlxAddressEntryRepository::new(pool.inner().clone());
-  let mut result = Vec::with_capacity(address_ids.len());
-  for addr_id in address_ids {
-    let id = AddressEntryId::from_uuid(addr_id);
-    let Some(entry) = address_repo
-      .find_by_id(&id)
-      .await
-      .map_err(|e| {
-        log::error!("list_sender_linked_addresses find_by_id failed: {:?}", e);
-        AppError::Repository("SENDER_LINK_LIST_FAILED".to_string())
-      })?
-    else {
-      continue;
-    };
-    result.push(AddressEntryDto::from(entry));
-  }
-
-  Ok(result)
+  Ok(entries.into_iter().map(AddressEntryDto::from).collect())
 }
 
 #[tauri::command]
@@ -782,116 +835,36 @@ async fn get_sender_id_by_address_entry_id(
 }
 
 #[tauri::command]
-async fn search_unlinked_address_entries(
-  pool: State<'_, SqlitePool>,
-  keyword: Option<String>,
-  limit: Option<i64>,
-  offset: Option<i64>,
-) -> Result<AddressEntrySearchResult, String> {
-  // limit/offset が未指定の場合はデフォルトを補完（全件取得を防ぐ）。
-  let (l, o) = (limit.unwrap_or(DEFAULT_SEARCH_LIMIT), offset.unwrap_or(DEFAULT_SEARCH_OFFSET));
-  if l < 1 || l > MAX_PAGE_LIMIT {
-    return Err(
-      AppError::Validation(format!("limit must be between 1 and {}", MAX_PAGE_LIMIT)).to_string(),
-    );
-  }
-  if o < 0 {
-    return Err(AppError::Validation("offset must be >= 0".to_string()).to_string());
-  }
-
-  let mut where_sql = String::from(
-    r#"
-      WHERE archived = 0
-        AND NOT EXISTS (
-          SELECT 1 FROM sender_address_links sal
-          WHERE sal.address_entry_id = address_entries.id
-        )
-    "#,
-  );
-  if keyword.is_some() {
-    where_sql.push_str(
-      r#"
-        AND (
-          primary_last       LIKE ? OR
-          primary_first      LIKE ? OR
-          primary_kana_last  LIKE ? OR
-          primary_kana_first LIKE ? OR
-          prefecture || city || street || IFNULL(building, '') LIKE ? OR
-          IFNULL(memo, '') LIKE ?
-        )
-      "#,
-    );
-  }
-
-  // 総件数
-  let count_sql = format!("SELECT COUNT(*) AS cnt FROM address_entries {}", where_sql);
-  let mut count_q = sqlx::query(&count_sql);
-  if let Some(k) = keyword.as_ref() {
-    let kw = format!("%{}%", k);
-    for _ in 0..6 {
-      count_q = count_q.bind(kw.clone());
-    }
-  }
-  let total: i64 = count_q
-    .fetch_one(pool.inner())
-    .await
-    .map_err(|e| {
-      log::error!("search_unlinked_address_entries count failed: {:?}", e);
-      AppError::Repository("ADDR_SEARCH_FAILED".to_string())
-    })?
-    .get("cnt");
-
-  // ID 一覧（updated_at desc 固定）
-  let list_sql = format!(
-    r#"
-      SELECT id
-      FROM address_entries
-      {}
-      ORDER BY updated_at DESC, id ASC
-      LIMIT ? OFFSET ?
-    "#,
-    where_sql
-  );
-  let mut q = sqlx::query(&list_sql);
-  if let Some(k) = keyword.as_ref() {
-    let kw = format!("%{}%", k);
-    for _ in 0..6 {
-      q = q.bind(kw.clone());
-    }
-  }
-  q = q.bind(l).bind(o);
-
-  let rows = q.fetch_all(pool.inner()).await.map_err(|e| {
-    log::error!("search_unlinked_address_entries list failed: {:?}", e);
-    AppError::Repository("ADDR_SEARCH_FAILED".to_string())
-  })?;
-
-  let address_repo = SqlxAddressEntryRepository::new(pool.inner().clone());
-  let mut items = Vec::with_capacity(rows.len());
-  for r in rows {
-    let id: String = r.get("id");
-    let uuid = Uuid::parse_str(&id).map_err(|e| AppError::Validation(e.to_string()).to_string())?;
-    let id = AddressEntryId::from_uuid(uuid);
-    let Some(entry) = address_repo.find_by_id(&id).await.map_err(|e| {
-      log::error!("search_unlinked_address_entries find_by_id failed: {:?}", e);
-      AppError::Repository("ADDR_SEARCH_FAILED".to_string())
-    })? else {
-      continue;
-    };
-    items.push(AddressEntryDto::from(entry));
-  }
-
-  Ok(AddressEntrySearchResult { items, total })
-}
-
-#[tauri::command]
 async fn set_sender_for_address_entry(
   pool: State<'_, SqlitePool>,
   address_entry_id: String,
   sender_id: Option<String>,
 ) -> Result<(), String> {
+  set_sender_for_address_entry_impl(pool.inner(), address_entry_id, sender_id).await
+}
+
+async fn set_sender_for_address_entry_impl(
+  pool: &SqlitePool,
+  address_entry_id: String,
+  sender_id: Option<String>,
+) -> Result<(), String> {
   let address_uuid =
     Uuid::parse_str(&address_entry_id).map_err(|e| AppError::Validation(e.to_string()).to_string())?;
+  // address の実在 + archived = 0 を検証
+  let address_repo = SqlxAddressEntryRepository::new(pool.clone());
+  let addr_id = AddressEntryId::from_uuid(address_uuid);
+  let addr = address_repo
+    .find_by_id(&addr_id)
+    .await
+    .map_err(|e| {
+      log::error!("set_sender_for_address_entry find address failed: {:?}", e);
+      AppError::Repository("SENDER_LINK_UPDATE_FAILED".to_string())
+    })?
+    .ok_or_else(|| AppError::Validation("address entry not found".to_string()).to_string())?;
+  if addr.archived() {
+    return Err(AppError::Validation("address entry is archived".to_string()).to_string());
+  }
+
   let sender_entry_id = match sender_id {
     Some(s) => {
       let uuid =
@@ -901,7 +874,22 @@ async fn set_sender_for_address_entry(
     None => None,
   };
 
-  let repo = SqlxSenderEntryRepository::new(pool.inner().clone());
+  let repo = SqlxSenderEntryRepository::new(pool.clone());
+  // sender の実在 + archived = 0 を検証（Some の場合）
+  if let Some(ref sid) = sender_entry_id {
+    let sender = repo
+      .find_by_id(sid)
+      .await
+      .map_err(|e| {
+        log::error!("set_sender_for_address_entry find sender failed: {:?}", e);
+        AppError::Repository("SENDER_LINK_UPDATE_FAILED".to_string())
+      })?
+      .ok_or_else(|| AppError::Validation("sender entry not found".to_string()).to_string())?;
+    if sender.archived() {
+      return Err(AppError::Validation("sender entry is archived".to_string()).to_string());
+    }
+  }
+
   repo
     .set_sender_for_address(address_uuid, sender_entry_id.as_ref())
     .await
@@ -910,5 +898,49 @@ async fn set_sender_for_address_entry(
       AppError::Repository("SENDER_LINK_UPDATE_FAILED".to_string())
     })?;
 
+  Ok(())
+}
+
+async fn validate_active_address_entries(
+  pool: &SqlitePool,
+  address_ids: &[Uuid],
+) -> Result<(), String> {
+  // 重複を除外
+  let mut unique: Vec<String> = address_ids.iter().map(|u| u.to_string()).collect();
+  unique.sort();
+  unique.dedup();
+
+  const IN_CHUNK_SIZE: usize = 100;
+  let mut found = 0i64;
+
+  for chunk in unique.chunks(IN_CHUNK_SIZE) {
+    let placeholders = chunk
+      .iter()
+      .enumerate()
+      .map(|(i, _)| format!("?{}", i + 1))
+      .collect::<Vec<_>>()
+      .join(",");
+    let sql = format!(
+      "SELECT COUNT(*) AS cnt FROM address_entries WHERE archived = 0 AND id IN ({})",
+      placeholders
+    );
+    let mut q = sqlx::query(&sql);
+    for id in chunk {
+      q = q.bind(id);
+    }
+    let cnt: i64 = q
+      .fetch_one(pool)
+      .await
+      .map_err(|e| {
+        log::error!("validate_active_address_entries failed: {:?}", e);
+        AppError::Repository("SENDER_LINK_UPDATE_FAILED".to_string())
+      })?
+      .get("cnt");
+    found += cnt;
+  }
+
+  if found != unique.len() as i64 {
+    return Err(AppError::Validation("address entry not found".to_string()).to_string());
+  }
   Ok(())
 }

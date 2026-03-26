@@ -468,7 +468,7 @@ impl AddressEntryRepository for SqlxAddressEntryRepository {
   }
 }
 
-async fn build_entries_with_co_recipients(
+pub(crate) async fn build_entries_with_co_recipients(
   rows: Vec<sqlx::sqlite::SqliteRow>,
   pool: &SqlitePool,
 ) -> Result<Vec<AddressEntry>, AddressRepositoryError> {

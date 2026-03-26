@@ -1,4 +1,5 @@
 use chrono::{DateTime, Utc};
+use std::collections::HashMap;
 use sqlx::{Row, SqlitePool};
 use uuid::Uuid;
 
@@ -291,49 +292,7 @@ impl SenderEntryRepository for SqlxSenderEntryRepository {
     .fetch_all(&self.pool)
     .await?;
 
-    let mut result = Vec::with_capacity(rows.len());
-    for row in rows {
-      let id_str: String = row.get("id");
-      let entry_row = DbSenderEntryRow {
-        id: id_str.clone(),
-        label: row.get("label"),
-        primary_last: row.get("primary_last"),
-        primary_first: row.get("primary_first"),
-        primary_kana_last: row.get("primary_kana_last"),
-        primary_kana_first: row.get("primary_kana_first"),
-        postal_code: row.get("postal_code"),
-        prefecture: row.get("prefecture"),
-        city: row.get("city"),
-        street: row.get("street"),
-        building: row.get("building"),
-        phone_number: row.get("phone_number"),
-        archived: row.get::<i64, _>("archived") != 0,
-        created_at: row.get("created_at"),
-        updated_at: row.get("updated_at"),
-      };
-      let co_rows = sqlx::query(
-        r#"
-          SELECT last, first, kana_last, kana_first
-          FROM sender_co_recipients
-          WHERE sender_entry_id = ?
-          ORDER BY order_index ASC
-        "#,
-      )
-      .bind(&id_str)
-      .fetch_all(&self.pool)
-      .await?;
-      let co_recipients = co_rows
-        .into_iter()
-        .map(|r| DbSenderCoRecipientRow {
-          last: r.get("last"),
-          first: r.get("first"),
-          kana_last: r.get("kana_last"),
-          kana_first: r.get("kana_first"),
-        })
-        .collect();
-      result.push(entry_row.into_domain(co_recipients)?);
-    }
-    Ok(result)
+    build_entries_with_co_recipients(rows, &self.pool).await
   }
 
   async fn archive(&self, id: &SenderEntryId) -> Result<(), SenderRepositoryError> {
@@ -470,5 +429,82 @@ impl SenderEntryRepository for SqlxSenderEntryRepository {
     tx.commit().await?;
     Ok(())
   }
+}
+
+async fn build_entries_with_co_recipients(
+  rows: Vec<sqlx::sqlite::SqliteRow>,
+  pool: &SqlitePool,
+) -> Result<Vec<SenderEntry>, SenderRepositoryError> {
+  if rows.is_empty() {
+    return Ok(Vec::new());
+  }
+
+  let mut entry_rows = Vec::with_capacity(rows.len());
+  let mut ids: Vec<String> = Vec::with_capacity(rows.len());
+  for row in rows {
+    let id: String = row.get("id");
+    ids.push(id.clone());
+    entry_rows.push(DbSenderEntryRow {
+      id,
+      label: row.get("label"),
+      primary_last: row.get("primary_last"),
+      primary_first: row.get("primary_first"),
+      primary_kana_last: row.get("primary_kana_last"),
+      primary_kana_first: row.get("primary_kana_first"),
+      postal_code: row.get("postal_code"),
+      prefecture: row.get("prefecture"),
+      city: row.get("city"),
+      street: row.get("street"),
+      building: row.get("building"),
+      phone_number: row.get("phone_number"),
+      archived: row.get::<i64, _>("archived") != 0,
+      created_at: row.get("created_at"),
+      updated_at: row.get("updated_at"),
+    });
+  }
+
+  // 連名を一括取得（IN 句のバインド数上限を避けるためチャンク分割）。
+  const IN_CHUNK_SIZE: usize = 100;
+  let mut grouped: HashMap<String, Vec<DbSenderCoRecipientRow>> = HashMap::new();
+
+  for chunk in ids.chunks(IN_CHUNK_SIZE) {
+    let placeholders = chunk
+      .iter()
+      .enumerate()
+      .map(|(i, _)| format!("?{}", i + 1))
+      .collect::<Vec<_>>()
+      .join(",");
+    let sql = format!(
+      r#"
+        SELECT sender_entry_id, last, first, kana_last, kana_first
+        FROM sender_co_recipients
+        WHERE sender_entry_id IN ({})
+        ORDER BY sender_entry_id, order_index
+      "#,
+      placeholders
+    );
+    let mut q = sqlx::query(&sql);
+    for id in chunk {
+      q = q.bind(id);
+    }
+    let co_rows = q.fetch_all(pool).await?;
+    for r in co_rows {
+      let sender_entry_id: String = r.get("sender_entry_id");
+      let row = DbSenderCoRecipientRow {
+        last: r.get("last"),
+        first: r.get("first"),
+        kana_last: r.get("kana_last"),
+        kana_first: r.get("kana_first"),
+      };
+      grouped.entry(sender_entry_id).or_default().push(row);
+    }
+  }
+
+  let mut result = Vec::with_capacity(entry_rows.len());
+  for er in entry_rows {
+    let co = grouped.remove(&er.id).unwrap_or_default();
+    result.push(er.into_domain(co)?);
+  }
+  Ok(result)
 }
 
