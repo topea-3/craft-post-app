@@ -17,6 +17,26 @@ import { SelectField } from '../../components/form/SelectField'
 import type { SenderEntryDto } from '../sender/types'
 import { formatSenderDisplayName, fromSenderEntryDto } from '../sender/types'
 
+/** `list_sender_entries` の limit 上限（lib.rs の MAX_PAGE_LIMIT）に合わせ、複数回呼び出して全件取得する */
+const SENDER_LIST_PAGE_SIZE = 200
+
+async function fetchAllActiveSenderEntryDtos(): Promise<SenderEntryDto[]> {
+  const all: SenderEntryDto[] = []
+  let offset = 0
+  for (;;) {
+    const page = await invoke<SenderEntryDto[]>('list_sender_entries', {
+      limit: SENDER_LIST_PAGE_SIZE,
+      offset,
+    })
+    all.push(...page)
+    if (page.length < SENDER_LIST_PAGE_SIZE) {
+      break
+    }
+    offset += SENDER_LIST_PAGE_SIZE
+  }
+  return all
+}
+
 export function AddressEntryEditPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
@@ -85,10 +105,7 @@ export function AddressEntryEditPage() {
     let cancelled = false
     const fetchSenders = async () => {
       try {
-        const dtos = await invoke<SenderEntryDto[]>('list_sender_entries', {
-          limit: 200,
-          offset: 0,
-        })
+        const dtos = await fetchAllActiveSenderEntryDtos()
         if (cancelled) return
         const items = dtos.map(fromSenderEntryDto)
         const opts = [

@@ -2,6 +2,7 @@ use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
 use crate::domain::address::address::Address;
+use crate::domain::address::address_entry::AddressEntry;
 use crate::domain::address::person_name::PersonName;
 use crate::domain::address::postal_code::PostalCode;
 use crate::domain::sender::phone_number::PhoneNumber;
@@ -34,10 +35,13 @@ pub trait SenderEntryRepository {
     exclude_id: Option<&SenderEntryId>,
   ) -> Result<bool, SenderRepositoryError>;
   async fn find_by_id(&self, id: &SenderEntryId) -> Result<Option<SenderEntry>, SenderRepositoryError>;
-  async fn list_linked_address_entry_ids(
+
+  /// 差出人に紐づく宛名を、リンクテーブルの並び順で取得する。
+  async fn list_linked_address_entries(
     &self,
     sender_entry_id: &SenderEntryId,
-  ) -> Result<Vec<Uuid>, SenderRepositoryError>;
+  ) -> Result<Vec<AddressEntry>, SenderRepositoryError>;
+
   async fn list_active(
     &self,
     pagination: Pagination,

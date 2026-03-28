@@ -24,7 +24,6 @@ use crate::domain::sender::sender_entry_repository::{
 };
 use crate::domain::sender::sender_label::SenderLabel;
 use crate::infrastructure::address::sqlx_address_entry_repository::SqlxAddressEntryRepository;
-use crate::infrastructure::address::sqlx_address_entry_repository::build_entries_with_co_recipients as build_address_entries_with_co_recipients;
 use crate::infrastructure::sender::sqlx_sender_entry_repository::SqlxSenderEntryRepository;
 
 const MAX_PAGE_LIMIT: i64 = 200;
@@ -771,44 +770,14 @@ async fn list_sender_linked_addresses(
 ) -> Result<Vec<AddressEntryDto>, String> {
   let sender_uuid =
     Uuid::parse_str(&sender_id).map_err(|e| AppError::Validation(e.to_string()).to_string())?;
+  let sender_entry_id = SenderEntryId::from_uuid(sender_uuid);
 
-  // address_entries をリンク順でまとめて取得し、co_recipients もバッチで構築する
-  let rows = sqlx::query(
-    r#"
-      SELECT
-        ae.id,
-        ae.primary_last,
-        ae.primary_first,
-        ae.primary_kana_last,
-        ae.primary_kana_first,
-        ae.honorific,
-        ae.postal_code,
-        ae.prefecture,
-        ae.city,
-        ae.street,
-        ae.building,
-        ae.memo,
-        ae.archived,
-        ae.created_at,
-        ae.updated_at
-      FROM sender_address_links sal
-      JOIN address_entries ae ON ae.id = sal.address_entry_id
-      WHERE sal.sender_entry_id = ?
-      ORDER BY sal.updated_at DESC, sal.id ASC
-    "#,
-  )
-  .bind(sender_uuid.to_string())
-  .fetch_all(pool.inner())
-  .await
-  .map_err(|e| {
-    log::error!("list_sender_linked_addresses query failed: {:?}", e);
-    AppError::Repository("SENDER_LINK_LIST_FAILED".to_string())
-  })?;
-
-  let entries = build_address_entries_with_co_recipients(rows, pool.inner())
+  let repo = SqlxSenderEntryRepository::new(pool.inner().clone());
+  let entries = repo
+    .list_linked_address_entries(&sender_entry_id)
     .await
     .map_err(|e| {
-      log::error!("list_sender_linked_addresses build failed: {:?}", e);
+      log::error!("list_sender_linked_addresses failed: {:?}", e);
       AppError::Repository("SENDER_LINK_LIST_FAILED".to_string())
     })?;
 

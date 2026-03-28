@@ -154,30 +154,42 @@ mod tests {
   }
 
   #[tokio::test]
-  async fn list_linked_address_entry_ids_returns_linked_ids() {
+  async fn list_linked_address_entries_excludes_archived_addresses() {
     let pool = setup_pool().await;
     let repo = SqlxSenderEntryRepository::new(pool.clone());
-    let entry = sample_entry("リンク検証");
+    let entry = sample_entry("アーカイブ宛名は紐づき一覧から除外");
     let sender_id = entry.id().clone();
     repo.create(&entry).await.unwrap();
 
-    let address_a = Uuid::new_v4();
-    let address_b = Uuid::new_v4();
-    insert_address_entry(&pool, address_a).await;
-    insert_address_entry(&pool, address_b).await;
-
+    let address_id = Uuid::new_v4();
+    insert_address_entry(&pool, address_id).await;
     repo
-      .replace_links_for_sender(&sender_id, &[address_a, address_b])
+      .replace_links_for_sender(&sender_id, &[address_id])
       .await
       .unwrap();
 
-    let ids = repo
-      .list_linked_address_entry_ids(&sender_id)
+    assert_eq!(
+      repo
+        .list_linked_address_entries(&sender_id)
+        .await
+        .unwrap()
+        .len(),
+      1
+    );
+
+    let now = chrono::Utc::now().to_rfc3339();
+    sqlx::query("UPDATE address_entries SET archived = 1, updated_at = ? WHERE id = ?")
+      .bind(&now)
+      .bind(address_id.to_string())
+      .execute(&pool)
       .await
       .unwrap();
-    assert_eq!(ids.len(), 2);
-    assert!(ids.contains(&address_a));
-    assert!(ids.contains(&address_b));
+
+    assert!(repo
+      .list_linked_address_entries(&sender_id)
+      .await
+      .unwrap()
+      .is_empty());
   }
 
   #[tokio::test]

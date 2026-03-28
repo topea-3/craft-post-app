@@ -3,10 +3,13 @@ use std::collections::HashMap;
 use sqlx::{Row, SqlitePool};
 use uuid::Uuid;
 
+use crate::domain::address::address_entry::AddressEntry;
+use crate::domain::address::address_entry_repository::AddressRepositoryError;
 use crate::domain::sender::sender_entry::{SenderEntry, SenderEntryId};
 use crate::domain::sender::sender_entry_repository::{
   DbSenderCoRecipientRow, DbSenderEntryRow, Pagination, SenderEntryRepository, SenderRepositoryError,
 };
+use crate::infrastructure::address::sqlx_address_entry_repository::build_entries_with_co_recipients as build_address_entries_with_co_recipients;
 
 pub struct SqlxSenderEntryRepository {
   pool: SqlitePool,
@@ -15,6 +18,16 @@ pub struct SqlxSenderEntryRepository {
 impl SqlxSenderEntryRepository {
   pub fn new(pool: SqlitePool) -> Self {
     Self { pool }
+  }
+}
+
+fn map_address_repository_error(e: AddressRepositoryError) -> SenderRepositoryError {
+  match e {
+    AddressRepositoryError::Db(err) => SenderRepositoryError::Db(err),
+    AddressRepositoryError::InvalidPersistedData(msg) => SenderRepositoryError::InvalidPersistedData(msg),
+    AddressRepositoryError::NotFound => SenderRepositoryError::InvalidPersistedData(
+      "address entry not found during linked list build".to_string(),
+    ),
   }
 }
 
@@ -248,31 +261,43 @@ impl SenderEntryRepository for SqlxSenderEntryRepository {
     Ok(Some(entry_row.into_domain(co_recipients)?))
   }
 
-  async fn list_linked_address_entry_ids(
+  async fn list_linked_address_entries(
     &self,
     sender_entry_id: &SenderEntryId,
-  ) -> Result<Vec<Uuid>, SenderRepositoryError> {
+  ) -> Result<Vec<AddressEntry>, SenderRepositoryError> {
     let sender_id = sender_entry_id.as_uuid().to_string();
     let rows = sqlx::query(
       r#"
-        SELECT address_entry_id
-        FROM sender_address_links
-        WHERE sender_entry_id = ?
-        ORDER BY updated_at DESC, id ASC
+        SELECT
+          ae.id,
+          ae.primary_last,
+          ae.primary_first,
+          ae.primary_kana_last,
+          ae.primary_kana_first,
+          ae.honorific,
+          ae.postal_code,
+          ae.prefecture,
+          ae.city,
+          ae.street,
+          ae.building,
+          ae.memo,
+          ae.archived,
+          ae.created_at,
+          ae.updated_at
+        FROM sender_address_links sal
+        JOIN address_entries ae ON ae.id = sal.address_entry_id AND ae.archived = 0
+        WHERE sal.sender_entry_id = ?
+        ORDER BY sal.updated_at DESC, sal.id ASC
       "#,
     )
     .bind(sender_id)
     .fetch_all(&self.pool)
     .await?;
 
-    let mut result = Vec::with_capacity(rows.len());
-    for r in rows {
-      let id: String = r.get("address_entry_id");
-      let uuid = Uuid::parse_str(&id)
-        .map_err(|e| SenderRepositoryError::InvalidPersistedData(e.to_string()))?;
-      result.push(uuid);
-    }
-    Ok(result)
+    let entries = build_address_entries_with_co_recipients(rows, &self.pool)
+      .await
+      .map_err(map_address_repository_error)?;
+    Ok(entries)
   }
 
   async fn list_active(&self, pagination: Pagination) -> Result<Vec<SenderEntry>, SenderRepositoryError> {
