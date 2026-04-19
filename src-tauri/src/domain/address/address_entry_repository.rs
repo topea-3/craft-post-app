@@ -93,7 +93,7 @@ pub struct DbAddressEntryRow {
   pub street: String,
   pub building: Option<String>,
   pub memo: Option<String>,
-  pub archived: bool,
+  pub archived_at: Option<String>,
   pub created_at: String,
   pub updated_at: String,
 }
@@ -107,7 +107,6 @@ pub struct DbCoRecipientRow {
   pub first: String,
   pub kana_last: Option<String>,
   pub kana_first: Option<String>,
-  pub archived: bool,
   pub created_at: String,
   pub updated_at: String,
 }
@@ -166,6 +165,15 @@ impl DbAddressEntryRow {
       }
     };
 
+    let archived_at = match self.archived_at.as_deref() {
+      None | Some("") => None,
+      Some(s) => Some(
+        DateTime::parse_from_rfc3339(s)
+          .map_err(|e| AddressRepositoryError::InvalidPersistedData(e.to_string()))?
+          .with_timezone(&Utc),
+      ),
+    };
+
     Ok(AddressEntry::from_persisted(
       id,
       primary_name,
@@ -174,7 +182,7 @@ impl DbAddressEntryRow {
       postal_code,
       address,
       memo,
-      self.archived,
+      archived_at,
       created_at,
       updated_at,
     ))

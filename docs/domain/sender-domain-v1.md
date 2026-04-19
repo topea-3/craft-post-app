@@ -35,7 +35,7 @@
   - `postalCode` : `PostalCode` 値オブジェクト
   - `address` : `Address` 値オブジェクト
   - `phoneNumber` : `PhoneNumber` 値オブジェクト（任意）
-  - `archived` : 論理削除フラグ
+  - `archivedAt` : アーカイブ日時（任意）。未設定（`null`）＝有効、設定済み＝論理削除（アーカイブ）済み。
   - `createdAt` : 作成日時
   - `updatedAt` : 更新日時
 - **主なドメインルール（v1）**
@@ -43,8 +43,8 @@
   - 連名は `coRecipients` として 0〜4 件保持できる（例: 夫婦連名、家族連名）。
   - 差出人欄の表示名は、`primaryName` と `coRecipients` を結合した表示名とする
     - 結合ルールは `docs/domain/address-domain-v1.md` の `joinRecipients(primaryName, coRecipients)` に準拠する（同姓省略など）。
-  - `archived = true` のエントリは通常の一覧・選択 UI からは非表示とする（論理削除）。
-  - `label` は **非アーカイブ内で一意** とする（選択 UI の識別子として使うため）。
+  - `archivedAt` が設定されているエントリは通常の一覧・選択 UI からは非表示とする（論理削除）。
+  - `label` は **`archivedAt` が未設定のエントリ同士の範囲で一意** とする（選択 UI の識別子として使うため）。
   - 宛名住所との関連は **`SenderAddressLink` 経由**とする（`SenderEntry` 単体に宛名FKは持たない）。
 
 ### 2.2 SenderAddressLink（差出人↔宛名住所 紐づけ）
@@ -120,7 +120,7 @@
 ### 4.1 差出人一覧（SenderEntry List View）
 
 - **表示対象**
-  - `archived = false` の `SenderEntry` を対象とする。
+  - `archivedAt` が未設定（有効）の `SenderEntry` を対象とする。
 - **想定表示項目**
   - ラベル: `SenderLabel.value`
   - 氏名（連名対応）:
@@ -138,7 +138,7 @@
 ### 4.2 差出人選択（印刷/送付フロー）
 
 - **初期選択（宛名住所と紐づいている場合）**
-  - 対象の `AddressEntry.id` に一致する `SenderAddressLink` が 1 件あり、紐づいた `SenderEntry` が `archived = false` の場合:
+  - 対象の `AddressEntry.id` に一致する `SenderAddressLink` が 1 件あり、紐づいた `SenderEntry` の `archivedAt` が未設定（有効）の場合:
     - その `SenderEntry` を選択
 - **初期選択（紐づきが無い／候補が無い場合）**
   - `updatedAt` が最新のものを選択
@@ -163,7 +163,7 @@
 ### 5.3 削除（ArchiveSenderEntry）
 
 - v1 の基本方針として **論理削除（アーカイブ）** を採用:
-  - `archived = true` に更新する `ArchiveSenderEntry` ユースケースを主とする。
+  - `archivedAt` にアーカイブ実行日時を書き込む `ArchiveSenderEntry` ユースケースを主とする（`updatedAt` は変更しない）。
 - 差出人（`SenderEntry`）をアーカイブした場合、その差出人に紐づく宛名とのリンクは削除する。
 
 ---
@@ -206,7 +206,7 @@ sender_entries
 
 - phone_number      TEXT                                   -- 電話番号（任意）
 
-- archived          INTEGER NOT NULL DEFAULT 0             -- 0:有効, 1:アーカイブ
+- archived_at       TEXT                                   -- アーカイブ日時（ISO 8601）。NULL = 有効
 
 - created_at        TEXT    NOT NULL                       -- ISO 8601 形式
 - updated_at        TEXT    NOT NULL                       -- ISO 8601 形式
@@ -215,8 +215,8 @@ sender_entries
 **インデックス案**
 
 ```text
-CREATE INDEX idx_sender_entries_archived_updated_at
-    ON sender_entries (archived, updated_at DESC);
+CREATE INDEX idx_sender_entries_active_updated_at
+    ON sender_entries (updated_at DESC) WHERE archived_at IS NULL;
 ```
 
 > 注: 論理削除運用のため、ユニーク制約（UNIQUE INDEX 等）は原則 **DBには作らず**、アプリケーション側のチェックで担保する（例: `label` の重複）。
@@ -239,7 +239,7 @@ sender_co_recipients
 - kana_last         TEXT                                    -- カナ姓
 - kana_first        TEXT                                    -- カナ名
 
-- archived          INTEGER NOT NULL DEFAULT 0              -- 0:有効, 1:アーカイブ
+- archived_at       TEXT                                     -- アーカイブ日時（ISO 8601）。NULL = 有効
 - created_at        TEXT    NOT NULL                        -- ISO 8601 形式
 - updated_at        TEXT    NOT NULL                        -- ISO 8601 形式
 ```
@@ -286,7 +286,7 @@ CREATE INDEX idx_sender_address_links_sender
 
 1. （確定）電話番号の正規化はしない
 2. **連名の入力上限**: 最大 4 件（確定）
-3. **宛名に紐づきが無い／紐づいた差出人がアーカイブの場合の初期選択**: 全体から `updatedAt` 最新を初期選択する（ただし自動的な紐づけはしない）※選択ルールの確定は要確認
+3. **宛名に紐づきが無い／紐づいた差出人がアーカイブ済み（`archivedAt` 設定済み）の場合の初期選択**: 全体から `updatedAt` 最新を初期選択する（ただし自動的な紐づけはしない）※選択ルールの確定は要確認
 4. （確定）紐づけの管理UXは、両方向から紐づけ可能とする（差出人編集画面で宛名を選択／宛名側で差出人を紐づけ）
 ---
 
@@ -297,4 +297,5 @@ CREATE INDEX idx_sender_address_links_sender
 | 2026-03-18 | 初版。TOP-16 のたたき台として、差出人ドメインをエンティティ・値オブジェクト・テーブル設計で整理。 |
 | 2026-03-18 | 宛名との関連を **`SenderAddressLink`（リンクテーブル）** で表現し、**差出人1に宛名複数**を主たる意図として明記。 |
 | 2026-03-18 | **1宛名あたり紐づく差出人は高々1件**に制限。`preferred` を廃止。 |
+| 2026-04-19 | 論理削除を `archived`（INTEGER）から `archived_at`（TEXT, NULL = 有効）へ変更。ラベル一意は未アーカイブ行に限定。アーカイブ時は `updated_at` を更新しない。インデックスは有効行向け部分インデックスに合わせて記載。 |
 

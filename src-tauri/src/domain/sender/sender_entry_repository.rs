@@ -80,7 +80,7 @@ pub struct DbSenderEntryRow {
   pub street: String,
   pub building: Option<String>,
   pub phone_number: Option<String>,
-  pub archived: bool,
+  pub archived_at: Option<String>,
   pub created_at: String,
   pub updated_at: String,
 }
@@ -134,6 +134,14 @@ impl DbSenderEntryRow {
     let updated_at: DateTime<Utc> = DateTime::parse_from_rfc3339(&self.updated_at)
       .map_err(|e| SenderRepositoryError::InvalidPersistedData(e.to_string()))?
       .with_timezone(&Utc);
+    let archived_at = match self.archived_at.as_deref() {
+      None | Some("") => None,
+      Some(s) => Some(
+        DateTime::parse_from_rfc3339(s)
+          .map_err(|e| SenderRepositoryError::InvalidPersistedData(e.to_string()))?
+          .with_timezone(&Utc),
+      ),
+    };
     SenderEntry::from_persisted(
       id,
       label,
@@ -142,7 +150,7 @@ impl DbSenderEntryRow {
       postal_code,
       address,
       phone_number,
-      self.archived,
+      archived_at,
       created_at,
       updated_at,
     )

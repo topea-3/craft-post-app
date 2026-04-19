@@ -23,16 +23,16 @@
 
 1. **初期選択（宛名に紐づきがある場合）**
    - 対象の `AddressEntry.id` に一致する `SenderAddressLink` が 1 件あり、
-     その紐づく `SenderEntry` が `archived = false` であれば
+     その紐づく `SenderEntry` の `archivedAt` が未設定（有効）であれば
    - その `SenderEntry` を選択状態にする
 
 2. **初期選択（紐づきが無い／候補が無い場合）**
-   - 全体の `SenderEntry (archived = false)` のうち、
+   - 全体の有効な `SenderEntry`（`archivedAt` 未設定）のうち、
      `updatedAt` が最新のものを選択
    - （v1 の方針として、自動的なリンク付けはしない想定。ただし実装側の最終判断は要確認）
 
 3. **未登録時**
-   - `archived = false` の `SenderEntry` が 0 件の場合:
+   - 有効な `SenderEntry`（`archivedAt` 未設定）が 0 件の場合:
      - 「差出人を登録してください」
      - 差出人登録画面への導線（`SEN002`）を表示
 

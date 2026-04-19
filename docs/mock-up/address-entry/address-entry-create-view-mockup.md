@@ -50,7 +50,7 @@
   - v1 では「宛名 1 件に対して、紐づく差出人は有効データの範囲では高々 1 人」として扱う。
 
 - **UI コンポーネント案**
-  - 差出人選択（`archived = false` の `SenderEntry` から選択）
+  - 差出人選択（`archivedAt` が未設定の `SenderEntry`＝有効な差出人から選択）
     - 選択 UI: セレクトボックス or カード一覧
     - 表示: `SenderLabel.value`
   - 「未設定」も選べる（この場合は `SenderAddressLink` を作らない）

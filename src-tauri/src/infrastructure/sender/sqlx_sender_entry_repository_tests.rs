@@ -29,9 +29,9 @@ mod tests {
       r#"
         INSERT INTO address_entries (
           id, primary_last, primary_first, primary_kana_last, primary_kana_first,
-          honorific, postal_code, prefecture, city, street, building, memo, archived, created_at, updated_at
+          honorific, postal_code, prefecture, city, street, building, memo, archived_at, created_at, updated_at
         )
-        VALUES (?, '佐藤', '一郎', NULL, NULL, '様', '1234567', '東京都', '千代田区', '1-1-1', NULL, NULL, 0, ?, ?)
+        VALUES (?, '佐藤', '一郎', NULL, NULL, '様', '1234567', '東京都', '千代田区', '1-1-1', NULL, NULL, NULL, ?, ?)
       "#,
     )
     .bind(id.to_string())
@@ -178,7 +178,7 @@ mod tests {
     );
 
     let now = chrono::Utc::now().to_rfc3339();
-    sqlx::query("UPDATE address_entries SET archived = 1, updated_at = ? WHERE id = ?")
+    sqlx::query("UPDATE address_entries SET archived_at = ? WHERE id = ?")
       .bind(&now)
       .bind(address_id.to_string())
       .execute(&pool)

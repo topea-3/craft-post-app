@@ -47,7 +47,7 @@ impl SenderEntryRepository for SqlxSenderEntryRepository {
       r#"
         INSERT INTO sender_entries (
           id, label, primary_last, primary_first, primary_kana_last, primary_kana_first,
-          postal_code, prefecture, city, street, building, phone_number, archived, created_at, updated_at
+          postal_code, prefecture, city, street, building, phone_number, archived_at, created_at, updated_at
         )
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       "#,
@@ -64,7 +64,7 @@ impl SenderEntryRepository for SqlxSenderEntryRepository {
     .bind(addr.street())
     .bind(addr.building())
     .bind(phone)
-    .bind(entry.archived())
+    .bind(entry.archived_at().map(|t| t.to_rfc3339()))
     .bind(created_at.to_rfc3339())
     .bind(updated_at.to_rfc3339())
     .execute(&mut *tx)
@@ -75,9 +75,9 @@ impl SenderEntryRepository for SqlxSenderEntryRepository {
       sqlx::query(
         r#"
           INSERT INTO sender_co_recipients (
-            id, sender_entry_id, order_index, last, first, kana_last, kana_first, archived, created_at, updated_at
+            id, sender_entry_id, order_index, last, first, kana_last, kana_first, archived_at, created_at, updated_at
           )
-          VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
+          VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
         "#,
       )
       .bind(co_id)
@@ -114,7 +114,7 @@ impl SenderEntryRepository for SqlxSenderEntryRepository {
           label = ?,
           primary_last = ?, primary_first = ?, primary_kana_last = ?, primary_kana_first = ?,
           postal_code = ?, prefecture = ?, city = ?, street = ?, building = ?,
-          phone_number = ?, archived = ?, created_at = ?, updated_at = ?
+          phone_number = ?, archived_at = ?, created_at = ?, updated_at = ?
         WHERE id = ?
       "#,
     )
@@ -129,7 +129,7 @@ impl SenderEntryRepository for SqlxSenderEntryRepository {
     .bind(addr.street())
     .bind(addr.building())
     .bind(phone)
-    .bind(entry.archived())
+    .bind(entry.archived_at().map(|t| t.to_rfc3339()))
     .bind(created_at.to_rfc3339())
     .bind(updated_at.to_rfc3339())
     .bind(&id)
@@ -146,9 +146,9 @@ impl SenderEntryRepository for SqlxSenderEntryRepository {
       sqlx::query(
         r#"
           INSERT INTO sender_co_recipients (
-            id, sender_entry_id, order_index, last, first, kana_last, kana_first, archived, created_at, updated_at
+            id, sender_entry_id, order_index, last, first, kana_last, kana_first, archived_at, created_at, updated_at
           )
-          VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
+          VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
         "#,
       )
       .bind(co_id)
@@ -178,7 +178,7 @@ impl SenderEntryRepository for SqlxSenderEntryRepository {
         r#"
           SELECT COUNT(*)
           FROM sender_entries
-          WHERE archived = 0 AND label = ? AND id <> ?
+          WHERE archived_at IS NULL AND label = ? AND id <> ?
         "#,
       )
       .bind(label)
@@ -190,7 +190,7 @@ impl SenderEntryRepository for SqlxSenderEntryRepository {
         r#"
           SELECT COUNT(*)
           FROM sender_entries
-          WHERE archived = 0 AND label = ?
+          WHERE archived_at IS NULL AND label = ?
         "#,
       )
       .bind(label)
@@ -206,7 +206,7 @@ impl SenderEntryRepository for SqlxSenderEntryRepository {
       r#"
         SELECT
           id, label, primary_last, primary_first, primary_kana_last, primary_kana_first,
-          postal_code, prefecture, city, street, building, phone_number, archived, created_at, updated_at
+          postal_code, prefecture, city, street, building, phone_number, archived_at, created_at, updated_at
         FROM sender_entries
         WHERE id = ?
       "#,
@@ -232,7 +232,7 @@ impl SenderEntryRepository for SqlxSenderEntryRepository {
       street: row.get("street"),
       building: row.get("building"),
       phone_number: row.get("phone_number"),
-      archived: row.get::<i64, _>("archived") != 0,
+      archived_at: row.get("archived_at"),
       created_at: row.get("created_at"),
       updated_at: row.get("updated_at"),
     };
@@ -281,11 +281,11 @@ impl SenderEntryRepository for SqlxSenderEntryRepository {
           ae.street,
           ae.building,
           ae.memo,
-          ae.archived,
+          ae.archived_at,
           ae.created_at,
           ae.updated_at
         FROM sender_address_links sal
-        JOIN address_entries ae ON ae.id = sal.address_entry_id AND ae.archived = 0
+        JOIN address_entries ae ON ae.id = sal.address_entry_id AND ae.archived_at IS NULL
         WHERE sal.sender_entry_id = ?
         ORDER BY sal.updated_at DESC, sal.id ASC
       "#,
@@ -305,9 +305,9 @@ impl SenderEntryRepository for SqlxSenderEntryRepository {
       r#"
         SELECT
           id, label, primary_last, primary_first, primary_kana_last, primary_kana_first,
-          postal_code, prefecture, city, street, building, phone_number, archived, created_at, updated_at
+          postal_code, prefecture, city, street, building, phone_number, archived_at, created_at, updated_at
         FROM sender_entries
-        WHERE archived = 0
+        WHERE archived_at IS NULL
         ORDER BY updated_at DESC, id ASC
         LIMIT ? OFFSET ?
       "#,
@@ -324,8 +324,8 @@ impl SenderEntryRepository for SqlxSenderEntryRepository {
     let mut tx = self.pool.begin().await?;
     let id_str = id.as_uuid().to_string();
     let now = Utc::now().to_rfc3339();
-    let result = sqlx::query("UPDATE sender_entries SET archived = 1, updated_at = ? WHERE id = ?")
-      .bind(now)
+    let result = sqlx::query("UPDATE sender_entries SET archived_at = ? WHERE id = ?")
+      .bind(&now)
       .bind(&id_str)
       .execute(&mut *tx)
       .await?;
@@ -482,7 +482,7 @@ async fn build_entries_with_co_recipients(
       street: row.get("street"),
       building: row.get("building"),
       phone_number: row.get("phone_number"),
-      archived: row.get::<i64, _>("archived") != 0,
+      archived_at: row.get("archived_at"),
       created_at: row.get("created_at"),
       updated_at: row.get("updated_at"),
     });

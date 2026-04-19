@@ -51,7 +51,7 @@ pub struct SenderEntry {
   postal_code: PostalCode,
   address: Address,
   phone_number: Option<PhoneNumber>,
-  archived: bool,
+  archived_at: Option<DateTime<Utc>>,
   created_at: DateTime<Utc>,
   updated_at: DateTime<Utc>,
 }
@@ -78,7 +78,7 @@ impl SenderEntry {
       postal_code,
       address,
       phone_number,
-      archived: false,
+      archived_at: None,
       created_at: now,
       updated_at: now,
     })
@@ -93,7 +93,7 @@ impl SenderEntry {
     postal_code: PostalCode,
     address: Address,
     phone_number: Option<PhoneNumber>,
-    archived: bool,
+    archived_at: Option<DateTime<Utc>>,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
   ) -> Result<Self, SenderEntryError> {
@@ -106,7 +106,7 @@ impl SenderEntry {
       postal_code,
       address,
       phone_number,
-      archived,
+      archived_at,
       created_at,
       updated_at,
     })
@@ -151,7 +151,11 @@ impl SenderEntry {
   }
 
   pub fn archived(&self) -> bool {
-    self.archived
+    self.archived_at.is_some()
+  }
+
+  pub fn archived_at(&self) -> Option<DateTime<Utc>> {
+    self.archived_at
   }
 
   pub fn created_at(&self) -> DateTime<Utc> {
@@ -166,13 +170,9 @@ impl SenderEntry {
     PersonName::join_recipients(&self.primary_name, &self.co_recipients)
   }
 
+  /// `updated_at` は変えず、アーカイブ日時のみ記録する。
   pub fn archive(&mut self) {
-    self.archived = true;
-    self.touch();
-  }
-
-  fn touch(&mut self) {
-    self.updated_at = Utc::now();
+    self.archived_at = Some(Utc::now());
   }
 }
 

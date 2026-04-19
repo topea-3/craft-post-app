@@ -377,7 +377,7 @@ async fn update_address_entry(
   let id = AddressEntryId::from_uuid(uuid);
   let repo = SqlxAddressEntryRepository::new(pool.inner().clone());
 
-  // 既存エントリを取得し、created_at / archived を維持する。
+  // 既存エントリを取得し、created_at / archived_at を維持する。
   let existing = repo
     .find_by_id(&id)
     .await
@@ -399,7 +399,7 @@ async fn update_address_entry(
     new_values.postal_code().clone(),
     new_values.address().clone(),
     new_values.memo().cloned(),
-    existing.archived(),
+    existing.archived_at(),
     existing.created_at(),
     now,
   );
@@ -626,7 +626,7 @@ async fn update_sender_entry_impl(
     new_values.postal_code().clone(),
     new_values.address().clone(),
     new_values.phone_number().cloned(),
-    existing.archived(),
+    existing.archived_at(),
     existing.created_at(),
     now,
   )
@@ -735,7 +735,7 @@ async fn update_sender_entry_links_impl(
   }
 
   let repo = SqlxSenderEntryRepository::new(pool.clone());
-  // sender の実在 + archived = 0 を検証
+  // sender の実在 + 未アーカイブを検証
   let sender = repo
     .find_by_id(&sender_entry_id)
     .await
@@ -748,7 +748,7 @@ async fn update_sender_entry_links_impl(
     return Err(AppError::Validation("sender entry is archived".to_string()).to_string());
   }
 
-  // address_entries の実在 + archived = 0 を検証（0件は解除扱いなのでOK）
+  // address_entries の実在 + 未アーカイブを検証（0件は解除扱いなのでOK）
   if !parsed_address_ids.is_empty() {
     validate_active_address_entries(pool, &parsed_address_ids).await?;
   }
@@ -819,7 +819,7 @@ async fn set_sender_for_address_entry_impl(
 ) -> Result<(), String> {
   let address_uuid =
     Uuid::parse_str(&address_entry_id).map_err(|e| AppError::Validation(e.to_string()).to_string())?;
-  // address の実在 + archived = 0 を検証
+  // address の実在 + 未アーカイブを検証
   let address_repo = SqlxAddressEntryRepository::new(pool.clone());
   let addr_id = AddressEntryId::from_uuid(address_uuid);
   let addr = address_repo
@@ -844,7 +844,7 @@ async fn set_sender_for_address_entry_impl(
   };
 
   let repo = SqlxSenderEntryRepository::new(pool.clone());
-  // sender の実在 + archived = 0 を検証（Some の場合）
+  // sender の実在 + 未アーカイブを検証（Some の場合）
   if let Some(ref sid) = sender_entry_id {
     let sender = repo
       .find_by_id(sid)
@@ -890,7 +890,7 @@ async fn validate_active_address_entries(
       .collect::<Vec<_>>()
       .join(",");
     let sql = format!(
-      "SELECT COUNT(*) AS cnt FROM address_entries WHERE archived = 0 AND id IN ({})",
+      "SELECT COUNT(*) AS cnt FROM address_entries WHERE archived_at IS NULL AND id IN ({})",
       placeholders
     );
     let mut q = sqlx::query(&sql);

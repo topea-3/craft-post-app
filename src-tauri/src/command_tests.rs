@@ -25,17 +25,18 @@ mod tests {
 
   async fn insert_address_entry(pool: &SqlitePool, id: Uuid, archived: bool) {
     let now = chrono::Utc::now().to_rfc3339();
+    let archived_at: Option<&str> = if archived { Some(now.as_str()) } else { None };
     sqlx::query(
       r#"
         INSERT INTO address_entries (
           id, primary_last, primary_first, primary_kana_last, primary_kana_first,
-          honorific, postal_code, prefecture, city, street, building, memo, archived, created_at, updated_at
+          honorific, postal_code, prefecture, city, street, building, memo, archived_at, created_at, updated_at
         )
         VALUES (?, '佐藤', '一郎', NULL, NULL, '様', '1234567', '東京都', '千代田区', '1-1-1', NULL, NULL, ?, ?, ?)
       "#,
     )
     .bind(id.to_string())
-    .bind(if archived { 1 } else { 0 })
+    .bind(archived_at)
     .bind(&now)
     .bind(&now)
     .execute(pool)
@@ -48,7 +49,7 @@ mod tests {
       r#"
         SELECT id
         FROM sender_entries
-        WHERE archived = 0 AND label = ?
+        WHERE archived_at IS NULL AND label = ?
         LIMIT 1
       "#,
     )
