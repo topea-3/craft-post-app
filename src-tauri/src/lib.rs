@@ -3,10 +3,14 @@ mod infrastructure;
 #[cfg(test)]
 mod command_tests;
 
+use std::sync::Arc;
+
 use chrono::Utc;
 use sqlx::{Row, SqlitePool};
 use tauri::{Manager, State};
 use uuid::Uuid;
+
+use crate::infrastructure::logging::{ApiLogDebugSettingsDto, ApiLogger};
 
 use crate::domain::address::address::Address;
 use crate::domain::address::address_entry::{AddressEntry, AddressEntryId};
@@ -35,13 +39,10 @@ const MAX_SENDER_CO_RECIPIENTS: usize = 4;
 pub fn run() {
   tauri::Builder::default()
     .setup(|app| {
-      if cfg!(debug_assertions) {
-        app.handle().plugin(
-          tauri_plugin_log::Builder::default()
-            .level(log::LevelFilter::Info)
-            .build(),
-        )?;
-      }
+      let api_logger = crate::infrastructure::logging::init_api_logger().map_err(|msg| {
+        Box::new(std::io::Error::new(std::io::ErrorKind::Other, msg)) as Box<dyn std::error::Error>
+      })?;
+      app.manage(api_logger);
 
       // SQLite プールを初期化してアプリ全体で共有する。
       let handle = app.handle();
@@ -68,9 +69,30 @@ pub fn run() {
       list_sender_linked_addresses,
       get_sender_id_by_address_entry_id,
       set_sender_for_address_entry,
+      get_api_log_debug_settings,
+      set_api_log_debug_directory,
+      set_api_log_debug_enabled,
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");
+}
+
+#[tauri::command]
+fn get_api_log_debug_settings(logger: State<'_, Arc<ApiLogger>>) -> ApiLogDebugSettingsDto {
+  logger.get_settings()
+}
+
+#[tauri::command]
+fn set_api_log_debug_directory(
+  logger: State<'_, Arc<ApiLogger>>,
+  directory: Option<String>,
+) -> Result<(), String> {
+  logger.set_debug_directory(directory)
+}
+
+#[tauri::command]
+fn set_api_log_debug_enabled(logger: State<'_, Arc<ApiLogger>>, enabled: bool) -> Result<(), String> {
+  logger.set_debug_enabled(enabled)
 }
 
 #[derive(Debug, thiserror::Error)]

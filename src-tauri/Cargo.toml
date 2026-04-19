@@ -23,9 +23,8 @@ tokio = { version = "1", features = ["rt", "macros"] }
 [dependencies]
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
-log = "0.4"
+log = { version = "0.4", features = ["std"] }
 tauri = { version = "2.10.3", features = [] }
-tauri-plugin-log = "2"
 chrono = { version = "0.4", features = ["clock", "serde"] }
 uuid = { version = "1", features = ["serde", "v4"] }
 thiserror = "1"
