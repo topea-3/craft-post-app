@@ -8,8 +8,9 @@ mod tests {
   use crate::infrastructure::sender::sqlx_sender_entry_repository::SqlxSenderEntryRepository;
 
   use crate::{
-    create_sender_entry_impl, set_sender_for_address_entry_impl, update_sender_entry_impl,
-    update_sender_entry_links_impl, AddressDto, PersonNameDto, SenderEntryDtoInput,
+    create_sender_entry_impl, list_sender_linked_addresses_impl, set_sender_for_address_entry_impl,
+    update_sender_entry_impl, update_sender_entry_links_impl, AddressDto, PersonNameDto,
+    SenderEntryDtoInput,
   };
 
   async fn setup_pool() -> SqlitePool {
@@ -206,6 +207,66 @@ mod tests {
       .await
       .expect_err("missing address should fail");
     assert!(err.contains("address entry not found"));
+  }
+
+  #[tokio::test]
+  async fn list_sender_linked_addresses_excludes_archived_addresses() {
+    let pool = setup_pool().await;
+    create_sender_entry_impl(&pool, sample_sender_dto("差出人"))
+      .await
+      .expect("create sender");
+    let sender_id = fetch_sender_id_by_label(&pool, "差出人").await;
+
+    let address_id = Uuid::new_v4();
+    insert_address_entry(&pool, address_id, false).await;
+    update_sender_entry_links_impl(&pool, sender_id.clone(), vec![address_id.to_string()])
+      .await
+      .expect("link address");
+
+    let linked = list_sender_linked_addresses_impl(&pool, sender_id.clone())
+      .await
+      .expect("list linked addresses");
+    assert_eq!(linked.len(), 1);
+
+    let now = chrono::Utc::now().to_rfc3339();
+    sqlx::query("UPDATE address_entries SET archived_at = ? WHERE id = ?")
+      .bind(&now)
+      .bind(address_id.to_string())
+      .execute(&pool)
+      .await
+      .unwrap();
+
+    let linked = list_sender_linked_addresses_impl(&pool, sender_id)
+      .await
+      .expect("list linked addresses after archive");
+    assert!(linked.is_empty());
+  }
+
+  #[tokio::test]
+  async fn list_sender_linked_addresses_validates_sender_existence_and_archived() {
+    let pool = setup_pool().await;
+
+    let err = list_sender_linked_addresses_impl(&pool, Uuid::new_v4().to_string())
+      .await
+      .expect_err("missing sender should fail");
+    assert!(err.contains("sender entry not found"));
+
+    create_sender_entry_impl(&pool, sample_sender_dto("S"))
+      .await
+      .expect("create sender S");
+    let sender_id = fetch_sender_id_by_label(&pool, "S").await;
+    let repo = SqlxSenderEntryRepository::new(pool.clone());
+    repo
+      .archive(&crate::domain::sender::sender_entry::SenderEntryId::from_uuid(
+        Uuid::parse_str(&sender_id).unwrap(),
+      ))
+      .await
+      .unwrap();
+
+    let err = list_sender_linked_addresses_impl(&pool, sender_id)
+      .await
+      .expect_err("archived sender should fail");
+    assert!(err.contains("sender entry is archived"));
   }
 
   #[tokio::test]

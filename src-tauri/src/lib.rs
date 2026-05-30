@@ -798,11 +798,30 @@ async fn list_sender_linked_addresses(
   pool: State<'_, SqlitePool>,
   sender_id: String,
 ) -> Result<Vec<AddressEntryDto>, String> {
+  list_sender_linked_addresses_impl(pool.inner(), sender_id).await
+}
+
+async fn list_sender_linked_addresses_impl(
+  pool: &SqlitePool,
+  sender_id: String,
+) -> Result<Vec<AddressEntryDto>, String> {
   let sender_uuid =
     Uuid::parse_str(&sender_id).map_err(|e| AppError::Validation(e.to_string()).to_string())?;
   let sender_entry_id = SenderEntryId::from_uuid(sender_uuid);
 
-  let repo = SqlxSenderEntryRepository::new(pool.inner().clone());
+  let repo = SqlxSenderEntryRepository::new(pool.clone());
+  let sender = repo
+    .find_by_id(&sender_entry_id)
+    .await
+    .map_err(|e| {
+      log::error!("list_sender_linked_addresses find_by_id failed: {:?}", e);
+      AppError::Repository("SENDER_LINK_LIST_FAILED".to_string())
+    })?
+    .ok_or_else(|| AppError::Validation("sender entry not found".to_string()).to_string())?;
+  if sender.archived() {
+    return Err(AppError::Validation("sender entry is archived".to_string()).to_string());
+  }
+
   let entries = repo
     .list_linked_address_entries(&sender_entry_id)
     .await

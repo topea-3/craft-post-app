@@ -306,8 +306,8 @@ impl SenderEntryRepository for SqlxSenderEntryRepository {
           ae.created_at,
           ae.updated_at
         FROM sender_address_links sal
-        JOIN address_entries ae ON ae.id = sal.address_entry_id AND ae.archived_at IS NULL
-        WHERE sal.sender_entry_id = ?
+        JOIN address_entries ae ON ae.id = sal.address_entry_id
+        WHERE sal.sender_entry_id = ? AND ae.archived_at IS NULL
         ORDER BY sal.updated_at DESC, sal.id ASC
       "#,
     )
