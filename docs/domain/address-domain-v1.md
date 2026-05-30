@@ -36,13 +36,13 @@
   - `memo` : `Memo` 値オブジェクト（任意）
   - `createdAt` : 作成日時
   - `updatedAt` : 更新日時
-  - `archived` : 論理削除フラグ（将来の履歴参照に備える）
+  - `archivedAt` : アーカイブ日時（任意）。未設定（`null`）＝有効、設定済み＝論理削除（アーカイブ）済み。将来の履歴参照に備え日時を保持する。
 - **主なドメインルール**
   - `primaryName` と `address` は必須（空の住所録エントリは作らない）。
   - 連名は `coRecipients` として 0 件以上保持できる（例: 夫婦連名、家族連名）。
   - 宛名印字時の表示名は、`primaryName` と `coRecipients` を結合した上で `honorific` を末尾に付与する
     - 例: `["山田 太郎", "山田 花子"] + "様"` → `"山田 太郎・山田 花子 様"`
-  - `archived = true` のエントリは通常の一覧からは非表示とする（※「アーカイブ一覧」は将来検討）。
+  - `archivedAt` が設定されているエントリは通常の一覧からは非表示とする（※「アーカイブ一覧」は将来検討）。
   - 将来、送受信履歴 `PostcardHistory` 側から `AddressEntry` を参照する前提で、  
   物理削除よりも **論理削除（archive）を基本方針** とする。
 
@@ -138,7 +138,7 @@
 ### 4.1 一覧画面（AddressEntry List View）
 
 - **表示対象**
-  - `archived = false` の `AddressEntry` を対象とする。
+  - `archivedAt` が未設定（有効）の `AddressEntry` を対象とする。
 - **想定表示項目**
   - 氏名＋敬称:
     - 単名: `primaryName.display`
@@ -189,7 +189,7 @@
 ### 5.3 削除（ArchiveAddressEntry / DeleteAddressEntry）
 
 - v1 の基本方針として **論理削除（アーカイブ）** を採用:
-  - `archived = true` に更新する `ArchiveAddressEntry` ユースケースを主とする。
+  - `archivedAt` にアーカイブ実行日時を書き込む `ArchiveAddressEntry` ユースケースを主とする（`updatedAt` は変更しない）。
   - 物理削除は「明らかに誤って作ったダミーデータ」など、限定的なケースに絞る想定。
 - 将来、送受信履歴と紐付いた場合も `AddressEntry` 自体は残し、履歴から参照可能にする。
 
@@ -229,7 +229,7 @@ address_entries
 - building          TEXT                                   -- 建物名・部屋番号
 
 - memo              TEXT                                   -- 備考
-- archived          INTEGER NOT NULL DEFAULT 0             -- 0:有効, 1:アーカイブ
+- archived_at       TEXT                                   -- アーカイブ日時（ISO 8601）。NULL = 有効
 - created_at        TEXT    NOT NULL                       -- ISO 8601 形式（例: 2026-03-10T08:34:00+09:00）
 - updated_at        TEXT    NOT NULL                       -- ISO 8601 形式（例: 2026-03-10T08:34:00+09:00）
 ```
@@ -237,8 +237,8 @@ address_entries
 **インデックス案**
 
 ```text
-CREATE INDEX idx_address_entries_archived_updated_at
-    ON address_entries (archived, updated_at DESC);
+CREATE INDEX idx_address_entries_active_updated_at
+    ON address_entries (updated_at DESC) WHERE archived_at IS NULL;
 
 CREATE INDEX idx_address_entries_name
     ON address_entries (primary_last, primary_first);
@@ -256,7 +256,7 @@ CREATE INDEX idx_address_entries_postal_code
 - `postalCode.value` → `postal_code`
 - `address.prefecture` / `city` / `street` / `building` → 各カラムにマッピング
 - `memo.text` → `memo`
-- `archived` / `createdAt` / `updatedAt` → `archived` / `created_at` / `updated_at`
+- `archivedAt` / `createdAt` / `updatedAt` → `archived_at` / `created_at` / `updated_at`
 
 ---
 
@@ -274,7 +274,7 @@ address_co_recipients
 - first             TEXT    NOT NULL            -- 名
 - kana_last         TEXT                        -- カナ姓
 - kana_first        TEXT                        -- カナ名
-- archived          INTEGER NOT NULL DEFAULT 0  -- 0:有効, 1:アーカイブ
+- archived_at       TEXT                        -- アーカイブ日時（ISO 8601）。NULL = 有効
 - created_at        TEXT    NOT NULL            -- ISO 8601 形式（例: 2026-03-10T08:34:00+09:00）
 - updated_at        TEXT    NOT NULL            -- ISO 8601 形式（例: 2026-03-10T08:34:00+09:00）
 ```
@@ -299,4 +299,5 @@ CREATE INDEX idx_address_co_recipients_entry_order
 |------------|----------------------------------------------------------------------|
 | 2026-03-09 | 初版。TOP-15 のたたき台として、住所録ドメインをエンティティ・値オブジェクトで整理。 |
 | 2026-03-09 | v1 の仕様に基づき、テーブル設計（address_entries / address_co_recipients）を追加。 |
+| 2026-04-19 | 論理削除を `archived`（INTEGER）から `archived_at`（TEXT, NULL = 有効）へ変更。アーカイブ時は `updated_at` を更新しない。インデックスは有効行向け部分インデックスに合わせて記載。 |
 

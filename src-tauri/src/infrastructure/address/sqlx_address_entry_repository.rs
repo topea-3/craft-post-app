@@ -13,7 +13,7 @@ use crate::domain::address::address_entry_repository::{
 fn build_search_where_clause(query: &AddressSearchQuery) -> String {
   let mut s = String::new();
   if !query.include_archived {
-    s.push_str(" AND archived = 0");
+    s.push_str(" AND archived_at IS NULL");
   }
   if query.keyword.is_some() {
     s.push_str(
@@ -65,7 +65,7 @@ impl AddressEntryRepository for SqlxAddressEntryRepository {
     let postal_code = entry.postal_code().value().to_string();
     let addr = entry.address();
     let memo_text = entry.memo().map(|m| m.text().to_string());
-    let archived = entry.archived();
+    let archived_at = entry.archived_at().map(|t| t.to_rfc3339());
     let created_at: DateTime<Utc> = entry.created_at();
     let updated_at: DateTime<Utc> = entry.updated_at();
 
@@ -84,7 +84,7 @@ impl AddressEntryRepository for SqlxAddressEntryRepository {
           street,
           building,
           memo,
-          archived,
+          archived_at,
           created_at,
           updated_at
         )
@@ -103,7 +103,7 @@ impl AddressEntryRepository for SqlxAddressEntryRepository {
     .bind(addr.street())
     .bind(addr.building())
     .bind(memo_text)
-    .bind(archived)
+    .bind(archived_at)
     .bind(created_at.to_rfc3339())
     .bind(updated_at.to_rfc3339())
     .execute(&mut *tx)
@@ -121,11 +121,11 @@ impl AddressEntryRepository for SqlxAddressEntryRepository {
             first,
             kana_last,
             kana_first,
-            archived,
+            archived_at,
             created_at,
             updated_at
           )
-          VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
+          VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
         "#,
       )
       .bind(co_id)
@@ -154,7 +154,7 @@ impl AddressEntryRepository for SqlxAddressEntryRepository {
     let postal_code = entry.postal_code().value().to_string();
     let addr = entry.address();
     let memo_text = entry.memo().map(|m| m.text().to_string());
-    let archived = entry.archived();
+    let archived_at = entry.archived_at().map(|t| t.to_rfc3339());
     let created_at: DateTime<Utc> = entry.created_at();
     let updated_at: DateTime<Utc> = entry.updated_at();
 
@@ -173,7 +173,7 @@ impl AddressEntryRepository for SqlxAddressEntryRepository {
           street = ?,
           building = ?,
           memo = ?,
-          archived = ?,
+          archived_at = ?,
           created_at = ?,
           updated_at = ?
         WHERE id = ?
@@ -190,7 +190,7 @@ impl AddressEntryRepository for SqlxAddressEntryRepository {
     .bind(addr.street())
     .bind(addr.building())
     .bind(memo_text)
-    .bind(archived)
+    .bind(archived_at)
     .bind(created_at.to_rfc3339())
     .bind(updated_at.to_rfc3339())
     .bind(&id)
@@ -215,11 +215,11 @@ impl AddressEntryRepository for SqlxAddressEntryRepository {
             first,
             kana_last,
             kana_first,
-            archived,
+            archived_at,
             created_at,
             updated_at
           )
-          VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
+          VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
         "#,
       )
       .bind(co_id)
@@ -260,7 +260,7 @@ impl AddressEntryRepository for SqlxAddressEntryRepository {
           street,
           building,
           memo,
-          archived,
+          archived_at,
           created_at,
           updated_at
         FROM address_entries
@@ -288,7 +288,7 @@ impl AddressEntryRepository for SqlxAddressEntryRepository {
       street: row.get("street"),
       building: row.get("building"),
       memo: row.get("memo"),
-      archived: row.get::<i64, _>("archived") != 0,
+      archived_at: row.get("archived_at"),
       created_at: row.get("created_at"),
       updated_at: row.get("updated_at"),
     };
@@ -303,7 +303,6 @@ impl AddressEntryRepository for SqlxAddressEntryRepository {
           first,
           kana_last,
           kana_first,
-          archived,
           created_at,
           updated_at
         FROM address_co_recipients
@@ -325,7 +324,6 @@ impl AddressEntryRepository for SqlxAddressEntryRepository {
         first: r.get("first"),
         kana_last: r.get("kana_last"),
         kana_first: r.get("kana_first"),
-        archived: r.get::<i64, _>("archived") != 0,
         created_at: r.get("created_at"),
         updated_at: r.get("updated_at"),
       })
@@ -354,11 +352,11 @@ impl AddressEntryRepository for SqlxAddressEntryRepository {
           street,
           building,
           memo,
-          archived,
+          archived_at,
           created_at,
           updated_at
         FROM address_entries
-        WHERE archived = 0
+        WHERE archived_at IS NULL
         ORDER BY
           COALESCE(primary_kana_last, primary_last) ASC,
           COALESCE(primary_kana_first, primary_first) ASC,
@@ -410,7 +408,7 @@ impl AddressEntryRepository for SqlxAddressEntryRepository {
           street,
           building,
           memo,
-          archived,
+          archived_at,
           created_at,
           updated_at
         FROM address_entries
@@ -451,11 +449,11 @@ impl AddressEntryRepository for SqlxAddressEntryRepository {
     let result = sqlx::query(
       r#"
         UPDATE address_entries
-        SET archived = 1, updated_at = ?
+        SET archived_at = ?
         WHERE id = ?
       "#,
     )
-    .bind(now)
+    .bind(&now)
     .bind(id_str)
     .execute(&self.pool)
     .await?;
@@ -468,7 +466,7 @@ impl AddressEntryRepository for SqlxAddressEntryRepository {
   }
 }
 
-async fn build_entries_with_co_recipients(
+pub(crate) async fn build_entries_with_co_recipients(
   rows: Vec<sqlx::sqlite::SqliteRow>,
   pool: &SqlitePool,
 ) -> Result<Vec<AddressEntry>, AddressRepositoryError> {
@@ -494,7 +492,7 @@ async fn build_entries_with_co_recipients(
       street: row.get("street"),
       building: row.get("building"),
       memo: row.get("memo"),
-      archived: row.get::<i64, _>("archived") != 0,
+      archived_at: row.get("archived_at"),
       created_at: row.get("created_at"),
       updated_at: row.get("updated_at"),
     });
@@ -522,7 +520,6 @@ async fn build_entries_with_co_recipients(
           first,
           kana_last,
           kana_first,
-          archived,
           created_at,
           updated_at
         FROM address_co_recipients
@@ -548,7 +545,6 @@ async fn build_entries_with_co_recipients(
         first: r.get("first"),
         kana_last: r.get("kana_last"),
         kana_first: r.get("kana_first"),
-        archived: r.get::<i64, _>("archived") != 0,
         created_at: r.get("created_at"),
         updated_at: r.get("updated_at"),
       };

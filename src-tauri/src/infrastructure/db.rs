@@ -25,6 +25,7 @@ pub fn resolve_db_path(app: &AppHandle) -> tauri::Result<PathBuf> {
 /// - プール作成後にマイグレーションを適用する。
 pub async fn init_pool(app: &AppHandle) -> Result<SqlitePool, sqlx::Error> {
   let db_path = resolve_db_path(app).map_err(|e| sqlx::Error::Configuration(Box::new(e)))?;
+  log::debug!("SQLite DB path: {}", db_path.to_string_lossy());
   let options = SqliteConnectOptions::new()
     .filename(&db_path)
     .create_if_missing(true);

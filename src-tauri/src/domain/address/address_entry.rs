@@ -47,7 +47,7 @@ pub struct AddressEntry {
   postal_code: PostalCode,
   address: Address,
   memo: Option<Memo>,
-  archived: bool,
+  archived_at: Option<DateTime<Utc>>,
   created_at: DateTime<Utc>,
   updated_at: DateTime<Utc>,
 }
@@ -78,7 +78,7 @@ impl AddressEntry {
       postal_code,
       address,
       memo,
-      archived: false,
+      archived_at: None,
       created_at: now,
       updated_at: now,
     }
@@ -93,7 +93,7 @@ impl AddressEntry {
     postal_code: PostalCode,
     address: Address,
     memo: Option<Memo>,
-    archived: bool,
+    archived_at: Option<DateTime<Utc>>,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
   ) -> Self {
@@ -105,7 +105,7 @@ impl AddressEntry {
       postal_code,
       address,
       memo,
-      archived,
+      archived_at,
       created_at,
       updated_at,
     }
@@ -140,7 +140,11 @@ impl AddressEntry {
   }
 
   pub fn archived(&self) -> bool {
-    self.archived
+    self.archived_at.is_some()
+  }
+
+  pub fn archived_at(&self) -> Option<DateTime<Utc>> {
+    self.archived_at
   }
 
   pub fn created_at(&self) -> DateTime<Utc> {
@@ -160,15 +164,9 @@ impl AddressEntry {
     )
   }
 
-  /// 論理削除（アーカイブ）フラグを立てる。
+  /// 論理削除（アーカイブ）日時を記録する（`updated_at` は変えない）。
   pub fn archive(&mut self) {
-    self.archived = true;
-    self.touch();
-  }
-
-  /// 更新日時を現在時刻に更新。
-  fn touch(&mut self) {
-    self.updated_at = Utc::now();
+    self.archived_at = Some(Utc::now());
   }
 }
 
@@ -223,7 +221,7 @@ mod tests {
   }
 
   #[test]
-  fn archive_sets_flag_and_updates_timestamp() {
+  fn archive_sets_archived_at_without_changing_updated_at() {
     let mut entry = sample_entry();
     let before = entry.updated_at();
     assert!(!entry.archived());
@@ -231,7 +229,8 @@ mod tests {
     entry.archive();
 
     assert!(entry.archived());
-    assert!(entry.updated_at() >= before);
+    assert_eq!(entry.updated_at(), before);
+    assert!(entry.archived_at().is_some());
   }
 }
 

@@ -12,6 +12,14 @@ import {
 import { useAddressEntryEditForm } from './useAddressEntryForm'
 import { formatDisplayName } from './types'
 import { ADDRESS_OPERATION_ERROR_MESSAGE } from './messages'
+import { FormSection } from '../../components/form/FormSection'
+import {
+  formatSenderOptionLabel,
+  fromSenderEntryDtoToDetail,
+  type SenderEntryDetail,
+  type SenderEntryDto,
+} from '../sender/types'
+import { SenderEntrySelectDialog } from '../sender/SenderEntrySelectDialog'
 
 export function AddressEntryEditPage() {
   const { id } = useParams<{ id: string }>()
@@ -21,6 +29,9 @@ export function AddressEntryEditPage() {
   const [initialValues, setInitialValues] = useState<AddressEntryFormValues | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [linkedSenderId, setLinkedSenderId] = useState<string>('')
+  const [linkedSender, setLinkedSender] = useState<SenderEntryDetail | null>(null)
+  const [isSenderDialogOpen, setIsSenderDialogOpen] = useState(false)
 
   const handleSuccess = useCallback(() => {
     if (!id) {
@@ -73,6 +84,39 @@ export function AddressEntryEditPage() {
     }
   }, [id])
 
+  useEffect(() => {
+    if (!id) return
+    let cancelled = false
+    const fetchLinkedSender = async () => {
+      try {
+        const senderId = await invoke<string | null>('get_sender_id_by_address_entry_id', {
+          addressEntryId: id,
+        })
+        if (cancelled) return
+        const nextSenderId = senderId ?? ''
+        setLinkedSenderId(nextSenderId)
+        if (!nextSenderId) {
+          setLinkedSender(null)
+          return
+        }
+        const dto = await invoke<SenderEntryDto>('get_sender_entry', {
+          id: nextSenderId,
+        })
+        if (cancelled) return
+        setLinkedSender(fromSenderEntryDtoToDetail(dto))
+      } catch (e) {
+        if (cancelled) return
+        console.error('Failed to fetch linked sender:', e)
+        setLinkedSenderId('')
+        setLinkedSender(null)
+      }
+    }
+    fetchLinkedSender()
+    return () => {
+      cancelled = true
+    }
+  }, [id])
+
   const {
     values,
     errors,
@@ -94,6 +138,35 @@ export function AddressEntryEditPage() {
     ),
     handleSuccess,
   )
+
+  const handleSetLinkedSender = async (value: string) => {
+    if (!id) return
+    if (value === linkedSenderId) return
+
+    if (linkedSenderId && value) {
+      const confirmed = window.confirm(
+        'この宛名はすでに別の差出人に紐づいています。置き換えますか？',
+      )
+      if (!confirmed) return
+    }
+
+    try {
+      await invoke('set_sender_for_address_entry', {
+        addressEntryId: id,
+        senderId: value.trim() === '' ? null : value,
+      })
+      setLinkedSenderId(value)
+      if (value.trim() === '') {
+        setLinkedSender(null)
+        return
+      }
+      const dto = await invoke<SenderEntryDto>('get_sender_entry', { id: value })
+      setLinkedSender(fromSenderEntryDtoToDetail(dto))
+    } catch (e) {
+      console.error('Failed to set sender for address:', e)
+      alert(ADDRESS_OPERATION_ERROR_MESSAGE)
+    }
+  }
 
   const handleCancel = () => {
     if (isDirty) {
@@ -205,6 +278,47 @@ export function AddressEntryEditPage() {
           onChangeHonorific={updateHonorific}
           onChangeMemo={updateMemo}
         />
+
+        <FormSection title="差出人の紐づけ">
+          <div className="sender-link-field">
+            <p className="field-label">差出人</p>
+            <p className="sender-link-current">
+              {linkedSender ? formatSenderOptionLabel(linkedSender) : '未設定'}
+            </p>
+            <p className="field-helper">この宛名に印字する差出人を設定できます。</p>
+            <div className="sender-link-actions">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsSenderDialogOpen(true)
+                }}
+              >
+                差出人を選択
+              </button>
+              <button
+                type="button"
+                className="secondary"
+                disabled={!linkedSenderId}
+                onClick={() => {
+                  void handleSetLinkedSender('')
+                }}
+              >
+                未設定にする
+              </button>
+            </div>
+          </div>
+          <SenderEntrySelectDialog
+            isOpen={isSenderDialogOpen}
+            selectedId={linkedSenderId || null}
+            onClose={() => {
+              setIsSenderDialogOpen(false)
+            }}
+            onSelect={(senderId) => {
+              setIsSenderDialogOpen(false)
+              void handleSetLinkedSender(senderId)
+            }}
+          />
+        </FormSection>
       </main>
     </div>
   )

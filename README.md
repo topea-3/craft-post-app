@@ -41,6 +41,51 @@
 
 5. **エディタ**: ルートの [.editorconfig](.editorconfig) に従い、インデント・改行・文字コードを統一してください。
 
+## API ログのデバッグモード（本番ビルド）
+
+Rust 側の `log` 出力をファイルに残す機能です。**開発ビルド**（`tauri dev` など）ではコンソールに全レベルが出るため、この設定は基本的に **リリース実行ファイル**向けです。デバッグ状態とログフォルダは **永続化されません**（セッション内のみ）。
+
+### 起動時に CLI で有効化する
+
+`--api-debug` と **`--api-debug-log-dir` で出力先フォルダの両方**が必要です。
+
+```bash
+# Windows の例（パスにスペースがある場合は引用符で囲む）
+CraftPost.exe --api-debug --api-debug-log-dir "D:\logs\craft-post"
+```
+
+```bash
+# 等号形式でも指定可能
+CraftPost.exe --api-debug --api-debug-log-dir=C:\temp\api-logs
+```
+
+### フロントから Tauri コマンドで有効化する
+
+**先にログ出力フォルダを指定**し、その後でデバッグを ON にします。フォルダ未指定のまま `set_api_log_debug_enabled(true)` はエラーになります。
+
+```typescript
+import { invoke } from '@tauri-apps/api/core'
+
+// 1. 出力フォルダを指定
+await invoke('set_api_log_debug_directory', {
+  directory: 'D:\\logs\\craft-post',
+})
+
+// 2. デバッグモード ON（この時点のログレベルは DEBUG）
+await invoke('set_api_log_debug_enabled', { enabled: true })
+
+// 状態確認
+const settings = await invoke<{ debugEnabled: boolean; logDirectory: string | null }>(
+  'get_api_log_debug_settings',
+)
+```
+
+デバッグを止める場合:
+
+```typescript
+await invoke('set_api_log_debug_enabled', { enabled: false })
+```
+
 ## リリース
 
 - バージョンは **SemVer**（例: `1.0.0`）。タグは `v1.0.0` 形式で **main** に打ちます。
