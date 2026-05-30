@@ -1,6 +1,7 @@
 ---
 name: linear-issue-design
 description: Linear issue から docs/ に設計書を作成・更新するワークフロー。Issue のステータス管理、ブランチ確認・作成、既存 docs/ と実装コードの調査、自己レビュー、Linear ステータス更新まで行う。ユーザーが Linear issue の設計、設計書作成、docs 更新、issue 設計フローを依頼したときに使う。
+disable-model-invocation: true
 ---
 
 # Linear Issue 設計
@@ -26,118 +27,47 @@ Linear issue を起点に、プロジェクトの `docs/` に設計書を作成�
 ## ルール
 
 - 設計に迷う部分は都度ユーザに質問する。その際は可能な限り選択肢を検討してから質問をする
-- ブランチの checkout / 作成は Step 3 で行う。push / commit はユーザー明示依頼時のみ
-- **新規ブランチ作成時は、ベースブランチをユーザーに確認してから作成する**
+- ブランチの checkout / 作成は Step 3。push / commit はユーザー明示依頼時のみ
+- 新規ブランチ作成時はベースブランチをユーザーに確認してから作成する
 
 ## 実行手順
 
 ### Step 1–2: Linear issue とステータス
 
-- Linear MCP を使う（`plugin-linear-linear`）。ツール呼び出し前にスキーマを確認する。
-- Issue ID 未指定 → ユーザーに ID（例: `CRA-123`）を確認してから進める。
-- `get_issue` で title / description / state / team / labels / relations を取得する。
-- ステータス判定:
-  - **Done** → 設計不要。サマリのみ報告して終了。
-  - **In Progress** → 変更しない。
-  - **上記以外** → `save_issue` で `state: "In Progress"` に更新（チーム固有名の場合は `list_issue_statuses` で確認）。
+[共通リファレンス — Linear MCP / ステータス遷移](../linear-issue-shared/reference.md#linear-mcp) に従う。
+
+- Issue ID 未指定 → ユーザーに確認
+- `get_issue` で title / description / state / team / labels / relations を取得
 
 ### Step 3: ブランチ確認・作成
 
-`linear-issue-implement` と同一規則を使う。詳細は `.cursor/skills/linear-issue-implement/reference.md` のブランチ運用を参照。
-
-| 種別 | 形式 |
-|------|------|
-| 機能開発 | `feature/<issue id>_<description>` |
-| バグ修正 | `fix/<issue id>_<description>` |
-
-- 現在ブランチが一致 → そのまま進む
-- ローカルに存在 → checkout
-- リモートのみ → `git checkout -t origin/<branch>`
-- **未作成** → ユーザーにベースブランチを確認してから `git checkout -b`
-  - A: `develop` から作成
-  - B: 指定ブランチから作成（ブランチ名を入力）
-- 未コミット変更で checkout 不可 → ユーザーに確認
+[共通リファレンス — ブランチ運用](../linear-issue-shared/reference.md#ブランチ運用) に従う。
 
 ### Step 4: 設計対象の把握
 
-Issue から以下を整理し、設計書のスコープを明確にする。
-
-- 目的・背景
-- 受け入れ条件 / 完了条件
-- 対象機能・画面・API・DB
-- 非スコープ（やらないこと）
-- 関連 issue / 依存
-
-不足があれば、選択肢付きでユーザーに確認する。
+Issue から目的・受け入れ条件・対象機能/画面/API/DB・非スコープ・依存を整理する。不足は [質問テンプレート](../linear-issue-shared/reference.md#質問テンプレート) で確認。
 
 ### Step 5: 調査と設計書作成
 
-**必読 docs（優先順）**
-
-1. `docs/overview/requirements-and-constraints.md`
-2. `docs/overview/architecture-overview.md`
-3. `docs/overview/decisions-summary.md`
-4. 関連ドメイン: `docs/domain/`
-5. 関連技術決定: `docs/tech-decisions/`
-6. 関連モック: `docs/mock-up/`
-
-**実装調査**
-
-- 関連 feature: `src/features/`
-- Tauri コマンド / ドメイン / インフラ: `src-tauri/src/`
-- マイグレーション: `src-tauri/migrations/`
-
-**設計書の配置**
-
-- 新規機能・横断設計 → `docs/design/`（なければ作成）
-- ドメイン仕様の更新 → `docs/domain/`
-- 画面仕様 → `docs/mock-up/` または `docs/design/`
-
-テンプレートと配置ルールは [reference.md](reference.md) を参照。
+1. 必読 docs・関連実装を調査（一覧は [reference.md](reference.md)）
+2. 設計書を作成・更新（テンプレート・配置ルールは [reference.md](reference.md)）
 
 ### Step 6–7: 自己レビューと修正ループ
 
-レビュー結果はチェックリスト形式で記録する。
-
-```
-レビュー結果:
-- [ ] Issue 要件の充足
-- [ ] 機能矛盾なし
-- [ ] 実装済み機能との整合
-- [ ] 方針・要件・アーキテクチャとの整合
-- [ ] 改善点なし（または対応済み）
-```
-
-指摘がある間は Step 5 に戻り設計書を修正する。全項目クリア後、`save_issue` でステータスを **レビュー**（チームの Review 相当）に更新。ステータス名は `list_issue_statuses` で確認する。
+[reference.md — 自己レビュー](reference.md#自己レビュー) のチェックリストで記録する。指摘がある間は Step 5 に戻る。全項目クリア後、Issue を **Review** に更新。
 
 ### Step 8: サマリ報告
 
-以下を含めて報告する。
-
 - Issue ID / タイトル / 最終ステータス
-- **作業ブランチ名**（新規作成時はベースブランチ名も）
+- 作業ブランチ名（新規作成時はベースブランチ名も）
 - 作成・更新した設計書のパス
 - 設計の要点（3–5 行）
-- 自己レビュー結果（問題なし / 修正した点）
-- 未決事項・ユーザー確認事項（あれば）
-
-## 質問の出し方
-
-設計に迷うときは、次の形式でユーザーに確認する。
-
-```markdown
-## 確認: [論点]
-
-**背景**: [なぜ判断が必要か]
-
-**選択肢**
-- A: [概要] — メリット / デメリット
-- B: [概要] — メリット / デメリット
-- C: [概要] — メリット / デメリット（必要なら）
-
-**推奨**: [理由付き。なければ「未定」]
-```
+- 自己レビュー結果
+- 未決事項（あれば）
 
 ## 追加リソース
 
-- 設計書テンプレート・docs 構成: [reference.md](reference.md)
+| 内容 | 参照先 |
+|------|--------|
+| Linear MCP・ブランチ・質問形式 | [../linear-issue-shared/reference.md](../linear-issue-shared/reference.md) |
+| docs 構成・設計書テンプレート・レビュー詳細 | [reference.md](reference.md) |

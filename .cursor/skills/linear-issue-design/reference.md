@@ -1,20 +1,45 @@
 # Linear Issue 設計 — リファレンス
 
+手順・フローは [SKILL.md](SKILL.md)。本ファイルは設計作業の参照資料のみ。
+
+## 調査の優先順
+
+### 必読 docs
+
+1. `docs/overview/requirements-and-constraints.md`
+2. `docs/overview/architecture-overview.md`
+3. `docs/overview/decisions-summary.md`
+4. 関連ドメイン: `docs/domain/`
+5. 関連技術決定: `docs/tech-decisions/`
+6. 関連モック: `docs/mock-up/`
+
+### 実装調査（現状把握用）
+
+- `src/features/`
+- `src-tauri/src/`（domain / infrastructure / lib.rs）
+- `src-tauri/migrations/`
+
 ## docs/ 構成
 
 ```
 docs/
-├── overview/           # 要件・アーキテクチャ・決定事項サマリ
-├── domain/             # ドメイン仕様（address, sender 等）
-├── tech-decisions/     # 技術選定の記録
-├── mock-up/            # 画面モック・UI 仕様
-├── design/             # 機能横断・実装設計（本スキルで新規作成する場所）
-└── project-setup/      # 開発環境・運用
+├── overview/
+├── domain/
+├── tech-decisions/
+├── mock-up/
+├── design/             # 機能横断・実装設計（新規作成の主な配置先）
+└── project-setup/
 ```
 
-## 設計書テンプレート
+## 設計書の配置
 
-新規設計書は `docs/design/<feature-name>-design.md` に作成する。
+| 内容 | 配置先 |
+|------|--------|
+| 新規機能・横断設計 | `docs/design/<feature-name>-design.md` |
+| ドメイン仕様の更新 | `docs/domain/` |
+| 画面仕様 | `docs/mock-up/` または `docs/design/` |
+
+## 設計書テンプレート
 
 ```markdown
 # [機能名] — 設計書
@@ -27,100 +52,66 @@ docs/
 
 ## 1. 背景・目的
 
-[Issue から。なぜ必要か]
-
 ## 2. スコープ
-
 ### 対象
-
-- ...
-
 ### 非スコープ
 
-- ...
-
 ## 3. 要件
-
 ### 機能要件
-
-- ...
-
 ### 非機能要件
 
-- ...
-
 ## 4. 現状分析
-
 ### 関連 docs
-
-- `docs/...`
-
 ### 関連実装
-
-- `src/...` / `src-tauri/...`
-
 ### ギャップ
 
-- 現状と目標の差分
-
 ## 5. 設計
-
 ### 5.1 データモデル / DB
-
-[テーブル・カラム・制約。マイグレーション方針]
-
 ### 5.2 API / Tauri コマンド
-
-[コマンド名・入出力・エラー]
-
 ### 5.3 フロントエンド
-
-[画面・コンポーネント・状態管理]
-
 ### 5.4 フロー
-
-[主要ユースケース。必要なら mermaid]
 
 ## 6. エッジケース・エラー処理
 
-- ...
-
 ## 7. テスト方針
-
-- ...
 
 ## 8. 実装タスク（参考）
 
-- [ ] ...
-
 ## 9. 未決事項
-
-- ...
 ```
 
-## Linear MCP 操作
+## 自己レビュー
 
-| 操作 | ツール | 備考 |
-|------|--------|------|
-| Issue 取得 | `get_issue` | `id` に `CRA-123` 形式 |
-| ステータス一覧 | `list_issue_statuses` | `team` 必須。Review / In Progress の正式名を確認 |
-| ステータス更新 | `save_issue` | `id` + `state`（名前または ID） |
+ワークフロー Step 6 の観点に対応するチェックリスト。
 
-Markdown の `description` はエスケープせず、そのまま渡す（Linear MCP の指示に従う）。
-
-## 自己レビュー観点の詳細
+```
+- [ ] Issue 要件の充足
+- [ ] 機能矛盾なし
+- [ ] 実装済み機能との整合
+- [ ] 方針・要件・アーキテクチャとの整合
+- [ ] 改善点なし（または対応済み）
+```
 
 | 観点 | 確認内容 |
 |------|----------|
 | Issue 要件の充足 | 受け入れ条件が設計でカバーされているか。漏れ・過剰スコープがないか |
 | 機能矛盾 | 同一機能内・関連機能間で仕様が矛盾していないか |
-| 実装整合 | 既存 API / DB / UI の挙動と設計が食い違わないか。破壊的変更の有無 |
-| 方針・要件・アーキテクチャ | `requirements-and-constraints.md`、Tauri + SQLite 構成、オフライン前提等と整合するか |
+| 実装整合 | 既存 API / DB / UI と設計が食い違わないか |
+| 方針・要件・アーキテクチャ | `requirements-and-constraints.md`、Tauri + SQLite、オフライン前提と整合するか |
 | 改善点 | シンプル化、既存パターン再利用、将来拡張の余地 |
 
-## プロジェクト固有の前提
+## プロジェクト前提（設計時）
 
-- **スタック**: Tauri + React + TypeScript + SQLite（Rust バックエンド）
+- **スタック**: Tauri + React + TypeScript + SQLite
 - **アーキテクチャ**: UI → Tauri コマンド → ドメイン → インフラ（sqlx）
-- **永続化**: `src-tauri/migrations/` でスキーマ管理
-- **オフライン**: 日常利用はオフライン完結（`requirements-and-constraints.md`）
+- **永続化**: `src-tauri/migrations/`
+- **オフライン**: 日常利用はオフライン完結
+
+## 関連スキル
+
+| スキル | 用途 |
+|--------|------|
+| `linear-issue-design` | 本スキル — docs/ に設計書を作成 |
+| `linear-issue-implement` | 設計に基づきコードを実装 |
+
+設計書が無い Issue で実装依頼が来た場合は、先に本スキルの実行を提案する。
