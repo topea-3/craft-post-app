@@ -13,29 +13,13 @@ import { useAddressEntryEditForm } from './useAddressEntryForm'
 import { formatDisplayName } from './types'
 import { ADDRESS_OPERATION_ERROR_MESSAGE } from './messages'
 import { FormSection } from '../../components/form/FormSection'
-import { SelectField } from '../../components/form/SelectField'
-import type { SenderEntryDto } from '../sender/types'
-import { formatSenderDisplayName, fromSenderEntryDto } from '../sender/types'
-
-/** `list_sender_entries` の limit 上限（lib.rs の MAX_PAGE_LIMIT）に合わせ、複数回呼び出して全件取得する */
-const SENDER_LIST_PAGE_SIZE = 200
-
-async function fetchAllActiveSenderEntryDtos(): Promise<SenderEntryDto[]> {
-  const all: SenderEntryDto[] = []
-  let offset = 0
-  for (;;) {
-    const page = await invoke<SenderEntryDto[]>('list_sender_entries', {
-      limit: SENDER_LIST_PAGE_SIZE,
-      offset,
-    })
-    all.push(...page)
-    if (page.length < SENDER_LIST_PAGE_SIZE) {
-      break
-    }
-    offset += SENDER_LIST_PAGE_SIZE
-  }
-  return all
-}
+import {
+  formatSenderOptionLabel,
+  fromSenderEntryDtoToDetail,
+  type SenderEntryDetail,
+  type SenderEntryDto,
+} from '../sender/types'
+import { SenderEntrySelectDialog } from '../sender/SenderEntrySelectDialog'
 
 export function AddressEntryEditPage() {
   const { id } = useParams<{ id: string }>()
@@ -45,10 +29,9 @@ export function AddressEntryEditPage() {
   const [initialValues, setInitialValues] = useState<AddressEntryFormValues | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [senderOptions, setSenderOptions] = useState<{ value: string; label: string }[]>([
-    { value: '', label: '未設定' },
-  ])
   const [linkedSenderId, setLinkedSenderId] = useState<string>('')
+  const [linkedSender, setLinkedSender] = useState<SenderEntryDetail | null>(null)
+  const [isSenderDialogOpen, setIsSenderDialogOpen] = useState(false)
 
   const handleSuccess = useCallback(() => {
     if (!id) {
@@ -102,33 +85,6 @@ export function AddressEntryEditPage() {
   }, [id])
 
   useEffect(() => {
-    let cancelled = false
-    const fetchSenders = async () => {
-      try {
-        const dtos = await fetchAllActiveSenderEntryDtos()
-        if (cancelled) return
-        const items = dtos.map(fromSenderEntryDto)
-        const opts = [
-          { value: '', label: '未設定' },
-          ...items.map((s) => ({
-            value: s.id,
-            label: `${s.label}（${formatSenderDisplayName(s.primaryName, s.coRecipients) || '—'}）`,
-          })),
-        ]
-        setSenderOptions(opts)
-      } catch (e) {
-        if (cancelled) return
-        console.error('Failed to fetch sender entries:', e)
-        setSenderOptions([{ value: '', label: '未設定' }])
-      }
-    }
-    fetchSenders()
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
-  useEffect(() => {
     if (!id) return
     let cancelled = false
     const fetchLinkedSender = async () => {
@@ -137,11 +93,22 @@ export function AddressEntryEditPage() {
           addressEntryId: id,
         })
         if (cancelled) return
-        setLinkedSenderId(senderId ?? '')
+        const nextSenderId = senderId ?? ''
+        setLinkedSenderId(nextSenderId)
+        if (!nextSenderId) {
+          setLinkedSender(null)
+          return
+        }
+        const dto = await invoke<SenderEntryDto>('get_sender_entry', {
+          id: nextSenderId,
+        })
+        if (cancelled) return
+        setLinkedSender(fromSenderEntryDtoToDetail(dto))
       } catch (e) {
         if (cancelled) return
         console.error('Failed to fetch linked sender:', e)
         setLinkedSenderId('')
+        setLinkedSender(null)
       }
     }
     fetchLinkedSender()
@@ -171,6 +138,35 @@ export function AddressEntryEditPage() {
     ),
     handleSuccess,
   )
+
+  const handleSetLinkedSender = async (value: string) => {
+    if (!id) return
+    if (value === linkedSenderId) return
+
+    if (linkedSenderId && value) {
+      const confirmed = window.confirm(
+        'この宛名はすでに別の差出人に紐づいています。置き換えますか？',
+      )
+      if (!confirmed) return
+    }
+
+    try {
+      await invoke('set_sender_for_address_entry', {
+        addressEntryId: id,
+        senderId: value.trim() === '' ? null : value,
+      })
+      setLinkedSenderId(value)
+      if (value.trim() === '') {
+        setLinkedSender(null)
+        return
+      }
+      const dto = await invoke<SenderEntryDto>('get_sender_entry', { id: value })
+      setLinkedSender(fromSenderEntryDtoToDetail(dto))
+    } catch (e) {
+      console.error('Failed to set sender for address:', e)
+      alert(ADDRESS_OPERATION_ERROR_MESSAGE)
+    }
+  }
 
   const handleCancel = () => {
     if (isDirty) {
@@ -284,34 +280,43 @@ export function AddressEntryEditPage() {
         />
 
         <FormSection title="差出人の紐づけ">
-          <SelectField
-            label="差出人"
-            value={linkedSenderId}
-            options={senderOptions}
-            onChange={async (value) => {
-              if (!id) return
-              if (value === linkedSenderId) return
-
-              // 付け替え時のみ確認（既存がある & 新しい値がある）
-              if (linkedSenderId && value) {
-                const confirmed = window.confirm(
-                  'この宛名はすでに別の差出人に紐づいています。置き換えますか？',
-                )
-                if (!confirmed) return
-              }
-
-              try {
-                await invoke('set_sender_for_address_entry', {
-                  addressEntryId: id,
-                  senderId: value.trim() === '' ? null : value,
-                })
-                setLinkedSenderId(value)
-              } catch (e) {
-                console.error('Failed to set sender for address:', e)
-                alert(ADDRESS_OPERATION_ERROR_MESSAGE)
-              }
+          <div className="sender-link-field">
+            <p className="field-label">差出人</p>
+            <p className="sender-link-current">
+              {linkedSender ? formatSenderOptionLabel(linkedSender) : '未設定'}
+            </p>
+            <p className="field-helper">この宛名に印字する差出人を設定できます。</p>
+            <div className="sender-link-actions">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsSenderDialogOpen(true)
+                }}
+              >
+                差出人を選択
+              </button>
+              <button
+                type="button"
+                className="secondary"
+                disabled={!linkedSenderId}
+                onClick={() => {
+                  void handleSetLinkedSender('')
+                }}
+              >
+                未設定にする
+              </button>
+            </div>
+          </div>
+          <SenderEntrySelectDialog
+            isOpen={isSenderDialogOpen}
+            selectedId={linkedSenderId || null}
+            onClose={() => {
+              setIsSenderDialogOpen(false)
             }}
-            helperText="この宛名に印字する差出人を設定できます。"
+            onSelect={(senderId) => {
+              setIsSenderDialogOpen(false)
+              void handleSetLinkedSender(senderId)
+            }}
           />
         </FormSection>
       </main>

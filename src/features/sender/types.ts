@@ -161,6 +161,11 @@ export const formatSenderDisplayName = (
   return [primaryFull, ...coNames].join('・')
 }
 
+export const formatSenderOptionLabel = (
+  sender: Pick<SenderEntryListItem, 'label' | 'primaryName' | 'coRecipients'>,
+): string =>
+  `${sender.label}（${formatSenderDisplayName(sender.primaryName, sender.coRecipients) || '—'}）`
+
 export const fromSenderEntryDto = (dto: SenderEntryDto): SenderEntryListItem => ({
   id: dto.id,
   label: dto.label,

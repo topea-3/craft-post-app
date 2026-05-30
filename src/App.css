@@ -422,7 +422,16 @@
   font-size: 0.9rem;
 }
 
-.address-list-page-info {
+.pagination-controls {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  font-size: 0.9rem;
+}
+
+.address-list-page-info,
+.pagination-controls-page-info {
   min-width: 3rem;
   text-align: center;
 }
@@ -435,6 +444,46 @@
 .address-list-error {
   font-size: 0.9rem;
   color: #f97373;
+}
+
+.sender-link-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.sender-link-current {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.sender-link-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.sender-select-current {
+  margin-bottom: 1rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid #374151;
+  border-radius: 0.5rem;
+  background-color: #111827;
+}
+
+.sender-select-current-label {
+  margin: 0 0 0.25rem;
+  font-size: 0.8rem;
+  color: #9ca3af;
+}
+
+.sender-select-current-value {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.sender-select-row-selected {
+  background-color: rgba(99, 102, 241, 0.12);
 }
 
 .dialog-overlay {

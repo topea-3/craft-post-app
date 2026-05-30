@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
+import { PaginationControls } from '../../components/PaginationControls'
 import type { AddressEntryDto } from '../address/types'
 import { fromAddressEntryDto, formatAddressSingleLine, formatDisplayName, formatPostalCode } from '../address/types'
 import type { AddressEntryListItem } from '../address/types'
@@ -147,25 +148,12 @@ export function AddressEntrySelectDialog({ isOpen, excludeIds = [], onClose, onS
             </table>
           ) : null}
 
-          <div className="address-list-pagination">
-            <button
-              type="button"
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-              disabled={currentPage === 1}
-            >
-              前へ
-            </button>
-            <span className="address-list-page-info">
-              {currentPage} / {totalPages}
-            </span>
-            <button
-              type="button"
-              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-              disabled={currentPage >= totalPages}
-            >
-              次へ
-            </button>
-          </div>
+          <PaginationControls
+            currentPage={currentPage}
+            totalPages={totalPages}
+            onPrev={() => setPage((p) => Math.max(1, p - 1))}
+            onNext={() => setPage((p) => Math.min(totalPages, p + 1))}
+          />
         </div>
       </div>
     </div>

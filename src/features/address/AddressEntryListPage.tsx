@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { useNavigate } from 'react-router-dom'
+import { PaginationControls } from '../../components/PaginationControls'
 import {
   formatAddressSingleLine,
   formatDisplayName,
@@ -273,25 +274,12 @@ export function AddressEntryListPage() {
             </tbody>
           </table>
 
-          <div className="address-list-pagination">
-            <button
-              type="button"
-              onClick={handlePrevPage}
-              disabled={currentPage === 1}
-            >
-              前へ
-            </button>
-            <span className="address-list-page-info">
-              {currentPage} / {totalPages}
-            </span>
-            <button
-              type="button"
-              onClick={handleNextPage}
-              disabled={currentPage === totalPages}
-            >
-              次へ
-            </button>
-          </div>
+          <PaginationControls
+            currentPage={currentPage}
+            totalPages={totalPages}
+            onPrev={handlePrevPage}
+            onNext={handleNextPage}
+          />
         </>
       )}
     </div>

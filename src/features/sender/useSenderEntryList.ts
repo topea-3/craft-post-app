@@ -6,6 +6,8 @@ import { fromSenderEntryDto, type SenderEntryDto, type SenderEntryListItem } fro
 type UseSenderEntryListParams = {
   page: number
   pageSize: number
+  /** false のとき API を呼ばない（ダイアログ未表示時など） */
+  enabled?: boolean
 }
 
 type UseSenderEntryListResult = {
@@ -19,6 +21,7 @@ type UseSenderEntryListResult = {
 export function useSenderEntryList({
   page,
   pageSize,
+  enabled = true,
 }: UseSenderEntryListParams): UseSenderEntryListResult {
   const [items, setItems] = useState<SenderEntryListItem[]>([])
   const [isLoading, setIsLoading] = useState(false)
@@ -27,6 +30,10 @@ export function useSenderEntryList({
   const [reloadToken, setReloadToken] = useState(0)
 
   useEffect(() => {
+    if (!enabled) {
+      return
+    }
+
     let cancelled = false
     const fetchList = async () => {
       setIsLoading(true)
@@ -59,7 +66,7 @@ export function useSenderEntryList({
     return () => {
       cancelled = true
     }
-  }, [page, pageSize, reloadToken])
+  }, [page, pageSize, reloadToken, enabled])
 
   const reload = () => {
     setReloadToken((prev) => prev + 1)

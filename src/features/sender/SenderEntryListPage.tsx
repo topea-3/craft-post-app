@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { useNavigate } from 'react-router-dom'
+import { PaginationControls } from '../../components/PaginationControls'
 import { formatAddressSingleLine, formatPostalCode, formatUpdatedAt } from '../address/types'
 import { SENDER_OPERATION_ERROR_MESSAGE } from './messages'
 import { formatSenderDisplayName } from './types'
@@ -127,27 +128,16 @@ export function SenderEntryListPage() {
             </tbody>
           </table>
 
-          <div className="address-list-pagination">
-            <button
-              type="button"
-              onClick={() => {
-                setPage((prev) => Math.max(1, prev - 1))
-              }}
-              disabled={page === 1}
-            >
-              前へ
-            </button>
-            <span className="address-list-page-info">{page}</span>
-            <button
-              type="button"
-              onClick={() => {
-                setPage((prev) => prev + 1)
-              }}
-              disabled={!hasNext}
-            >
-              次へ
-            </button>
-          </div>
+          <PaginationControls
+            currentPage={page}
+            hasNext={hasNext}
+            onPrev={() => {
+              setPage((prev) => Math.max(1, prev - 1))
+            }}
+            onNext={() => {
+              setPage((prev) => prev + 1)
+            }}
+          />
         </>
       )}
     </div>
