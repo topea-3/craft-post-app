@@ -41,14 +41,14 @@ Linear issue を起点に、設計書・既存実装に沿ってコードを実�
 
 ### Step 1–2: Linear issue とステータス
 
-[共通リファレンス — Linear MCP / ステータス遷移](../linear-issue-shared/reference.md#linear-mcp) に従う。
+[docs/project-setup/linear-issue-workflow-common.md — Linear MCP](../../../docs/project-setup/linear-issue-workflow-common.md#linear-mcp) に従う。
 
 - Issue ID 未指定 → ユーザーに確認
 - `get_issue` で title / description / state / team / labels / relations / gitBranchName を取得
 
 ### Step 3: ブランチ確認・作成
 
-[共通リファレンス — ブランチ運用](../linear-issue-shared/reference.md#ブランチ運用) に従う。
+[docs/project-setup/linear-issue-workflow-common.md — ブランチ運用](../../../docs/project-setup/linear-issue-workflow-common.md#ブランチ運用) に従う。
 
 - 未コミット変更で checkout 不可 → ユーザーに stash / commit / 破棄を確認
 
@@ -58,19 +58,19 @@ Issue・設計書から受け入れ条件・変更レイヤー・非スコープ
 
 ### Step 5: 本番コード実装
 
-1. 関連設計書・類似実装・既存テスト慣例を調査（[reference.md](reference.md)）
+1. 関連設計書・類似実装・既存テスト慣例を調査（[references/implement-reference.md](references/implement-reference.md)）
 2. 下位レイヤーから順に実装: migration → domain → infrastructure → Tauri コマンド → frontend
 3. レイヤーごとに `cargo check` でコンパイル可能な状態を保つ
 
 ### Step 6: ユニットテスト
 
-[reference.md — ユニットテスト](reference.md#ユニットテスト) の手順（洗い出し → 実装 → 実行 → 確認 → 修正）に従い、**全テスト成功まで繰り返す**。
+[references/implement-reference.md — ユニットテスト](references/implement-reference.md#ユニットテスト) の手順（洗い出し → 実装 → 実行 → 確認 → 修正）に従い、**全テスト成功まで繰り返す**。
 
-完了後、lint / build / テスト全体を実行（[reference.md — 検証コマンド](reference.md#検証コマンド)）。
+完了後、lint / build / テスト全体を実行（[references/implement-reference.md — 検証コマンド](references/implement-reference.md#検証コマンド)）。
 
 ### Step 7–8: 自己レビューと修正ループ
 
-[reference.md — 自己レビュー](reference.md#自己レビュー) のチェックリストで記録する。指摘がある間は Step 5 または Step 6 に戻る。全項目クリア後、Issue を **Review** に更新。
+[references/implement-reference.md — 自己レビュー](references/implement-reference.md#自己レビュー) のチェックリストで記録する。指摘がある間は Step 5 または Step 6 に戻る。全項目クリア後、Issue を **Review** に更新。
 
 ### Step 9: サマリ報告
 
@@ -88,5 +88,5 @@ Issue・設計書から受け入れ条件・変更レイヤー・非スコープ
 
 | 内容 | 参照先 |
 |------|--------|
-| Linear MCP・ブランチ・質問形式 | [../linear-issue-shared/reference.md](../linear-issue-shared/reference.md) |
-| レイヤー慣例・テスト・検証・実装パターン・レビュー詳細 | [reference.md](reference.md) |
+| Linear MCP・ブランチ・質問形式 | [docs/project-setup/linear-issue-workflow-common.md](../../../docs/project-setup/linear-issue-workflow-common.md) |
+| レイヤー慣例・テスト・検証・実装パターン・レビュー詳細 | [references/implement-reference.md](references/implement-reference.md) |

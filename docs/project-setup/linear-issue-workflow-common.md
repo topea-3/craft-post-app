@@ -1,6 +1,8 @@
-# Linear Issue 共通リファレンス
+# Linear Issue ワークフロー — 共通リファレンス
 
-`linear-issue-design` と `linear-issue-implement` の両方から参照する。
+`linear-issue-design` / `linear-issue-implement` スキル（`.cursor/skills/`）の Step 1–3 で参照する共通手順。
+
+---
 
 ## Linear MCP
 
@@ -12,7 +14,7 @@
 | ステータス一覧 | `list_issue_statuses` | `team` 必須 |
 | ステータス更新 | `save_issue` | `id` + `state` |
 
-**ステータス遷移（共通）**
+### ステータス遷移
 
 | 現在 | 動作 |
 |------|------|
@@ -22,6 +24,8 @@
 | 作業完了後 | チームの **Review** 相当に更新（`list_issue_statuses` で正式名を確認） |
 
 `description` の Markdown はエスケープせずそのまま渡す。
+
+---
 
 ## ブランチ運用
 
@@ -96,7 +100,9 @@ git checkout -b <expected-branch>
 - 未確認の stash / hard reset
 - 新規ブランチをユーザー確認なしで作成
 
-参照: `docs/project-setup/repository-and-branch-strategy.md`
+詳細: [repository-and-branch-strategy.md](./repository-and-branch-strategy.md)
+
+---
 
 ## 質問テンプレート
 

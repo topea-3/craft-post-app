@@ -34,27 +34,27 @@ Linear issue を起点に、プロジェクトの `docs/` に設計書を作成�
 
 ### Step 1–2: Linear issue とステータス
 
-[共通リファレンス — Linear MCP / ステータス遷移](../linear-issue-shared/reference.md#linear-mcp) に従う。
+[docs/project-setup/linear-issue-workflow-common.md — Linear MCP](../../../docs/project-setup/linear-issue-workflow-common.md#linear-mcp) に従う。
 
 - Issue ID 未指定 → ユーザーに確認
 - `get_issue` で title / description / state / team / labels / relations を取得
 
 ### Step 3: ブランチ確認・作成
 
-[共通リファレンス — ブランチ運用](../linear-issue-shared/reference.md#ブランチ運用) に従う。
+[docs/project-setup/linear-issue-workflow-common.md — ブランチ運用](../../../docs/project-setup/linear-issue-workflow-common.md#ブランチ運用) に従う。
 
 ### Step 4: 設計対象の把握
 
-Issue から目的・受け入れ条件・対象機能/画面/API/DB・非スコープ・依存を整理する。不足は [質問テンプレート](../linear-issue-shared/reference.md#質問テンプレート) で確認。
+Issue から目的・受け入れ条件・対象機能/画面/API/DB・非スコープ・依存を整理する。不足は [質問テンプレート](../../../docs/project-setup/linear-issue-workflow-common.md#質問テンプレート) で確認。
 
 ### Step 5: 調査と設計書作成
 
-1. 必読 docs・関連実装を調査（一覧は [reference.md](reference.md)）
-2. 設計書を作成・更新（テンプレート・配置ルールは [reference.md](reference.md)）
+1. 必読 docs・関連実装を調査（一覧は [references/design-reference.md](references/design-reference.md)）
+2. 設計書を作成・更新（テンプレート・配置ルールは [references/design-reference.md](references/design-reference.md)）
 
 ### Step 6–7: 自己レビューと修正ループ
 
-[reference.md — 自己レビュー](reference.md#自己レビュー) のチェックリストで記録する。指摘がある間は Step 5 に戻る。全項目クリア後、Issue を **Review** に更新。
+[references/design-reference.md — 自己レビュー](references/design-reference.md#自己レビュー) のチェックリストで記録する。指摘がある間は Step 5 に戻る。全項目クリア後、Issue を **Review** に更新。
 
 ### Step 8: サマリ報告
 
@@ -69,5 +69,5 @@ Issue から目的・受け入れ条件・対象機能/画面/API/DB・非スコ
 
 | 内容 | 参照先 |
 |------|--------|
-| Linear MCP・ブランチ・質問形式 | [../linear-issue-shared/reference.md](../linear-issue-shared/reference.md) |
-| docs 構成・設計書テンプレート・レビュー詳細 | [reference.md](reference.md) |
+| Linear MCP・ブランチ・質問形式 | [docs/project-setup/linear-issue-workflow-common.md](../../../docs/project-setup/linear-issue-workflow-common.md) |
+| docs 構成・設計書テンプレート・レビュー詳細 | [references/design-reference.md](references/design-reference.md) |
