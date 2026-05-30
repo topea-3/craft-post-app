@@ -31,6 +31,25 @@ fn map_address_repository_error(e: AddressRepositoryError) -> SenderRepositoryEr
   }
 }
 
+fn is_active_label_unique_violation(err: &sqlx::Error) -> bool {
+  match err {
+    sqlx::Error::Database(db_err) => {
+      db_err.message().contains("UNIQUE constraint failed")
+        && (db_err.message().contains("sender_entries.label")
+          || db_err.message().contains("idx_sender_entries_active_label_unique"))
+    }
+    _ => false,
+  }
+}
+
+fn map_write_error(err: sqlx::Error) -> SenderRepositoryError {
+  if is_active_label_unique_violation(&err) {
+    SenderRepositoryError::DuplicateActiveLabel
+  } else {
+    SenderRepositoryError::Db(err)
+  }
+}
+
 #[async_trait::async_trait]
 impl SenderEntryRepository for SqlxSenderEntryRepository {
   async fn create(&self, entry: &SenderEntry) -> Result<(), SenderRepositoryError> {
@@ -68,7 +87,8 @@ impl SenderEntryRepository for SqlxSenderEntryRepository {
     .bind(created_at.to_rfc3339())
     .bind(updated_at.to_rfc3339())
     .execute(&mut *tx)
-    .await?;
+    .await
+    .map_err(map_write_error)?;
 
     for (index, co) in entry.co_recipients().iter().enumerate() {
       let co_id = Uuid::new_v4().to_string();
@@ -134,7 +154,8 @@ impl SenderEntryRepository for SqlxSenderEntryRepository {
     .bind(updated_at.to_rfc3339())
     .bind(&id)
     .execute(&mut *tx)
-    .await?;
+    .await
+    .map_err(map_write_error)?;
 
     sqlx::query("DELETE FROM sender_co_recipients WHERE sender_entry_id = ?")
       .bind(&id)

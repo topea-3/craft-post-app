@@ -17,6 +17,8 @@ pub enum SenderRepositoryError {
   InvalidPersistedData(String),
   #[error("sender entry not found")]
   NotFound,
+  #[error("active sender label already exists")]
+  DuplicateActiveLabel,
 }
 
 #[derive(Debug, Clone, Copy)]

@@ -96,6 +96,76 @@ mod tests {
   }
 
   #[tokio::test]
+  async fn create_sender_entry_detects_existing_active_label_in_db() {
+    let pool = setup_pool().await;
+    let now = chrono::Utc::now().to_rfc3339();
+    let id = Uuid::new_v4().to_string();
+
+    sqlx::query(
+      r#"
+        INSERT INTO sender_entries (
+          id, label, primary_last, primary_first, primary_kana_last, primary_kana_first,
+          postal_code, prefecture, city, street, building, phone_number, archived_at, created_at, updated_at
+        )
+        VALUES (?, '自宅', '山田', '太郎', NULL, NULL, '1234567', '東京都', '渋谷区', '神南 1-1-1', NULL, NULL, NULL, ?, ?)
+      "#,
+    )
+    .bind(&id)
+    .bind(&now)
+    .bind(&now)
+    .execute(&pool)
+    .await
+    .expect("seed active sender");
+
+    let err = create_sender_entry_impl(&pool, sample_sender_dto("自宅"))
+      .await
+      .expect_err("duplicate active label should fail");
+
+    assert!(err.contains("このラベルは既に使用されています"));
+  }
+
+  #[tokio::test]
+  async fn sender_repository_duplicate_active_label_maps_to_duplicate_error() {
+    use crate::domain::sender::sender_entry::SenderEntry;
+    use crate::domain::sender::sender_entry_repository::SenderRepositoryError;
+
+    let pool = setup_pool().await;
+    let entry1 = SenderEntry::try_from(sample_sender_dto("自宅")).unwrap();
+    let entry2 = SenderEntry::try_from(sample_sender_dto("自宅")).unwrap();
+    let repo = SqlxSenderEntryRepository::new(pool);
+
+    repo.create(&entry1).await.expect("first create");
+    let err = repo
+      .create(&entry2)
+      .await
+      .expect_err("unique index should reject duplicate active label");
+
+    assert!(matches!(err, SenderRepositoryError::DuplicateActiveLabel));
+  }
+
+  #[tokio::test]
+  async fn create_sender_entry_reuses_label_after_archive() {
+    let pool = setup_pool().await;
+
+    create_sender_entry_impl(&pool, sample_sender_dto("自宅"))
+      .await
+      .expect("first create should succeed");
+
+    let sender_id = fetch_sender_id_by_label(&pool, "自宅").await;
+    let repo = SqlxSenderEntryRepository::new(pool.clone());
+    repo
+      .archive(&crate::domain::sender::sender_entry::SenderEntryId::from_uuid(
+        Uuid::parse_str(&sender_id).unwrap(),
+      ))
+      .await
+      .expect("archive sender");
+
+    create_sender_entry_impl(&pool, sample_sender_dto("自宅"))
+      .await
+      .expect("archived label should be reusable");
+  }
+
+  #[tokio::test]
   async fn update_sender_entry_duplicate_label_is_validation_error() {
     let pool = setup_pool().await;
 

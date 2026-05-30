@@ -24,7 +24,7 @@ use crate::domain::address::postal_code::PostalCode;
 use crate::domain::sender::phone_number::PhoneNumber;
 use crate::domain::sender::sender_entry::{SenderEntry, SenderEntryId};
 use crate::domain::sender::sender_entry_repository::{
-  Pagination as SenderPagination, SenderEntryRepository,
+  Pagination as SenderPagination, SenderEntryRepository, SenderRepositoryError,
 };
 use crate::domain::sender::sender_label::SenderLabel;
 use crate::infrastructure::address::sqlx_address_entry_repository::SqlxAddressEntryRepository;
@@ -34,6 +34,20 @@ const MAX_PAGE_LIMIT: i64 = 200;
 /// 連名の上限（UI と同一。API 直叩き対策でサーバー側でも検証する）
 const MAX_CO_RECIPIENTS: usize = 3;
 const MAX_SENDER_CO_RECIPIENTS: usize = 4;
+const SENDER_DUPLICATE_LABEL_MESSAGE: &str =
+  "このラベルは既に使用されています。別のラベルを指定してください。";
+
+fn map_sender_write_error(e: SenderRepositoryError, log_context: &str, fallback_code: &str) -> AppError {
+  match e {
+    SenderRepositoryError::DuplicateActiveLabel => {
+      AppError::Validation(SENDER_DUPLICATE_LABEL_MESSAGE.to_string())
+    }
+    other => {
+      log::error!("{} failed: {:?}", log_context, other);
+      AppError::Repository(fallback_code.to_string())
+    }
+  }
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -584,16 +598,13 @@ async fn create_sender_entry_impl(pool: &SqlitePool, dto: SenderEntryDtoInput) -
     })?;
   if duplicated {
     return Err(String::from(AppError::Validation(
-      "このラベルは既に使用されています。別のラベルを指定してください。".to_string(),
+      SENDER_DUPLICATE_LABEL_MESSAGE.to_string(),
     )));
   }
   repo
     .create(&entry)
     .await
-    .map_err(|e| {
-      log::error!("create_sender_entry failed: {:?}", e);
-      AppError::Repository("SENDER_CREATE_FAILED".to_string())
-    })?;
+    .map_err(|e| map_sender_write_error(e, "create_sender_entry", "SENDER_CREATE_FAILED"))?;
   Ok(())
 }
 
@@ -636,7 +647,7 @@ async fn update_sender_entry_impl(
     })?;
   if duplicated {
     return Err(String::from(AppError::Validation(
-      "このラベルは既に使用されています。別のラベルを指定してください。".to_string(),
+      SENDER_DUPLICATE_LABEL_MESSAGE.to_string(),
     )));
   }
   let now = Utc::now();
@@ -657,10 +668,7 @@ async fn update_sender_entry_impl(
   repo
     .update(&entry)
     .await
-    .map_err(|e| {
-      log::error!("update_sender_entry failed: {:?}", e);
-      AppError::Repository("SENDER_UPDATE_FAILED".to_string())
-    })?;
+    .map_err(|e| map_sender_write_error(e, "update_sender_entry", "SENDER_UPDATE_FAILED"))?;
   Ok(())
 }
 
