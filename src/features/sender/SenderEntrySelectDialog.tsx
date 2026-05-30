@@ -21,13 +21,33 @@ type Props = {
 const PAGE_SIZE = 10
 
 export function SenderEntrySelectDialog({ isOpen, selectedId, onClose, onSelect }: Props) {
+  if (!isOpen) return null
+
+  return (
+    <SenderEntrySelectDialogContent
+      selectedId={selectedId}
+      onClose={onClose}
+      onSelect={onSelect}
+    />
+  )
+}
+
+type ContentProps = {
+  selectedId?: string | null
+  onClose: () => void
+  onSelect: (senderEntryId: string) => void
+}
+
+function SenderEntrySelectDialogContent({ selectedId, onClose, onSelect }: ContentProps) {
   const [page, setPage] = useState(1)
-  const [selectedOutsidePage, setSelectedOutsidePage] = useState<SenderEntryListItem | null>(null)
+  const [fetchedSelected, setFetchedSelected] = useState<{
+    id: string
+    sender: SenderEntryListItem
+  } | null>(null)
 
   const { items, isLoading, error, hasNext } = useSenderEntryList({
     page,
     pageSize: PAGE_SIZE,
-    enabled: isOpen,
   })
 
   const selectedInPage = useMemo(
@@ -35,22 +55,12 @@ export function SenderEntrySelectDialog({ isOpen, selectedId, onClose, onSelect 
     [items, selectedId],
   )
 
-  useEffect(() => {
-    if (!isOpen) {
-      setPage(1)
-      setSelectedOutsidePage(null)
-    }
-  }, [isOpen])
+  const needsOutsideFetch = Boolean(
+    selectedId && !items.some((item) => item.id === selectedId),
+  )
 
   useEffect(() => {
-    if (!isOpen || !selectedId) {
-      setSelectedOutsidePage(null)
-      return
-    }
-
-    const inPage = items.some((item) => item.id === selectedId)
-    if (inPage) {
-      setSelectedOutsidePage(null)
+    if (!needsOutsideFetch || !selectedId) {
       return
     }
 
@@ -59,11 +69,11 @@ export function SenderEntrySelectDialog({ isOpen, selectedId, onClose, onSelect 
       try {
         const dto = await invoke<SenderEntryDto>('get_sender_entry', { id: selectedId })
         if (cancelled) return
-        setSelectedOutsidePage(fromSenderEntryDtoToDetail(dto))
+        setFetchedSelected({ id: selectedId, sender: fromSenderEntryDtoToDetail(dto) })
       } catch (e) {
         if (cancelled) return
         console.error('Failed to fetch selected sender entry:', e)
-        setSelectedOutsidePage(null)
+        setFetchedSelected(null)
       }
     }
 
@@ -71,11 +81,11 @@ export function SenderEntrySelectDialog({ isOpen, selectedId, onClose, onSelect 
     return () => {
       cancelled = true
     }
-  }, [isOpen, selectedId, items])
+  }, [needsOutsideFetch, selectedId])
 
-  if (!isOpen) return null
-
-  const highlightedSender = selectedInPage ?? selectedOutsidePage
+  const highlightedOutsidePage =
+    fetchedSelected && fetchedSelected.id === selectedId ? fetchedSelected.sender : null
+  const highlightedSender = selectedInPage ?? highlightedOutsidePage
 
   return (
     <div className="dialog-overlay" role="dialog" aria-modal="true">
