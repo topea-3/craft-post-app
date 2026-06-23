@@ -8,6 +8,10 @@ import { SenderEntryCreatePage } from './features/sender/SenderEntryCreatePage'
 import { SenderEntryListPage } from './features/sender/SenderEntryListPage'
 import { SenderEntryDetailPage } from './features/sender/SenderEntryDetailPage'
 import { SenderEntryEditPage } from './features/sender/SenderEntryEditPage'
+import { PostcardReceiptListPage } from './features/postcard-receipt/PostcardReceiptListPage'
+import { PostcardReceiptCreatePage } from './features/postcard-receipt/PostcardReceiptCreatePage'
+import { PostcardReceiptDetailPage } from './features/postcard-receipt/PostcardReceiptDetailPage'
+import { PostcardReceiptEditPage } from './features/postcard-receipt/PostcardReceiptEditPage'
 
 function App() {
   const navigationItems = [
@@ -15,6 +19,8 @@ function App() {
     { to: '/addresses/new', label: '住所録新規作成' },
     { to: '/senders', label: '差出人一覧' },
     { to: '/senders/new', label: '差出人新規作成' },
+    { to: '/receipts', label: '受取履歴一覧' },
+    { to: '/receipts/new', label: '受取履歴新規作成' },
   ]
 
   return (
@@ -62,6 +68,10 @@ function App() {
             <Route path="/senders/new" element={<SenderEntryCreatePage />} />
             <Route path="/senders/:id" element={<SenderEntryDetailPage />} />
             <Route path="/senders/:id/edit" element={<SenderEntryEditPage />} />
+            <Route path="/receipts" element={<PostcardReceiptListPage />} />
+            <Route path="/receipts/new" element={<PostcardReceiptCreatePage />} />
+            <Route path="/receipts/:id" element={<PostcardReceiptDetailPage />} />
+            <Route path="/receipts/:id/edit" element={<PostcardReceiptEditPage />} />
           </Routes>
         </main>
       </div>

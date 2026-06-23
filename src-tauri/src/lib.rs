@@ -21,6 +21,12 @@ use crate::domain::address::honorific::Honorific;
 use crate::domain::address::memo::Memo;
 use crate::domain::address::person_name::PersonName;
 use crate::domain::address::postal_code::PostalCode;
+use crate::domain::postcard_receipt::postcard_receipt::{PostcardReceipt, PostcardReceiptError, PostcardReceiptId};
+use crate::domain::postcard_receipt::postcard_receipt_category::PostcardReceiptCategory;
+use crate::domain::postcard_receipt::postcard_receipt_repository::{
+  Pagination as ReceiptPagination, PostcardReceiptAddressContext, PostcardReceiptRepository,
+  PostcardReceiptSearchQuery, PostcardReceiptWithContext, SortOrder as ReceiptSortOrder,
+};
 use crate::domain::sender::phone_number::PhoneNumber;
 use crate::domain::sender::sender_entry::{SenderEntry, SenderEntryId};
 use crate::domain::sender::sender_entry_repository::{
@@ -28,6 +34,7 @@ use crate::domain::sender::sender_entry_repository::{
 };
 use crate::domain::sender::sender_label::SenderLabel;
 use crate::infrastructure::address::sqlx_address_entry_repository::SqlxAddressEntryRepository;
+use crate::infrastructure::postcard_receipt::sqlx_postcard_receipt_repository::SqlxPostcardReceiptRepository;
 use crate::infrastructure::sender::sqlx_sender_entry_repository::SqlxSenderEntryRepository;
 
 const MAX_PAGE_LIMIT: i64 = 200;
@@ -36,6 +43,9 @@ const MAX_CO_RECIPIENTS: usize = 3;
 const MAX_SENDER_CO_RECIPIENTS: usize = 4;
 const SENDER_DUPLICATE_LABEL_MESSAGE: &str =
   "このラベルは既に使用されています。別のラベルを指定してください。";
+const RECEIPT_FUTURE_DATE_MESSAGE: &str = "受取日に未来の日付は指定できません。";
+const RECEIPT_SENDER_DISPLAY_NAME_REQUIRED_MESSAGE: &str = "送り主の表示名を入力してください。";
+const RECEIPT_NOT_FOUND_MESSAGE: &str = "postcard receipt not found";
 
 fn map_sender_write_error(e: SenderRepositoryError, log_context: &str, fallback_code: &str) -> AppError {
   match e {
@@ -86,6 +96,11 @@ pub fn run() {
       get_api_log_debug_settings,
       set_api_log_debug_directory,
       set_api_log_debug_enabled,
+      create_postcard_receipt,
+      update_postcard_receipt,
+      get_postcard_receipt,
+      search_postcard_receipts,
+      delete_postcard_receipt,
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");
@@ -960,5 +975,345 @@ async fn validate_active_address_entries(
   if found != unique.len() as i64 {
     return Err(AppError::Validation("address entry not found".to_string()).to_string());
   }
+  Ok(())
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+pub struct PostcardReceiptDtoInput {
+  pub address_entry_id: Option<String>,
+  pub sender_display_name: Option<String>,
+  pub received_at: String,
+  pub category: String,
+  pub memo: Option<String>,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+pub struct PostcardReceiptDto {
+  pub id: String,
+  pub address_entry_id: Option<String>,
+  pub sender_display_name: Option<String>,
+  pub received_at: String,
+  pub category: String,
+  pub memo: Option<String>,
+  pub created_at: String,
+  pub updated_at: String,
+  pub address_entry_display_name: Option<String>,
+  pub address_entry_address_line: Option<String>,
+  pub address_entry_archived: Option<bool>,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+pub struct PostcardReceiptSearchResult {
+  pub items: Vec<PostcardReceiptDto>,
+  pub total: i64,
+}
+
+fn map_postcard_receipt_error(err: PostcardReceiptError) -> AppError {
+  match err {
+    PostcardReceiptError::FutureReceivedDate => {
+      AppError::Validation(RECEIPT_FUTURE_DATE_MESSAGE.to_string())
+    }
+    PostcardReceiptError::SenderDisplayNameRequired => {
+      AppError::Validation(RECEIPT_SENDER_DISPLAY_NAME_REQUIRED_MESSAGE.to_string())
+    }
+    PostcardReceiptError::InvalidCategory(e) => AppError::Validation(e.to_string()),
+    PostcardReceiptError::InvalidMemo(e) => AppError::Validation(e.to_string()),
+  }
+}
+
+fn postcard_receipt_dto_from_context(ctx: PostcardReceiptWithContext) -> PostcardReceiptDto {
+  let receipt = ctx.receipt;
+  let (address_entry_display_name, address_entry_address_line, address_entry_archived) =
+    match ctx.address {
+      Some(PostcardReceiptAddressContext {
+        display_name,
+        address_line,
+        archived,
+      }) => (Some(display_name), Some(address_line), Some(archived)),
+      None => (None, None, None),
+    };
+
+  PostcardReceiptDto {
+    id: receipt.id().as_uuid().to_string(),
+    address_entry_id: receipt.address_entry_id().map(|u| u.to_string()),
+    sender_display_name: receipt.sender_display_name().map(str::to_string),
+    received_at: receipt.received_at().format("%Y-%m-%d").to_string(),
+    category: receipt.category().as_str().to_string(),
+    memo: receipt.memo().map(|m| m.text().to_string()),
+    created_at: receipt.created_at().to_rfc3339(),
+    updated_at: receipt.updated_at().to_rfc3339(),
+    address_entry_display_name,
+    address_entry_address_line,
+    address_entry_archived,
+  }
+}
+
+async fn validate_active_address_entry_for_receipt(
+  pool: &SqlitePool,
+  address_entry_id: &Uuid,
+) -> Result<(), String> {
+  validate_active_address_entries(pool, &[*address_entry_id]).await
+}
+
+async fn build_postcard_receipt_values_from_input(
+  pool: &SqlitePool,
+  dto: PostcardReceiptDtoInput,
+) -> Result<
+  (
+    Option<Uuid>,
+    Option<String>,
+    chrono::NaiveDate,
+    PostcardReceiptCategory,
+    Option<crate::domain::address::memo::Memo>,
+  ),
+  String,
+> {
+  let address_entry_id = match dto.address_entry_id {
+    Some(id) => {
+      let uuid =
+        Uuid::parse_str(&id).map_err(|e| AppError::Validation(e.to_string()).to_string())?;
+      validate_active_address_entry_for_receipt(pool, &uuid).await?;
+      Some(uuid)
+    }
+    None => None,
+  };
+
+  let received_at = chrono::NaiveDate::parse_from_str(&dto.received_at, "%Y-%m-%d")
+    .map_err(|e| AppError::Validation(e.to_string()).to_string())?;
+  let category = PostcardReceiptCategory::parse(&dto.category)
+    .map_err(|e| AppError::Validation(e.to_string()).to_string())?;
+  let memo = match dto.memo {
+    Some(text) if !text.is_empty() => Some(
+      crate::domain::address::memo::Memo::new(text)
+        .map_err(|e| AppError::Validation(e.to_string()).to_string())?,
+    ),
+    _ => None,
+  };
+
+  Ok((
+    address_entry_id,
+    dto.sender_display_name,
+    received_at,
+    category,
+    memo,
+  ))
+}
+
+#[tauri::command]
+async fn create_postcard_receipt(
+  pool: State<'_, SqlitePool>,
+  dto: PostcardReceiptDtoInput,
+) -> Result<String, String> {
+  create_postcard_receipt_impl(pool.inner(), dto).await
+}
+
+async fn create_postcard_receipt_impl(
+  pool: &SqlitePool,
+  dto: PostcardReceiptDtoInput,
+) -> Result<String, String> {
+  let (address_entry_id, sender_display_name, received_at, category, memo) =
+    build_postcard_receipt_values_from_input(pool, dto).await?;
+
+  let receipt = PostcardReceipt::create_new(
+    address_entry_id,
+    sender_display_name,
+    received_at,
+    category,
+    memo,
+  )
+  .map_err(|e| map_postcard_receipt_error(e).to_string())?;
+
+  let id = receipt.id().as_uuid().to_string();
+  let repo = SqlxPostcardReceiptRepository::new(pool.clone());
+  repo
+    .create(&receipt)
+    .await
+    .map_err(|e| {
+      log::error!("create_postcard_receipt failed: {:?}", e);
+      AppError::Repository("RECEIPT_CREATE_FAILED".to_string())
+    })?;
+  Ok(id)
+}
+
+#[tauri::command]
+async fn update_postcard_receipt(
+  pool: State<'_, SqlitePool>,
+  id: String,
+  dto: PostcardReceiptDtoInput,
+) -> Result<(), String> {
+  update_postcard_receipt_impl(pool.inner(), id, dto).await
+}
+
+async fn update_postcard_receipt_impl(
+  pool: &SqlitePool,
+  id: String,
+  dto: PostcardReceiptDtoInput,
+) -> Result<(), String> {
+  let uuid =
+    Uuid::parse_str(&id).map_err(|e| AppError::Validation(e.to_string()).to_string())?;
+  let receipt_id = PostcardReceiptId::from_uuid(uuid);
+  let repo = SqlxPostcardReceiptRepository::new(pool.clone());
+
+  let existing = repo
+    .find_by_id(&receipt_id)
+    .await
+    .map_err(|e| {
+      log::error!("update_postcard_receipt find_by_id failed: {:?}", e);
+      AppError::Repository("RECEIPT_UPDATE_FAILED".to_string())
+    })?
+    .ok_or_else(|| AppError::Validation(RECEIPT_NOT_FOUND_MESSAGE.to_string()))?;
+
+  if existing.receipt.is_deleted() {
+    return Err(AppError::Validation(RECEIPT_NOT_FOUND_MESSAGE.to_string()).to_string());
+  }
+
+  let (address_entry_id, sender_display_name, received_at, category, memo) =
+    build_postcard_receipt_values_from_input(pool, dto).await?;
+
+  let receipt = PostcardReceipt::from_persisted(
+    receipt_id,
+    address_entry_id,
+    sender_display_name,
+    received_at,
+    category,
+    memo,
+    existing.receipt.deleted_at(),
+    existing.receipt.created_at(),
+    Utc::now(),
+  )
+  .map_err(|e| map_postcard_receipt_error(e).to_string())?;
+
+  repo
+    .update(&receipt)
+    .await
+    .map_err(|e| {
+      log::error!("update_postcard_receipt failed: {:?}", e);
+      AppError::Repository("RECEIPT_UPDATE_FAILED".to_string())
+    })?;
+  Ok(())
+}
+
+#[tauri::command]
+async fn get_postcard_receipt(
+  pool: State<'_, SqlitePool>,
+  id: String,
+) -> Result<PostcardReceiptDto, String> {
+  get_postcard_receipt_impl(pool.inner(), id).await
+}
+
+async fn get_postcard_receipt_impl(pool: &SqlitePool, id: String) -> Result<PostcardReceiptDto, String> {
+  let uuid =
+    Uuid::parse_str(&id).map_err(|e| AppError::Validation(e.to_string()).to_string())?;
+  let receipt_id = PostcardReceiptId::from_uuid(uuid);
+  let repo = SqlxPostcardReceiptRepository::new(pool.clone());
+
+  let found = repo
+    .find_by_id(&receipt_id)
+    .await
+    .map_err(|e| {
+      log::error!("get_postcard_receipt failed: {:?}", e);
+      AppError::Repository("RECEIPT_GET_FAILED".to_string())
+    })?
+    .ok_or_else(|| AppError::Validation(RECEIPT_NOT_FOUND_MESSAGE.to_string()))?;
+
+  if found.receipt.is_deleted() {
+    return Err(AppError::Validation(RECEIPT_NOT_FOUND_MESSAGE.to_string()).to_string());
+  }
+
+  Ok(postcard_receipt_dto_from_context(found))
+}
+
+#[tauri::command]
+async fn search_postcard_receipts(
+  pool: State<'_, SqlitePool>,
+  keyword: Option<String>,
+  year: Option<i32>,
+  category: Option<String>,
+  address_entry_id: Option<String>,
+  include_deleted: Option<bool>,
+  limit: Option<i64>,
+  offset: Option<i64>,
+  sort_order: Option<String>,
+) -> Result<PostcardReceiptSearchResult, String> {
+  let (l, o) = (
+    limit.unwrap_or(DEFAULT_SEARCH_LIMIT),
+    offset.unwrap_or(DEFAULT_SEARCH_OFFSET),
+  );
+  if l < 1 || l > MAX_PAGE_LIMIT {
+    return Err(
+      AppError::Validation(format!("limit must be between 1 and {}", MAX_PAGE_LIMIT)).to_string(),
+    );
+  }
+  if o < 0 {
+    return Err(AppError::Validation("offset must be >= 0".to_string()).to_string());
+  }
+
+  let parsed_category = match category {
+    Some(value) if !value.is_empty() => Some(
+      PostcardReceiptCategory::parse(&value)
+        .map_err(|e| AppError::Validation(e.to_string()).to_string())?,
+    ),
+    _ => None,
+  };
+
+  let parsed_address_entry_id = match address_entry_id {
+    Some(id) if !id.is_empty() => Some(
+      Uuid::parse_str(&id).map_err(|e| AppError::Validation(e.to_string()).to_string())?,
+    ),
+    _ => None,
+  };
+
+  let sort_order = match sort_order.as_deref() {
+    Some("asc") => ReceiptSortOrder::Asc,
+    _ => ReceiptSortOrder::Desc,
+  };
+
+  let query = PostcardReceiptSearchQuery {
+    keyword: keyword.filter(|k| !k.trim().is_empty()),
+    year,
+    category: parsed_category,
+    address_entry_id: parsed_address_entry_id,
+    include_deleted: include_deleted.unwrap_or(false),
+    pagination: ReceiptPagination { limit: l, offset: o },
+    sort_order,
+  };
+
+  let repo = SqlxPostcardReceiptRepository::new(pool.inner().clone());
+  let (items, total) = repo.search(query).await.map_err(|e| {
+    log::error!("search_postcard_receipts failed: {:?}", e);
+    AppError::Repository("RECEIPT_SEARCH_FAILED".to_string())
+  })?;
+
+  Ok(PostcardReceiptSearchResult {
+    items: items
+      .into_iter()
+      .map(postcard_receipt_dto_from_context)
+      .collect(),
+    total,
+  })
+}
+
+#[tauri::command]
+async fn delete_postcard_receipt(pool: State<'_, SqlitePool>, id: String) -> Result<(), String> {
+  delete_postcard_receipt_impl(pool.inner(), id).await
+}
+
+async fn delete_postcard_receipt_impl(pool: &SqlitePool, id: String) -> Result<(), String> {
+  let uuid =
+    Uuid::parse_str(&id).map_err(|e| AppError::Validation(e.to_string()).to_string())?;
+  let receipt_id = PostcardReceiptId::from_uuid(uuid);
+  let repo = SqlxPostcardReceiptRepository::new(pool.clone());
+  repo
+    .delete(&receipt_id)
+    .await
+    .map_err(|e| match e {
+      crate::domain::postcard_receipt::postcard_receipt_repository::PostcardReceiptRepositoryError::NotFound => {
+        AppError::Validation(RECEIPT_NOT_FOUND_MESSAGE.to_string())
+      }
+      other => {
+        log::error!("delete_postcard_receipt failed: {:?}", other);
+        AppError::Repository("RECEIPT_DELETE_FAILED".to_string())
+      }
+    })?;
   Ok(())
 }
