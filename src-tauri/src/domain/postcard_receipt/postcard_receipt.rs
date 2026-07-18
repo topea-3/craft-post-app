@@ -1,4 +1,4 @@
-use chrono::{DateTime, NaiveDate, Utc};
+use chrono::{DateTime, Local, NaiveDate, Utc};
 use uuid::Uuid;
 
 use crate::domain::address::memo::{Memo, MemoError};
@@ -49,6 +49,11 @@ pub struct PostcardReceipt {
 }
 
 impl PostcardReceipt {
+  /// OS ローカルタイムゾーンの「今日」（暦日）
+  pub fn local_today() -> NaiveDate {
+    Local::now().date_naive()
+  }
+
   pub fn create_new(
     address_entry_id: Option<Uuid>,
     sender_display_name: Option<String>,
@@ -56,7 +61,26 @@ impl PostcardReceipt {
     category: PostcardReceiptCategory,
     memo: Option<Memo>,
   ) -> Result<Self, PostcardReceiptError> {
-    Self::validate_business_rules(address_entry_id, &sender_display_name, received_at)?;
+    Self::create_new_as_of(
+      address_entry_id,
+      sender_display_name,
+      received_at,
+      category,
+      memo,
+      Self::local_today(),
+    )
+  }
+
+  /// 基準日を注入する作成（テスト・タイムゾーン境界の固定用）
+  pub fn create_new_as_of(
+    address_entry_id: Option<Uuid>,
+    sender_display_name: Option<String>,
+    received_at: NaiveDate,
+    category: PostcardReceiptCategory,
+    memo: Option<Memo>,
+    today: NaiveDate,
+  ) -> Result<Self, PostcardReceiptError> {
+    Self::validate_business_rules(address_entry_id, &sender_display_name, received_at, today)?;
     let now = Utc::now();
     Ok(Self {
       id: PostcardReceiptId::new(),
@@ -82,7 +106,34 @@ impl PostcardReceipt {
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
   ) -> Result<Self, PostcardReceiptError> {
-    Self::validate_business_rules(address_entry_id, &sender_display_name, received_at)?;
+    Self::from_persisted_as_of(
+      id,
+      address_entry_id,
+      sender_display_name,
+      received_at,
+      category,
+      memo,
+      deleted_at,
+      created_at,
+      updated_at,
+      Self::local_today(),
+    )
+  }
+
+  /// 基準日を注入する再構成（update 時の未来日検証・テスト用）
+  pub fn from_persisted_as_of(
+    id: PostcardReceiptId,
+    address_entry_id: Option<Uuid>,
+    sender_display_name: Option<String>,
+    received_at: NaiveDate,
+    category: PostcardReceiptCategory,
+    memo: Option<Memo>,
+    deleted_at: Option<DateTime<Utc>>,
+    created_at: DateTime<Utc>,
+    updated_at: DateTime<Utc>,
+    today: NaiveDate,
+  ) -> Result<Self, PostcardReceiptError> {
+    Self::validate_business_rules(address_entry_id, &sender_display_name, received_at, today)?;
     Ok(Self {
       id,
       address_entry_id,
@@ -100,11 +151,10 @@ impl PostcardReceipt {
     address_entry_id: Option<Uuid>,
     sender_display_name: &Option<String>,
     received_at: NaiveDate,
+    today: NaiveDate,
   ) -> Result<(), PostcardReceiptError> {
-    // 受取日はユーザーのローカルTZで解釈されたカレンダー日。バックエンドはTZを持たないため
-    // UTC 日付との最大ずれ（+1日）を許容し、厳密な未来判定はフロントに委ねる。
-    let latest_allowed = Utc::now().date_naive() + chrono::Duration::days(1);
-    if received_at > latest_allowed {
+    // 受取日は端末ローカルのカレンダー日。ローカルの今日まで許可し、明日以降は拒否する。
+    if received_at > today {
       return Err(PostcardReceiptError::FutureReceivedDate);
     }
     if address_entry_id.is_none() {
@@ -178,59 +228,81 @@ impl PostcardReceipt {
 mod tests {
   use super::*;
 
-  fn today() -> NaiveDate {
-    Utc::now().date_naive()
+  fn fixed_today() -> NaiveDate {
+    NaiveDate::from_ymd_opt(2025, 6, 15).unwrap()
   }
 
   #[test]
   fn create_new_requires_sender_display_name_when_unlinked() {
-    let err = PostcardReceipt::create_new(
+    let err = PostcardReceipt::create_new_as_of(
       None,
       None,
-      today(),
+      fixed_today(),
       PostcardReceiptCategory::Nenga,
       None,
+      fixed_today(),
     )
     .expect_err("should require display name");
     assert_eq!(err, PostcardReceiptError::SenderDisplayNameRequired);
   }
 
   #[test]
-  fn create_new_rejects_future_received_date() {
-    let too_far = today() + chrono::Duration::days(2);
-    let err = PostcardReceipt::create_new(
+  fn create_new_allows_local_today() {
+    let receipt = PostcardReceipt::create_new_as_of(
       None,
       Some("田中家".to_string()),
-      too_far,
+      fixed_today(),
       PostcardReceiptCategory::Nenga,
       None,
+      fixed_today(),
     )
-    .expect_err("should reject date beyond timezone skew allowance");
-    assert_eq!(err, PostcardReceiptError::FutureReceivedDate);
+    .expect("local today must be allowed");
+    assert_eq!(receipt.received_at(), fixed_today());
   }
 
   #[test]
-  fn create_new_allows_tomorrow_for_timezone_skew() {
-    let tomorrow = today() + chrono::Duration::days(1);
-    let receipt = PostcardReceipt::create_new(
+  fn create_new_rejects_local_tomorrow() {
+    let tomorrow = fixed_today() + chrono::Duration::days(1);
+    let err = PostcardReceipt::create_new_as_of(
       None,
       Some("田中家".to_string()),
       tomorrow,
       PostcardReceiptCategory::Nenga,
       None,
+      fixed_today(),
     )
-    .expect("UTC tomorrow should be allowed for local-TZ skew");
-    assert_eq!(receipt.received_at(), tomorrow);
+    .expect_err("local tomorrow must be rejected");
+    assert_eq!(err, PostcardReceiptError::FutureReceivedDate);
+  }
+
+  #[test]
+  fn from_persisted_rejects_local_tomorrow() {
+    let tomorrow = fixed_today() + chrono::Duration::days(1);
+    let err = PostcardReceipt::from_persisted_as_of(
+      PostcardReceiptId::new(),
+      None,
+      Some("田中家".to_string()),
+      tomorrow,
+      PostcardReceiptCategory::Nenga,
+      None,
+      None,
+      Utc::now(),
+      Utc::now(),
+      fixed_today(),
+    )
+    .expect_err("update path must also reject local tomorrow");
+    assert_eq!(err, PostcardReceiptError::FutureReceivedDate);
   }
 
   #[test]
   fn create_new_allows_linked_without_display_name() {
-    let receipt = PostcardReceipt::create_new(
+    let receipt = PostcardReceipt::create_new_as_of(
       Some(Uuid::new_v4()),
       None,
-      today(),
+      fixed_today(),
       PostcardReceiptCategory::Nenga,
       None,
+      fixed_today(),
     )
     .expect("linked receipt should succeed");
     assert!(receipt.sender_display_name().is_none());

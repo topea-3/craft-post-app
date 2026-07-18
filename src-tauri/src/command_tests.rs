@@ -350,17 +350,55 @@ mod tests {
   }
 
   #[tokio::test]
+  async fn create_postcard_receipt_allows_local_today() {
+    let pool = setup_pool().await;
+    let today = chrono::Local::now().date_naive().format("%Y-%m-%d").to_string();
+    let id = create_postcard_receipt_impl(
+      &pool,
+      sample_receipt_dto(&today, None, Some("田中家".to_string())),
+    )
+    .await
+    .expect("local today must be allowed");
+    let got = get_postcard_receipt_impl(&pool, id).await.expect("get receipt");
+    assert_eq!(got.received_at, today);
+  }
+
+  #[tokio::test]
   async fn create_postcard_receipt_rejects_future_received_date() {
     let pool = setup_pool().await;
-    let future = (chrono::Utc::now().date_naive() + chrono::Duration::days(2))
+    let tomorrow = (chrono::Local::now().date_naive() + chrono::Duration::days(1))
       .format("%Y-%m-%d")
       .to_string();
     let err = create_postcard_receipt_impl(
       &pool,
-      sample_receipt_dto(&future, None, Some("田中家".to_string())),
+      sample_receipt_dto(&tomorrow, None, Some("田中家".to_string())),
     )
     .await
-    .expect_err("future date should fail");
+    .expect_err("local tomorrow should fail");
+    assert!(err.contains("受取日に未来の日付は指定できません"));
+  }
+
+  #[tokio::test]
+  async fn update_postcard_receipt_rejects_local_tomorrow() {
+    let pool = setup_pool().await;
+    let today = chrono::Local::now().date_naive().format("%Y-%m-%d").to_string();
+    let id = create_postcard_receipt_impl(
+      &pool,
+      sample_receipt_dto(&today, None, Some("田中家".to_string())),
+    )
+    .await
+    .expect("create receipt");
+
+    let tomorrow = (chrono::Local::now().date_naive() + chrono::Duration::days(1))
+      .format("%Y-%m-%d")
+      .to_string();
+    let err = update_postcard_receipt_impl(
+      &pool,
+      id,
+      sample_receipt_dto(&tomorrow, None, Some("田中家".to_string())),
+    )
+    .await
+    .expect_err("update with local tomorrow should fail");
     assert!(err.contains("受取日に未来の日付は指定できません"));
   }
 
