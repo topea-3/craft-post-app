@@ -77,7 +77,7 @@ tasks:
       - cd src-tauri && cargo check
 
   test:
-    desc: テストの実行
-    dir: src-tauri
+    desc: フロント・バックエンドのテスト実行
     cmds:
-      - cargo test
+      - "{{.NPM_CMD}} test"
+      - cargo test --manifest-path src-tauri/Cargo.toml

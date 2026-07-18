@@ -24,7 +24,7 @@ jobs:
           test -f .gitignore && echo ".gitignore OK" || exit 1
 
   frontend:
-    name: Frontend (lint & build)
+    name: Frontend (lint, test & build)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -39,6 +39,9 @@ jobs:
 
       - name: Lint
         run: npm run lint
+
+      - name: Test
+        run: npm test
 
       - name: Build
         run: npm run build
