@@ -226,8 +226,8 @@ async fn load_address_contexts_batch(
   Ok(map)
 }
 
-fn address_link_predicate_sql() -> &'static str {
-  // ?1 = address_entry_id, ?2 = allow_archived_address_id
+fn address_link_predicate_sql_for_create() -> &'static str {
+  // ?1/?2 = address_entry_id, ?3/?4 = allow_archived_address_id（create では通常 None）
   r#"(
     ? IS NULL
     OR EXISTS (
@@ -236,6 +236,27 @@ fn address_link_predicate_sql() -> &'static str {
         AND (
           ae.archived_at IS NULL
           OR (? IS NOT NULL AND ae.id = ?)
+        )
+    )
+  )"#
+}
+
+/// UPDATE 用: archive 例外は「現在行がまだその住所を指している」場合のみ許可する。
+fn address_link_predicate_sql_for_update() -> &'static str {
+  // ?1/?2 = 新しい address_entry_id
+  // ?3/?4/?5 = allow_archived_address_id（現在リンク一致の確認にも使う）
+  r#"(
+    ? IS NULL
+    OR EXISTS (
+      SELECT 1 FROM address_entries ae
+      WHERE ae.id = ?
+        AND (
+          ae.archived_at IS NULL
+          OR (
+            ? IS NOT NULL
+            AND ae.id = ?
+            AND postcard_receipts.address_entry_id = ?
+          )
         )
     )
   )"#
@@ -268,7 +289,7 @@ impl PostcardReceiptRepository for SqlxPostcardReceiptRepository {
         SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?
         WHERE {pred}
       "#,
-      pred = address_link_predicate_sql()
+      pred = address_link_predicate_sql_for_create()
     );
 
     let result = sqlx::query(&sql)
@@ -321,7 +342,7 @@ impl PostcardReceiptRepository for SqlxPostcardReceiptRepository {
         WHERE id = ? AND deleted_at IS NULL
           AND {pred}
       "#,
-      pred = address_link_predicate_sql()
+      pred = address_link_predicate_sql_for_update()
     );
 
     let result = sqlx::query(&sql)
@@ -334,6 +355,7 @@ impl PostcardReceiptRepository for SqlxPostcardReceiptRepository {
       .bind(&id)
       .bind(&address_entry_id)
       .bind(&address_entry_id)
+      .bind(&allow_archived)
       .bind(&allow_archived)
       .bind(&allow_archived)
       .execute(&self.pool)
@@ -484,6 +506,22 @@ impl PostcardReceiptRepository for SqlxPostcardReceiptRepository {
       return Err(PostcardReceiptRepositoryError::NotFound);
     }
     Ok(())
+  }
+
+  async fn list_received_years(&self) -> Result<Vec<i32>, PostcardReceiptRepositoryError> {
+    let rows = sqlx::query(
+      r#"
+        SELECT DISTINCT CAST(substr(received_at, 1, 4) AS INTEGER) AS y
+        FROM postcard_receipts
+        WHERE deleted_at IS NULL
+          AND length(received_at) >= 4
+        ORDER BY y DESC
+      "#,
+    )
+    .fetch_all(&self.pool)
+    .await?;
+
+    Ok(rows.iter().map(|row| row.get::<i32, _>("y")).collect())
   }
 }
 

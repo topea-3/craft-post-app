@@ -102,6 +102,7 @@ pub fn run() {
       update_postcard_receipt,
       get_postcard_receipt,
       search_postcard_receipts,
+      list_postcard_receipt_years,
       delete_postcard_receipt,
     ])
     .run(tauri::generate_context!())
@@ -1337,6 +1338,19 @@ async fn search_postcard_receipts(
       .map(postcard_receipt_dto_from_context)
       .collect(),
     total,
+  })
+}
+
+#[tauri::command]
+async fn list_postcard_receipt_years(pool: State<'_, SqlitePool>) -> Result<Vec<i32>, String> {
+  list_postcard_receipt_years_impl(pool.inner()).await
+}
+
+async fn list_postcard_receipt_years_impl(pool: &SqlitePool) -> Result<Vec<i32>, String> {
+  let repo = SqlxPostcardReceiptRepository::new(pool.clone());
+  repo.list_received_years().await.map_err(|e| {
+    log::error!("list_postcard_receipt_years failed: {:?}", e);
+    String::from(AppError::Repository("RECEIPT_LIST_YEARS_FAILED".to_string()))
   })
 }
 

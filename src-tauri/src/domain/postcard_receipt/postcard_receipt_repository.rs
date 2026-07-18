@@ -151,4 +151,7 @@ pub trait PostcardReceiptRepository {
   ) -> Result<(Vec<PostcardReceiptWithContext>, i64), PostcardReceiptRepositoryError>;
 
   async fn delete(&self, id: &PostcardReceiptId) -> Result<(), PostcardReceiptRepositoryError>;
+
+  /// 有効な受取履歴に存在する受取年（降順）
+  async fn list_received_years(&self) -> Result<Vec<i32>, PostcardReceiptRepositoryError>;
 }

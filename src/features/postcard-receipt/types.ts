@@ -182,11 +182,15 @@ export function formatAddressEntryLabel(
   return `${base} ${honorific}`.trim()
 }
 
-export function buildYearOptions(): { value: string; label: string }[] {
-  const currentYear = currentLocalYear()
-  const years: { value: string; label: string }[] = [{ value: '', label: '全期間' }]
-  for (let y = currentYear; y >= currentYear - 10; y -= 1) {
-    years.push({ value: String(y), label: String(y) })
-  }
-  return years
+export function buildYearOptions(
+  availableYears: number[] = [],
+  currentYear: number = currentLocalYear(),
+): { value: string; label: string }[] {
+  const years = new Set<number>(availableYears.filter((y) => Number.isFinite(y)))
+  years.add(currentYear)
+  const sorted = [...years].sort((a, b) => b - a)
+  return [
+    { value: '', label: '全期間' },
+    ...sorted.map((y) => ({ value: String(y), label: String(y) })),
+  ]
 }

@@ -15,7 +15,7 @@
     "tauri:build": "tauri build"
   },
   "engines": {
-    "node": ">=20"
+    "node": "^20.19.0 || >=22.12.0"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.10.1",

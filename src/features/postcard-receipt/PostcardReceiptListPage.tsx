@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { Link, useNavigate } from 'react-router-dom'
 import { PaginationControls } from '../../components/PaginationControls'
@@ -28,6 +28,7 @@ export function PostcardReceiptListPage() {
   const [addressFilterLabel, setAddressFilterLabel] = useState<string | null>(null)
   const [isAddressDialogOpen, setAddressDialogOpen] = useState(false)
   const [page, setPage] = useState(1)
+  const [availableYears, setAvailableYears] = useState<number[]>([])
 
   const { items, total, isLoading, error, reload } = usePostcardReceiptList({
     searchText,
@@ -38,6 +39,24 @@ export function PostcardReceiptListPage() {
     pageSize: PAGE_SIZE,
     onPageChange: setPage,
   })
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const years = await invoke<number[]>('list_postcard_receipt_years')
+        if (!cancelled) setAvailableYears(years)
+      } catch (e) {
+        console.error('Failed to load postcard receipt years:', e)
+        if (!cancelled) setAvailableYears([])
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [total])
+
+  const yearOptions = useMemo(() => buildYearOptions(availableYears), [availableYears])
 
   const totalPages = totalPagesFor(total, PAGE_SIZE)
   const currentPage = clampPage(page, total, PAGE_SIZE)
@@ -127,7 +146,7 @@ export function PostcardReceiptListPage() {
                 setPage(1)
               }}
             >
-              {buildYearOptions().map((option) => (
+              {yearOptions.map((option) => (
                 <option key={option.value || 'all'} value={option.value}>
                   {option.label}
                 </option>
