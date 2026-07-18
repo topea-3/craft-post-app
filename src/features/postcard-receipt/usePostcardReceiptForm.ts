@@ -96,11 +96,13 @@ const usePostcardReceiptFormBase = (
     } catch (error) {
       console.error('Failed to submit postcard receipt:', error)
       const message =
-        typeof error === 'string' && error.includes('address entry')
+        typeof error === 'string' && error.includes('address entry is archived')
           ? '選択した宛名はアーカイブ済みです。'
-          : typeof error === 'string'
-            ? error
-            : POSTCARD_RECEIPT_OPERATION_ERROR_MESSAGE
+          : typeof error === 'string' && error.includes('address entry not found')
+            ? '選択した宛名が見つかりません。'
+            : typeof error === 'string'
+              ? error
+              : POSTCARD_RECEIPT_OPERATION_ERROR_MESSAGE
       setErrors((prev) => ({ ...prev, form: message }))
       return false
     } finally {

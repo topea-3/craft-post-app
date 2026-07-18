@@ -376,7 +376,7 @@ mod tests {
     )
     .await
     .expect_err("archived address should fail");
-    assert!(err.contains("address entry not found"));
+    assert!(err.contains("address entry is archived"));
   }
 
   #[tokio::test]
@@ -397,6 +397,66 @@ mod tests {
     .await
     .expect_err("missing address should fail");
     assert!(err.contains("address entry not found"));
+  }
+
+  #[tokio::test]
+  async fn update_postcard_receipt_allows_existing_archived_address_entry() {
+    let pool = setup_pool().await;
+    let address_id = Uuid::new_v4();
+    insert_address_entry(&pool, address_id, false).await;
+
+    let id = create_postcard_receipt_impl(
+      &pool,
+      sample_receipt_dto("2025-01-03", Some(address_id.to_string()), None),
+    )
+    .await
+    .expect("create receipt");
+
+    sqlx::query("UPDATE address_entries SET archived_at = ? WHERE id = ?")
+      .bind(chrono::Utc::now().to_rfc3339())
+      .bind(address_id.to_string())
+      .execute(&pool)
+      .await
+      .expect("archive address");
+
+    let mut dto = sample_receipt_dto("2025-01-04", Some(address_id.to_string()), None);
+    dto.memo = Some("メモ更新".to_string());
+    update_postcard_receipt_impl(&pool, id.clone(), dto)
+      .await
+      .expect("update with same archived address should succeed");
+
+    let got = get_postcard_receipt_impl(&pool, id)
+      .await
+      .expect("get receipt");
+    assert_eq!(got.received_at, "2025-01-04");
+    assert_eq!(got.memo.as_deref(), Some("メモ更新"));
+    assert_eq!(got.address_entry_id.as_deref(), Some(address_id.to_string().as_str()));
+    assert_eq!(got.address_entry_archived, Some(true));
+  }
+
+  #[tokio::test]
+  async fn update_postcard_receipt_rejects_switching_to_archived_address_entry() {
+    let pool = setup_pool().await;
+    let active_id = Uuid::new_v4();
+    let archived_id = Uuid::new_v4();
+    insert_address_entry(&pool, active_id, false).await;
+    insert_address_entry(&pool, archived_id, true).await;
+
+    let id = create_postcard_receipt_impl(
+      &pool,
+      sample_receipt_dto("2025-01-03", Some(active_id.to_string()), None),
+    )
+    .await
+    .expect("create receipt");
+
+    let err = update_postcard_receipt_impl(
+      &pool,
+      id,
+      sample_receipt_dto("2025-01-03", Some(archived_id.to_string()), None),
+    )
+    .await
+    .expect_err("switching to archived address should fail");
+    assert!(err.contains("address entry is archived"));
   }
 
   #[tokio::test]

@@ -46,6 +46,8 @@ const SENDER_DUPLICATE_LABEL_MESSAGE: &str =
 const RECEIPT_FUTURE_DATE_MESSAGE: &str = "受取日に未来の日付は指定できません。";
 const RECEIPT_SENDER_DISPLAY_NAME_REQUIRED_MESSAGE: &str = "送り主の表示名を入力してください。";
 const RECEIPT_NOT_FOUND_MESSAGE: &str = "postcard receipt not found";
+const ADDRESS_ENTRY_NOT_FOUND_MESSAGE: &str = "address entry not found";
+const ADDRESS_ENTRY_ARCHIVED_MESSAGE: &str = "address entry is archived";
 
 fn map_sender_write_error(e: SenderRepositoryError, log_context: &str, fallback_code: &str) -> AppError {
   match e {
@@ -1048,16 +1050,38 @@ fn postcard_receipt_dto_from_context(ctx: PostcardReceiptWithContext) -> Postcar
   }
 }
 
-async fn validate_active_address_entry_for_receipt(
+/// 受取履歴の住所録紐付け検証。
+/// - create / 新しい ID への差し替え: active のみ許可
+/// - update で既存と同じ ID: archived でも許可（履歴の継続編集）
+async fn validate_address_entry_for_receipt(
   pool: &SqlitePool,
   address_entry_id: &Uuid,
+  allow_archived_if_same_as: Option<Uuid>,
 ) -> Result<(), String> {
-  validate_active_address_entries(pool, &[*address_entry_id]).await
+  let repo = SqlxAddressEntryRepository::new(pool.clone());
+  let entry_id = AddressEntryId::from_uuid(*address_entry_id);
+  let found = repo
+    .find_by_id(&entry_id)
+    .await
+    .map_err(|e| {
+      log::error!("validate_address_entry_for_receipt failed: {:?}", e);
+      AppError::Repository("RECEIPT_ADDRESS_LOOKUP_FAILED".to_string())
+    })?
+    .ok_or_else(|| AppError::Validation(ADDRESS_ENTRY_NOT_FOUND_MESSAGE.to_string()).to_string())?;
+
+  if found.archived() {
+    let keep_existing_link = allow_archived_if_same_as == Some(*address_entry_id);
+    if !keep_existing_link {
+      return Err(AppError::Validation(ADDRESS_ENTRY_ARCHIVED_MESSAGE.to_string()).to_string());
+    }
+  }
+  Ok(())
 }
 
 async fn build_postcard_receipt_values_from_input(
   pool: &SqlitePool,
   dto: PostcardReceiptDtoInput,
+  allow_archived_if_same_as: Option<Uuid>,
 ) -> Result<
   (
     Option<Uuid>,
@@ -1072,7 +1096,7 @@ async fn build_postcard_receipt_values_from_input(
     Some(id) => {
       let uuid =
         Uuid::parse_str(&id).map_err(|e| AppError::Validation(e.to_string()).to_string())?;
-      validate_active_address_entry_for_receipt(pool, &uuid).await?;
+      validate_address_entry_for_receipt(pool, &uuid, allow_archived_if_same_as).await?;
       Some(uuid)
     }
     None => None,
@@ -1112,7 +1136,7 @@ async fn create_postcard_receipt_impl(
   dto: PostcardReceiptDtoInput,
 ) -> Result<String, String> {
   let (address_entry_id, sender_display_name, received_at, category, memo) =
-    build_postcard_receipt_values_from_input(pool, dto).await?;
+    build_postcard_receipt_values_from_input(pool, dto, None).await?;
 
   let receipt = PostcardReceipt::create_new(
     address_entry_id,
@@ -1168,7 +1192,12 @@ async fn update_postcard_receipt_impl(
   }
 
   let (address_entry_id, sender_display_name, received_at, category, memo) =
-    build_postcard_receipt_values_from_input(pool, dto).await?;
+    build_postcard_receipt_values_from_input(
+      pool,
+      dto,
+      existing.receipt.address_entry_id(),
+    )
+    .await?;
 
   let receipt = PostcardReceipt::from_persisted(
     receipt_id,
