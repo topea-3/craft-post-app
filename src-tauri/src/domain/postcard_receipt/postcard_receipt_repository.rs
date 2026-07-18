@@ -12,6 +12,9 @@ pub enum PostcardReceiptRepositoryError {
   InvalidPersistedData(String),
   #[error("postcard receipt not found")]
   NotFound,
+  /// 紐付け先住所が存在しない、または active 条件を満たさない（並行 archive 等）
+  #[error("address entry link rejected")]
+  AddressLinkRejected,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -125,9 +128,17 @@ fn parse_optional_datetime(value: Option<String>) -> Result<Option<DateTime<Utc>
 
 #[async_trait::async_trait]
 pub trait PostcardReceiptRepository {
-  async fn create(&self, receipt: &PostcardReceipt) -> Result<(), PostcardReceiptRepositoryError>;
+  async fn create(
+    &self,
+    receipt: &PostcardReceipt,
+    allow_archived_address_id: Option<Uuid>,
+  ) -> Result<(), PostcardReceiptRepositoryError>;
 
-  async fn update(&self, receipt: &PostcardReceipt) -> Result<(), PostcardReceiptRepositoryError>;
+  async fn update(
+    &self,
+    receipt: &PostcardReceipt,
+    allow_archived_address_id: Option<Uuid>,
+  ) -> Result<(), PostcardReceiptRepositoryError>;
 
   async fn find_by_id(
     &self,

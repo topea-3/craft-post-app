@@ -10,7 +10,7 @@ type Props = {
   isOpen: boolean
   excludeIds?: string[]
   onClose: () => void
-  onSelect: (addressEntryId: string) => void
+  onSelect: (item: AddressEntryListItem) => void
 }
 
 const PAGE_SIZE = 10
@@ -135,7 +135,8 @@ export function AddressEntrySelectDialog({ isOpen, excludeIds = [], onClose, onS
                         <button
                           type="button"
                           onClick={() => {
-                            onSelect(a.id)
+                            onSelect(a)
+                            onClose()
                           }}
                         >
                           選択

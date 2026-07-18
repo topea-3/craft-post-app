@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { renderHook, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { invoke } from '@tauri-apps/api/core'
@@ -32,11 +33,10 @@ describe('usePostcardReceiptList', () => {
     invokeMock.mockReset()
   })
 
-  it('refetches with clamped offset after last-page item deletion leaves page past totalPages', async () => {
-    const onPageChange = vi.fn()
+  it('clamps page via onPageChange and fetches twice total (not thrice)', async () => {
     const pageSize = 2
 
-    // 最終ページの最後の1件削除後: page=2 のままだと total=2 / items=[] になる
+    // page=2 で空ページ → onPageChange(1) → effect 再実行で page=1 を取得
     invokeMock
       .mockResolvedValueOnce({
         items: [],
@@ -50,21 +50,24 @@ describe('usePostcardReceiptList', () => {
         total: 2,
       })
 
-    const { result } = renderHook(() =>
-      usePostcardReceiptList({
+    const { result } = renderHook(() => {
+      const [page, setPage] = useState(2)
+      const list = usePostcardReceiptList({
         searchText: '',
         year: '',
         category: '',
         addressEntryId: null,
-        page: 2,
+        page,
         pageSize,
-        onPageChange,
-      }),
-    )
+        onPageChange: setPage,
+      })
+      return { page, list }
+    })
 
     await waitFor(() => {
-      expect(result.current.isLoading).toBe(false)
-      expect(result.current.items).toHaveLength(2)
+      expect(result.current.page).toBe(1)
+      expect(result.current.list.isLoading).toBe(false)
+      expect(result.current.list.items).toHaveLength(2)
     })
 
     expect(invokeMock).toHaveBeenCalledTimes(2)
@@ -78,9 +81,8 @@ describe('usePostcardReceiptList', () => {
       'search_postcard_receipts',
       expect.objectContaining({ limit: pageSize, offset: 0 }),
     )
-    expect(onPageChange).toHaveBeenCalledWith(1)
-    expect(result.current.total).toBe(2)
-    expect(result.current.error).toBeNull()
+    expect(result.current.list.total).toBe(2)
+    expect(result.current.list.error).toBeNull()
   })
 
   it('does not refetch when the requested page is already valid', async () => {
@@ -109,5 +111,37 @@ describe('usePostcardReceiptList', () => {
 
     expect(invokeMock).toHaveBeenCalledTimes(1)
     expect(onPageChange).not.toHaveBeenCalled()
+  })
+
+  it('notifies onPageChange when clamping without applying empty items', async () => {
+    const onPageChange = vi.fn()
+    const pageSize = 2
+
+    invokeMock.mockResolvedValueOnce({
+      items: [],
+      total: 2,
+    })
+
+    const { result } = renderHook(() =>
+      usePostcardReceiptList({
+        searchText: '',
+        year: '',
+        category: '',
+        addressEntryId: null,
+        page: 2,
+        pageSize,
+        onPageChange,
+      }),
+    )
+
+    await waitFor(() => {
+      expect(onPageChange).toHaveBeenCalledWith(1)
+      expect(result.current.isLoading).toBe(false)
+    })
+
+    expect(invokeMock).toHaveBeenCalledTimes(1)
+    expect(result.current.total).toBe(2)
+    // 空結果を適用せず、前回の items（初期 []）のまま
+    expect(result.current.items).toEqual([])
   })
 })

@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { PaginationControls } from '../../components/PaginationControls'
 import { clampPage, totalPagesFor } from '../../lib/pagination'
+import type { AddressEntryListItem } from '../address/types'
 import { AddressEntrySelectDialog } from '../sender/AddressEntrySelectDialog'
 import { POSTCARD_RECEIPT_OPERATION_ERROR_MESSAGE } from './messages'
 import { usePostcardReceiptList } from './usePostcardReceiptList'
@@ -10,6 +11,7 @@ import {
   POSTCARD_RECEIPT_CATEGORY_OPTIONS,
   buildYearOptions,
   categoryLabel,
+  formatAddressEntryLabel,
   formatReceivedAt,
   resolveSenderDisplayName,
 } from './types'
@@ -51,6 +53,15 @@ export function PostcardReceiptListPage() {
     setCategory('')
     setAddressEntryId(null)
     setAddressFilterLabel(null)
+    setPage(1)
+  }
+
+  const handleSelectAddressFilter = (item: AddressEntryListItem) => {
+    setAddressEntryId(item.id)
+    setAddressFilterLabel(
+      formatAddressEntryLabel(item.primaryName, item.coRecipients, item.honorific),
+    )
+    setAddressDialogOpen(false)
     setPage(1)
   }
 
@@ -210,37 +221,23 @@ export function PostcardReceiptListPage() {
                 const senderName = resolveSenderDisplayName(item)
                 const memoSnippet = (item.memo ?? '').slice(0, 30)
                 return (
-                  <tr
-                    key={item.id}
-                    className="address-list-row"
-                    onClick={() => navigate(`/receipts/${item.id}`)}
-                  >
+                  <tr key={item.id} className="address-list-row">
                     <td>{formatReceivedAt(item.receivedAt)}</td>
                     <td>{categoryLabel(item.category)}</td>
                     <td>
-                      <span className="address-list-name">{senderName}</span>
+                      <Link to={`/receipts/${item.id}`} className="address-list-name">
+                        {senderName}
+                      </Link>
                     </td>
                     <td className="address-list-memo" title={item.memo ?? ''}>
                       {memoSnippet}
                       {item.memo && item.memo.length > memoSnippet.length ? '…' : ''}
                     </td>
                     <td className="address-list-actions">
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          navigate(`/receipts/${item.id}/edit`)
-                        }}
-                      >
+                      <button type="button" onClick={() => navigate(`/receipts/${item.id}/edit`)}>
                         編集
                       </button>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          handleDelete(item.id)
-                        }}
-                      >
+                      <button type="button" onClick={() => handleDelete(item.id)}>
                         削除
                       </button>
                     </td>
@@ -263,12 +260,7 @@ export function PostcardReceiptListPage() {
         <AddressEntrySelectDialog
           isOpen={isAddressDialogOpen}
           onClose={() => setAddressDialogOpen(false)}
-          onSelect={(id) => {
-            setAddressEntryId(id)
-            setAddressFilterLabel('選択済みの相手')
-            setAddressDialogOpen(false)
-            setPage(1)
-          }}
+          onSelect={handleSelectAddressFilter}
         />
       ) : null}
     </div>

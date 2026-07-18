@@ -74,31 +74,24 @@ export function usePostcardReceiptList(
         const parsedCategory = category ? (category as PostcardReceiptCategory) : null
         const limit = pageSize
 
-        let requestPage = page
-        let result = await searchPostcardReceipts({
+        const result = await searchPostcardReceipts({
           keyword,
           year: parsedYear,
           category: parsedCategory,
           addressEntryId,
           limit,
-          offset: (requestPage - 1) * pageSize,
+          offset: (page - 1) * pageSize,
         })
 
-        // 削除などで page が総ページを超えた場合は有効ページへ寄せて再取得する
-        const clamped = clampPage(requestPage, result.total, pageSize)
-        if (clamped !== requestPage) {
-          requestPage = clamped
-          result = await searchPostcardReceipts({
-            keyword,
-            year: parsedYear,
-            category: parsedCategory,
-            addressEntryId,
-            limit,
-            offset: (requestPage - 1) * pageSize,
-          })
+        // 削除などで page が総ページを超えた場合は親へ補正を返し、再 fetch は effect 再実行に任せる
+        const clamped = clampPage(page, result.total, pageSize)
+        if (clamped !== page) {
           if (!cancelled) {
-            onPageChange?.(requestPage)
+            setTotal(result.total)
+            setError(null)
+            onPageChange?.(clamped)
           }
+          return
         }
 
         if (cancelled) return

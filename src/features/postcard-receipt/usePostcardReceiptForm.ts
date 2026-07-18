@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { isFutureLocalDate } from '../../lib/date'
 import {
@@ -52,7 +52,8 @@ const validateForm = (values: PostcardReceiptFormValues): PostcardReceiptFormErr
     errors.addressEntryId = '住所録から送り主を選択してください。'
   }
 
-  if (values.memo.length > MAX_MEMO_LENGTH) {
+  // Rust 側の chars().count() と揃える（絵文字などは1文字として数える）
+  if (Array.from(values.memo).length > MAX_MEMO_LENGTH) {
     errors.memo = `メモは${MAX_MEMO_LENGTH}文字以内で入力してください。`
   }
 
@@ -68,6 +69,15 @@ const usePostcardReceiptFormBase = (
   const [errors, setErrors] = useState<PostcardReceiptFormErrors>({})
   const [isSubmitting, setSubmitting] = useState(false)
   const [isDirty, setDirty] = useState(false)
+  const cancelledRef = useRef(false)
+  const isSubmittingRef = useRef(false)
+
+  useEffect(() => {
+    cancelledRef.current = false
+    return () => {
+      cancelledRef.current = true
+    }
+  }, [])
 
   useEffect(() => {
     setValues(initialValues)
@@ -76,6 +86,7 @@ const usePostcardReceiptFormBase = (
   }, [initialValues])
 
   const patchValues = (patch: Partial<PostcardReceiptFormValues>) => {
+    if (isSubmittingRef.current) return
     setValues((prev) => ({ ...prev, ...patch }))
     setDirty(true)
   }
@@ -87,13 +98,20 @@ const usePostcardReceiptFormBase = (
       return false
     }
 
+    isSubmittingRef.current = true
     setSubmitting(true)
     try {
       const dto = toPostcardReceiptDtoInput(values)
       await submitToServer(dto)
+      if (cancelledRef.current) {
+        return false
+      }
       onSuccess()
       return true
     } catch (error) {
+      if (cancelledRef.current) {
+        return false
+      }
       console.error('Failed to submit postcard receipt:', error)
       const message =
         typeof error === 'string' && error.includes('address entry is archived')
@@ -106,7 +124,10 @@ const usePostcardReceiptFormBase = (
       setErrors((prev) => ({ ...prev, form: message }))
       return false
     } finally {
-      setSubmitting(false)
+      isSubmittingRef.current = false
+      if (!cancelledRef.current) {
+        setSubmitting(false)
+      }
     }
   }
 
@@ -129,11 +150,14 @@ const usePostcardReceiptFormBase = (
 
 export function usePostcardReceiptForm(onSuccess: (id: string) => void): UsePostcardReceiptFormResult {
   const initialValues = useMemo(() => createInitialPostcardReceiptFormValues(), [])
+  const createdIdRef = useRef<string | null>(null)
   const submitToServer = useCallback(async (dto: PostcardReceiptDtoInput) => {
-    const id = await invoke<string>('create_postcard_receipt', { dto })
-    onSuccess(id)
-  }, [onSuccess])
-  return usePostcardReceiptFormBase(initialValues, submitToServer, () => {})
+    createdIdRef.current = await invoke<string>('create_postcard_receipt', { dto })
+  }, [])
+  return usePostcardReceiptFormBase(initialValues, submitToServer, () => {
+    const id = createdIdRef.current
+    if (id) onSuccess(id)
+  })
 }
 
 export function usePostcardReceiptEditForm(

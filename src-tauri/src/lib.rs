@@ -1023,6 +1023,27 @@ fn map_postcard_receipt_error(err: PostcardReceiptError) -> AppError {
   }
 }
 
+fn map_postcard_receipt_write_error(
+  err: crate::domain::postcard_receipt::postcard_receipt_repository::PostcardReceiptRepositoryError,
+  log_context: &str,
+  fallback_code: &str,
+) -> String {
+  use crate::domain::postcard_receipt::postcard_receipt_repository::PostcardReceiptRepositoryError;
+  match err {
+    PostcardReceiptRepositoryError::NotFound => {
+      AppError::Validation(RECEIPT_NOT_FOUND_MESSAGE.to_string()).to_string()
+    }
+    PostcardReceiptRepositoryError::AddressLinkRejected => {
+      // 事前検証後の競合: 多くの場合 archive への並行変更
+      AppError::Validation(ADDRESS_ENTRY_ARCHIVED_MESSAGE.to_string()).to_string()
+    }
+    other => {
+      log::error!("{log_context} failed: {:?}", other);
+      AppError::Repository(fallback_code.to_string()).to_string()
+    }
+  }
+}
+
 fn postcard_receipt_dto_from_context(ctx: PostcardReceiptWithContext) -> PostcardReceiptDto {
   let receipt = ctx.receipt;
   let (address_entry_display_name, address_entry_address_line, address_entry_archived) =
@@ -1150,12 +1171,9 @@ async fn create_postcard_receipt_impl(
   let id = receipt.id().as_uuid().to_string();
   let repo = SqlxPostcardReceiptRepository::new(pool.clone());
   repo
-    .create(&receipt)
+    .create(&receipt, None)
     .await
-    .map_err(|e| {
-      log::error!("create_postcard_receipt failed: {:?}", e);
-      AppError::Repository("RECEIPT_CREATE_FAILED".to_string())
-    })?;
+    .map_err(|e| map_postcard_receipt_write_error(e, "create_postcard_receipt", "RECEIPT_CREATE_FAILED"))?;
   Ok(id)
 }
 
@@ -1191,15 +1209,17 @@ async fn update_postcard_receipt_impl(
     return Err(AppError::Validation(RECEIPT_NOT_FOUND_MESSAGE.to_string()).to_string());
   }
 
+  let existing_address_id = existing.receipt.address_entry_id();
+
   let (address_entry_id, sender_display_name, received_at, category, memo) =
     build_postcard_receipt_values_from_input(
       pool,
       dto,
-      existing.receipt.address_entry_id(),
+      existing_address_id,
     )
     .await?;
 
-  let receipt = PostcardReceipt::from_persisted(
+  let receipt = PostcardReceipt::from_persisted_for_update(
     receipt_id,
     address_entry_id,
     sender_display_name,
@@ -1209,21 +1229,14 @@ async fn update_postcard_receipt_impl(
     existing.receipt.deleted_at(),
     existing.receipt.created_at(),
     Utc::now(),
+    PostcardReceipt::local_today(),
   )
   .map_err(|e| map_postcard_receipt_error(e).to_string())?;
 
   repo
-    .update(&receipt)
+    .update(&receipt, existing_address_id)
     .await
-    .map_err(|e| match e {
-      crate::domain::postcard_receipt::postcard_receipt_repository::PostcardReceiptRepositoryError::NotFound => {
-        AppError::Validation(RECEIPT_NOT_FOUND_MESSAGE.to_string()).to_string()
-      }
-      other => {
-        log::error!("update_postcard_receipt failed: {:?}", other);
-        AppError::Repository("RECEIPT_UPDATE_FAILED".to_string()).to_string()
-      }
-    })?;
+    .map_err(|e| map_postcard_receipt_write_error(e, "update_postcard_receipt", "RECEIPT_UPDATE_FAILED"))?;
   Ok(())
 }
 

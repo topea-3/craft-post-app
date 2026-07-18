@@ -80,7 +80,7 @@ mod tests {
     let receipt = sample_receipt(None, Some("田中家"), NaiveDate::from_ymd_opt(2025, 1, 3).unwrap());
     let id = receipt.id().clone();
 
-    repo.create(&receipt).await.unwrap();
+    repo.create(&receipt, None).await.unwrap();
     let found = repo.find_by_id(&id).await.unwrap().expect("receipt not found");
     assert_eq!(found.receipt.sender_display_name(), Some("田中家"));
   }
@@ -91,7 +91,7 @@ mod tests {
     let repo = SqlxPostcardReceiptRepository::new(pool.clone());
     let receipt = sample_receipt(None, Some("削除対象"), NaiveDate::from_ymd_opt(2025, 1, 1).unwrap());
     let id = receipt.id().clone();
-    repo.create(&receipt).await.unwrap();
+    repo.create(&receipt, None).await.unwrap();
     repo.delete(&id).await.unwrap();
 
     let (items, total) = repo
@@ -119,8 +119,8 @@ mod tests {
 
     let linked = sample_receipt(Some(address_id), None, NaiveDate::from_ymd_opt(2025, 1, 10).unwrap());
     let anonymous = sample_receipt(None, Some("匿名"), NaiveDate::from_ymd_opt(2024, 12, 31).unwrap());
-    repo.create(&linked).await.unwrap();
-    repo.create(&anonymous).await.unwrap();
+    repo.create(&linked, None).await.unwrap();
+    repo.create(&anonymous, None).await.unwrap();
 
     let (items, total) = repo
       .search(PostcardReceiptSearchQuery {
@@ -150,14 +150,14 @@ mod tests {
       Some(address_id),
       None,
       NaiveDate::from_ymd_opt(2025, 1, 5).unwrap(),
-    ))
+    ), None)
     .await
     .unwrap();
     repo.create(&sample_receipt(
       None,
       Some("山田家"),
       NaiveDate::from_ymd_opt(2025, 1, 6).unwrap(),
-    ))
+    ), None)
     .await
     .unwrap();
 
@@ -205,9 +205,9 @@ mod tests {
     let r3 = sample_receipt(None, Some("C"), NaiveDate::from_ymd_opt(2025, 1, 3).unwrap());
     // sort desc では page2 (offset=2) に最も古い A が入る
     let last_page_id = r1.id().clone();
-    repo.create(&r1).await.unwrap();
-    repo.create(&r2).await.unwrap();
-    repo.create(&r3).await.unwrap();
+    repo.create(&r1, None).await.unwrap();
+    repo.create(&r2, None).await.unwrap();
+    repo.create(&r3, None).await.unwrap();
 
     let (page2_before, total_before) = repo
       .search(PostcardReceiptSearchQuery {
@@ -282,7 +282,7 @@ mod tests {
       NaiveDate::from_ymd_opt(2025, 1, 10).unwrap(),
     );
     let id = receipt.id().clone();
-    repo.create(&receipt).await.unwrap();
+    repo.create(&receipt, None).await.unwrap();
 
     let found = repo.find_by_id(&id).await.unwrap().expect("receipt");
     let address = found.address.expect("address context");
@@ -302,7 +302,7 @@ mod tests {
         Some(address_id),
         None,
         NaiveDate::from_ymd_opt(2025, 2, 1).unwrap(),
-      ))
+      ), None)
       .await
       .unwrap();
     repo
@@ -310,7 +310,7 @@ mod tests {
         None,
         Some("別件"),
         NaiveDate::from_ymd_opt(2025, 2, 2).unwrap(),
-      ))
+      ), None)
       .await
       .unwrap();
 
@@ -355,7 +355,7 @@ mod tests {
     let repo = SqlxPostcardReceiptRepository::new(pool.clone());
     let receipt = sample_receipt(None, Some("削除後更新"), NaiveDate::from_ymd_opt(2025, 3, 1).unwrap());
     let id = receipt.id().clone();
-    repo.create(&receipt).await.unwrap();
+    repo.create(&receipt, None).await.unwrap();
     repo.delete(&id).await.unwrap();
 
     let resurrected = PostcardReceipt::from_persisted(
@@ -371,7 +371,7 @@ mod tests {
     )
     .unwrap();
 
-    let err = repo.update(&resurrected).await.expect_err("must not update deleted row");
+    let err = repo.update(&resurrected, None).await.expect_err("must not update deleted row");
     assert!(matches!(
       err,
       crate::domain::postcard_receipt::postcard_receipt_repository::PostcardReceiptRepositoryError::NotFound
@@ -395,5 +395,227 @@ mod tests {
     let found = repo.find_by_id(&id).await.unwrap().expect("row still exists");
     assert!(found.receipt.is_deleted());
     assert_eq!(found.receipt.sender_display_name(), Some("削除後更新"));
+  }
+
+  #[tokio::test]
+  async fn search_matches_full_display_name_and_address_with_building() {
+    let pool = setup_pool().await;
+    let primary = PersonName::new("高橋".into(), "太郎".into(), None, None).unwrap();
+    let co = PersonName::new("高橋".into(), "次郎".into(), None, None).unwrap();
+    let postal = PostalCode::new("1234567").unwrap();
+    let addr = Address::new(
+      "東京都".into(),
+      "渋谷区".into(),
+      "神南1-2-3".into(),
+      Some("○○ビル".into()),
+    )
+    .unwrap();
+    let entry = AddressEntry::create_new(primary, vec![co], Honorific::Sama, postal, addr, None);
+    let address_id = entry.id().as_uuid();
+    let expected_display = entry.display_full_recipient();
+    let expected_address = entry.address().to_single_line();
+    SqlxAddressEntryRepository::new(pool.clone())
+      .create(&entry)
+      .await
+      .unwrap();
+
+    let repo = SqlxPostcardReceiptRepository::new(pool.clone());
+    repo
+      .create(
+        &sample_receipt(
+          Some(address_id),
+          None,
+          NaiveDate::from_ymd_opt(2025, 4, 1).unwrap(),
+        ),
+        None,
+      )
+      .await
+      .unwrap();
+
+    assert_eq!(expected_display, "高橋 太郎・次郎 様");
+    assert!(expected_address.contains(" ○○ビル"));
+
+    for keyword in [
+      expected_display.as_str(),
+      "高橋 太郎",
+      "高橋 太郎・次郎 様",
+      expected_address.as_str(),
+    ] {
+      let (items, total) = repo
+        .search(PostcardReceiptSearchQuery {
+          keyword: Some(keyword.to_string()),
+          year: None,
+          category: None,
+          address_entry_id: None,
+          include_deleted: false,
+          pagination: Pagination { limit: 20, offset: 0 },
+          sort_order: SortOrder::Desc,
+        })
+        .await
+        .unwrap();
+      assert_eq!(total, 1, "keyword={keyword}");
+      assert_eq!(items.len(), 1, "keyword={keyword}");
+      assert_eq!(
+        items[0].address.as_ref().unwrap().display_name,
+        expected_display
+      );
+    }
+  }
+
+  #[tokio::test]
+  async fn search_treats_percent_and_underscore_as_literals() {
+    let pool = setup_pool().await;
+    let repo = SqlxPostcardReceiptRepository::new(pool.clone());
+    repo
+      .create(
+        &sample_receipt(
+          None,
+          Some("100%保証_店"),
+          NaiveDate::from_ymd_opt(2025, 5, 1).unwrap(),
+        ),
+        None,
+      )
+      .await
+      .unwrap();
+    repo
+      .create(
+        &sample_receipt(
+          None,
+          Some("別件"),
+          NaiveDate::from_ymd_opt(2025, 5, 2).unwrap(),
+        ),
+        None,
+      )
+      .await
+      .unwrap();
+
+    let (items, total) = repo
+      .search(PostcardReceiptSearchQuery {
+        keyword: Some("%".to_string()),
+        year: None,
+        category: None,
+        address_entry_id: None,
+        include_deleted: false,
+        pagination: Pagination { limit: 20, offset: 0 },
+        sort_order: SortOrder::Desc,
+      })
+      .await
+      .unwrap();
+    assert_eq!(total, 1);
+    assert_eq!(items[0].receipt.sender_display_name(), Some("100%保証_店"));
+
+    let (items_u, total_u) = repo
+      .search(PostcardReceiptSearchQuery {
+        keyword: Some("_店".to_string()),
+        year: None,
+        category: None,
+        address_entry_id: None,
+        include_deleted: false,
+        pagination: Pagination { limit: 20, offset: 0 },
+        sort_order: SortOrder::Desc,
+      })
+      .await
+      .unwrap();
+    assert_eq!(total_u, 1);
+    assert_eq!(items_u.len(), 1);
+  }
+
+  #[tokio::test]
+  async fn create_rejects_when_address_archived_concurrently() {
+    let pool = setup_pool().await;
+    let address_id = seed_address(&pool, "並行").await;
+    // 事前に archive（create の条件付き INSERT が拒否するケース）
+    sqlx::query("UPDATE address_entries SET archived_at = ? WHERE id = ?")
+      .bind(chrono::Utc::now().to_rfc3339())
+      .bind(address_id.to_string())
+      .execute(&pool)
+      .await
+      .unwrap();
+
+    let repo = SqlxPostcardReceiptRepository::new(pool);
+    let receipt = sample_receipt(
+      Some(address_id),
+      None,
+      NaiveDate::from_ymd_opt(2025, 6, 1).unwrap(),
+    );
+    let err = repo
+      .create(&receipt, None)
+      .await
+      .expect_err("archived address must be rejected at write time");
+    assert!(matches!(
+      err,
+      crate::domain::postcard_receipt::postcard_receipt_repository::PostcardReceiptRepositoryError::AddressLinkRejected
+    ));
+  }
+
+  #[tokio::test]
+  async fn update_allows_keeping_existing_archived_address_link() {
+    let pool = setup_pool().await;
+    let address_id = seed_address(&pool, "維持").await;
+    let repo = SqlxPostcardReceiptRepository::new(pool.clone());
+    let receipt = sample_receipt(
+      Some(address_id),
+      None,
+      NaiveDate::from_ymd_opt(2025, 6, 2).unwrap(),
+    );
+    let id = receipt.id().clone();
+    repo.create(&receipt, None).await.unwrap();
+
+    sqlx::query("UPDATE address_entries SET archived_at = ? WHERE id = ?")
+      .bind(chrono::Utc::now().to_rfc3339())
+      .bind(address_id.to_string())
+      .execute(&pool)
+      .await
+      .unwrap();
+
+    let updated = PostcardReceipt::from_persisted(
+      id.clone(),
+      Some(address_id),
+      None,
+      NaiveDate::from_ymd_opt(2025, 6, 3).unwrap(),
+      PostcardReceiptCategory::Nenga,
+      None,
+      None,
+      chrono::Utc::now(),
+      chrono::Utc::now(),
+    )
+    .unwrap();
+    repo
+      .update(&updated, Some(address_id))
+      .await
+      .expect("keeping same archived address must succeed");
+  }
+
+  #[tokio::test]
+  async fn find_by_id_loads_receipt_even_if_received_at_is_tomorrow() {
+    let pool = setup_pool().await;
+    let repo = SqlxPostcardReceiptRepository::new(pool.clone());
+    let tomorrow = chrono::Local::now().date_naive() + chrono::Duration::days(1);
+    // 直接 INSERT して未来日の永続化行を作る（ドメイン create は拒否するため）
+    let id = Uuid::new_v4();
+    let now = chrono::Utc::now().to_rfc3339();
+    sqlx::query(
+      r#"
+        INSERT INTO postcard_receipts (
+          id, address_entry_id, sender_display_name, received_at, category, memo,
+          deleted_at, created_at, updated_at
+        ) VALUES (?, NULL, ?, ?, 'nenga', NULL, NULL, ?, ?)
+      "#,
+    )
+    .bind(id.to_string())
+    .bind("時計ずれ")
+    .bind(tomorrow.format("%Y-%m-%d").to_string())
+    .bind(&now)
+    .bind(&now)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let found = repo
+      .find_by_id(&crate::domain::postcard_receipt::postcard_receipt::PostcardReceiptId::from_uuid(id))
+      .await
+      .unwrap()
+      .expect("must load persisted tomorrow date");
+    assert_eq!(found.receipt.received_at(), tomorrow);
   }
 }

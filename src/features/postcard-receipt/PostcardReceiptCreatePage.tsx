@@ -27,7 +27,12 @@ export function PostcardReceiptCreatePage() {
     <div className="address-form-container">
       <header className="address-form-header">
         <h1>受取履歴新規作成</h1>
-        <button type="button" className="link-button" onClick={handleCancel}>
+        <button
+          type="button"
+          className="link-button"
+          onClick={handleCancel}
+          disabled={form.isSubmitting}
+        >
           キャンセル
         </button>
       </header>

@@ -1,8 +1,6 @@
 import { useState } from 'react'
-import { invoke } from '@tauri-apps/api/core'
 import { AddressEntrySelectDialog } from '../sender/AddressEntrySelectDialog'
-import type { AddressEntryDto } from '../address/types'
-import { fromAddressEntryDto } from '../address/types'
+import type { AddressEntryListItem } from '../address/types'
 import type { UsePostcardReceiptFormResult } from './usePostcardReceiptForm'
 import { formatAddressEntryLabel, POSTCARD_RECEIPT_CATEGORY_OPTIONS } from './types'
 
@@ -34,20 +32,13 @@ export function PostcardReceiptForm({ form, onCancel, submitLabel = '保存' }: 
     await submit()
   }
 
-  const handleSelectAddress = async (addressEntryId: string) => {
-    try {
-      const dto = await invoke<AddressEntryDto>('get_address_entry', { id: addressEntryId })
-      const item = fromAddressEntryDto(dto)
-      const displayName = formatAddressEntryLabel(
-        item.primaryName,
-        item.coRecipients,
-        item.honorific,
-      )
-      setAddressEntry(addressEntryId, displayName)
-    } catch (error) {
-      console.error('Failed to load selected address entry:', error)
-      setAddressEntry(addressEntryId, '選択済みの宛名')
-    }
+  const handleSelectAddress = (item: AddressEntryListItem) => {
+    const displayName = formatAddressEntryLabel(
+      item.primaryName,
+      item.coRecipients,
+      item.honorific,
+    )
+    setAddressEntry(item.id, displayName)
     setAddressDialogOpen(false)
   }
 
@@ -61,6 +52,7 @@ export function PostcardReceiptForm({ form, onCancel, submitLabel = '保存' }: 
             type="date"
             value={values.receivedAt}
             onChange={(e) => updateReceivedAt(e.target.value)}
+            disabled={isSubmitting}
           />
           {errors.receivedAt ? <span className="address-form-error">{errors.receivedAt}</span> : null}
         </label>
@@ -70,6 +62,7 @@ export function PostcardReceiptForm({ form, onCancel, submitLabel = '保存' }: 
           <select
             value={values.category}
             onChange={(e) => updateCategory(e.target.value as typeof values.category)}
+            disabled={isSubmitting}
           >
             {POSTCARD_RECEIPT_CATEGORY_OPTIONS.map((option) => (
               <option key={option.value} value={option.value}>
@@ -82,14 +75,19 @@ export function PostcardReceiptForm({ form, onCancel, submitLabel = '保存' }: 
 
         <label className="address-form-field">
           <span>メモ</span>
-          <textarea value={values.memo} onChange={(e) => updateMemo(e.target.value)} rows={4} />
+          <textarea
+            value={values.memo}
+            onChange={(e) => updateMemo(e.target.value)}
+            rows={4}
+            disabled={isSubmitting}
+          />
           {errors.memo ? <span className="address-form-error">{errors.memo}</span> : null}
         </label>
       </section>
 
       <section className="address-form-section">
         <h2 className="address-form-section-title">送り主</h2>
-        <fieldset className="address-form-field">
+        <fieldset className="address-form-field" disabled={isSubmitting}>
           <legend>紐付け方法</legend>
           <label>
             <input
@@ -97,6 +95,7 @@ export function PostcardReceiptForm({ form, onCancel, submitLabel = '保存' }: 
               name="linkMode"
               checked={values.linkMode === 'address'}
               onChange={() => setLinkMode('address')}
+              disabled={isSubmitting}
             />
             住所録から選ぶ
           </label>
@@ -106,6 +105,7 @@ export function PostcardReceiptForm({ form, onCancel, submitLabel = '保存' }: 
               name="linkMode"
               checked={values.linkMode === 'displayName'}
               onChange={() => setLinkMode('displayName')}
+              disabled={isSubmitting}
             />
             表示名のみ
           </label>
@@ -115,13 +115,17 @@ export function PostcardReceiptForm({ form, onCancel, submitLabel = '保存' }: 
           <div className="address-form-field">
             <span>住所録</span>
             <div>
-              <button type="button" onClick={() => setAddressDialogOpen(true)}>
+              <button
+                type="button"
+                onClick={() => setAddressDialogOpen(true)}
+                disabled={isSubmitting}
+              >
                 宛名を選択
               </button>
               {values.addressEntryDisplayName ? (
                 <p>
                   選択中: {values.addressEntryDisplayName}
-                  <button type="button" onClick={clearAddressEntry}>
+                  <button type="button" onClick={clearAddressEntry} disabled={isSubmitting}>
                     クリア
                   </button>
                 </p>
@@ -138,6 +142,7 @@ export function PostcardReceiptForm({ form, onCancel, submitLabel = '保存' }: 
               type="text"
               value={values.senderDisplayName}
               onChange={(e) => updateSenderDisplayName(e.target.value)}
+              disabled={isSubmitting}
             />
             {errors.senderDisplayName ? (
               <span className="address-form-error">{errors.senderDisplayName}</span>
@@ -149,7 +154,7 @@ export function PostcardReceiptForm({ form, onCancel, submitLabel = '保存' }: 
       {errors.form ? <p className="address-form-error">{errors.form}</p> : null}
 
       <div className="address-form-actions">
-        <button type="button" className="secondary" onClick={onCancel}>
+        <button type="button" className="secondary" onClick={onCancel} disabled={isSubmitting}>
           キャンセル
         </button>
         <button type="submit" disabled={isSubmitting}>

@@ -175,8 +175,10 @@ export function SenderEntryEditPage() {
     }
   }
 
-  const handleAddLink = async (addressEntryId: string) => {
+  const handleAddLink = async (item: AddressEntryListItem) => {
     if (!id) return
+
+    const addressEntryId = item.id
 
     // 既にこの差出人に紐づいている場合は何もしない
     if (linkedAddresses.some((a) => a.id === addressEntryId)) {

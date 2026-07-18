@@ -80,7 +80,8 @@ impl PostcardReceipt {
     memo: Option<Memo>,
     today: NaiveDate,
   ) -> Result<Self, PostcardReceiptError> {
-    Self::validate_business_rules(address_entry_id, &sender_display_name, received_at, today)?;
+    Self::validate_received_at_not_future(received_at, today)?;
+    Self::validate_link_rules(address_entry_id, &sender_display_name)?;
     let now = Utc::now();
     Ok(Self {
       id: PostcardReceiptId::new(),
@@ -95,6 +96,7 @@ impl PostcardReceipt {
     })
   }
 
+  /// DB 再構成。時刻依存の未来日検証は行わない（TZ/時計変更後も既存行を読めるようにする）。
   pub fn from_persisted(
     id: PostcardReceiptId,
     address_entry_id: Option<Uuid>,
@@ -106,34 +108,7 @@ impl PostcardReceipt {
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
   ) -> Result<Self, PostcardReceiptError> {
-    Self::from_persisted_as_of(
-      id,
-      address_entry_id,
-      sender_display_name,
-      received_at,
-      category,
-      memo,
-      deleted_at,
-      created_at,
-      updated_at,
-      Self::local_today(),
-    )
-  }
-
-  /// 基準日を注入する再構成（update 時の未来日検証・テスト用）
-  pub fn from_persisted_as_of(
-    id: PostcardReceiptId,
-    address_entry_id: Option<Uuid>,
-    sender_display_name: Option<String>,
-    received_at: NaiveDate,
-    category: PostcardReceiptCategory,
-    memo: Option<Memo>,
-    deleted_at: Option<DateTime<Utc>>,
-    created_at: DateTime<Utc>,
-    updated_at: DateTime<Utc>,
-    today: NaiveDate,
-  ) -> Result<Self, PostcardReceiptError> {
-    Self::validate_business_rules(address_entry_id, &sender_display_name, received_at, today)?;
+    Self::validate_link_rules(address_entry_id, &sender_display_name)?;
     Ok(Self {
       id,
       address_entry_id,
@@ -147,16 +122,47 @@ impl PostcardReceipt {
     })
   }
 
-  fn validate_business_rules(
+  /// update 入力境界用: 未来日検証付きで再構成する。
+  pub fn from_persisted_for_update(
+    id: PostcardReceiptId,
     address_entry_id: Option<Uuid>,
-    sender_display_name: &Option<String>,
+    sender_display_name: Option<String>,
+    received_at: NaiveDate,
+    category: PostcardReceiptCategory,
+    memo: Option<Memo>,
+    deleted_at: Option<DateTime<Utc>>,
+    created_at: DateTime<Utc>,
+    updated_at: DateTime<Utc>,
+    today: NaiveDate,
+  ) -> Result<Self, PostcardReceiptError> {
+    Self::validate_received_at_not_future(received_at, today)?;
+    Self::from_persisted(
+      id,
+      address_entry_id,
+      sender_display_name,
+      received_at,
+      category,
+      memo,
+      deleted_at,
+      created_at,
+      updated_at,
+    )
+  }
+
+  pub fn validate_received_at_not_future(
     received_at: NaiveDate,
     today: NaiveDate,
   ) -> Result<(), PostcardReceiptError> {
-    // 受取日は端末ローカルのカレンダー日。ローカルの今日まで許可し、明日以降は拒否する。
     if received_at > today {
       return Err(PostcardReceiptError::FutureReceivedDate);
     }
+    Ok(())
+  }
+
+  fn validate_link_rules(
+    address_entry_id: Option<Uuid>,
+    sender_display_name: &Option<String>,
+  ) -> Result<(), PostcardReceiptError> {
     if address_entry_id.is_none() {
       let name = sender_display_name
         .as_deref()
@@ -276,9 +282,28 @@ mod tests {
   }
 
   #[test]
-  fn from_persisted_rejects_local_tomorrow() {
+  fn from_persisted_allows_dates_that_look_future_relative_to_today() {
+    // DB 再構成は未来日検証しない（時計・TZ 変更後も既存行を読める）
     let tomorrow = fixed_today() + chrono::Duration::days(1);
-    let err = PostcardReceipt::from_persisted_as_of(
+    let receipt = PostcardReceipt::from_persisted(
+      PostcardReceiptId::new(),
+      None,
+      Some("田中家".to_string()),
+      tomorrow,
+      PostcardReceiptCategory::Nenga,
+      None,
+      None,
+      Utc::now(),
+      Utc::now(),
+    )
+    .expect("persisted future-looking date must load");
+    assert_eq!(receipt.received_at(), tomorrow);
+  }
+
+  #[test]
+  fn from_persisted_for_update_rejects_local_tomorrow() {
+    let tomorrow = fixed_today() + chrono::Duration::days(1);
+    let err = PostcardReceipt::from_persisted_for_update(
       PostcardReceiptId::new(),
       None,
       Some("田中家".to_string()),
@@ -290,7 +315,7 @@ mod tests {
       Utc::now(),
       fixed_today(),
     )
-    .expect_err("update path must also reject local tomorrow");
+    .expect_err("update path must reject local tomorrow");
     assert_eq!(err, PostcardReceiptError::FutureReceivedDate);
   }
 
