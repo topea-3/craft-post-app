@@ -171,4 +171,82 @@ mod tests {
     assert_eq!(total_s, 1);
     assert_eq!(by_sender.len(), 1);
   }
+
+  #[tokio::test]
+  async fn search_on_last_page_after_deleting_last_item_returns_empty_items_with_positive_total() {
+    // 最終ページの最後の1件を削除したあと、補正前の page/offset のまま検索すると
+    // total > 0 でも items が空になる（フロントは clamp して再取得する必要がある）
+    let pool = setup_pool().await;
+    let repo = SqlxPostcardReceiptRepository::new(pool.clone());
+    const PAGE_SIZE: i64 = 2;
+
+    let r1 = sample_receipt(None, Some("A"), NaiveDate::from_ymd_opt(2025, 1, 1).unwrap());
+    let r2 = sample_receipt(None, Some("B"), NaiveDate::from_ymd_opt(2025, 1, 2).unwrap());
+    let r3 = sample_receipt(None, Some("C"), NaiveDate::from_ymd_opt(2025, 1, 3).unwrap());
+    // sort desc では page2 (offset=2) に最も古い A が入る
+    let last_page_id = r1.id().clone();
+    repo.create(&r1).await.unwrap();
+    repo.create(&r2).await.unwrap();
+    repo.create(&r3).await.unwrap();
+
+    let (page2_before, total_before) = repo
+      .search(PostcardReceiptSearchQuery {
+        keyword: None,
+        year: None,
+        category: None,
+        address_entry_id: None,
+        include_deleted: false,
+        pagination: Pagination {
+          limit: PAGE_SIZE,
+          offset: PAGE_SIZE,
+        },
+        sort_order: SortOrder::Desc,
+      })
+      .await
+      .unwrap();
+    assert_eq!(total_before, 3);
+    assert_eq!(page2_before.len(), 1);
+
+    repo.delete(&last_page_id).await.unwrap();
+
+    let (page2_after, total_after) = repo
+      .search(PostcardReceiptSearchQuery {
+        keyword: None,
+        year: None,
+        category: None,
+        address_entry_id: None,
+        include_deleted: false,
+        pagination: Pagination {
+          limit: PAGE_SIZE,
+          offset: PAGE_SIZE, // 補正前の page=2
+        },
+        sort_order: SortOrder::Desc,
+      })
+      .await
+      .unwrap();
+    assert_eq!(total_after, 2);
+    assert!(
+      page2_after.is_empty(),
+      "stale last-page offset yields empty items while total > 0"
+    );
+
+    let clamped_offset = 0; // clampPage(2, 2, 2) => page 1
+    let (page1, total_clamped) = repo
+      .search(PostcardReceiptSearchQuery {
+        keyword: None,
+        year: None,
+        category: None,
+        address_entry_id: None,
+        include_deleted: false,
+        pagination: Pagination {
+          limit: PAGE_SIZE,
+          offset: clamped_offset,
+        },
+        sort_order: SortOrder::Desc,
+      })
+      .await
+      .unwrap();
+    assert_eq!(total_clamped, 2);
+    assert_eq!(page1.len(), 2);
+  }
 }

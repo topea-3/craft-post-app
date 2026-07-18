@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { useNavigate } from 'react-router-dom'
 import { PaginationControls } from '../../components/PaginationControls'
+import { clampPage, totalPagesFor } from '../../lib/pagination'
 import { AddressEntrySelectDialog } from '../sender/AddressEntrySelectDialog'
 import { POSTCARD_RECEIPT_OPERATION_ERROR_MESSAGE } from './messages'
 import { usePostcardReceiptList } from './usePostcardReceiptList'
@@ -33,10 +34,11 @@ export function PostcardReceiptListPage() {
     addressEntryId,
     page,
     pageSize: PAGE_SIZE,
+    onPageChange: setPage,
   })
 
-  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
-  const currentPage = Math.min(page, totalPages)
+  const totalPages = totalPagesFor(total, PAGE_SIZE)
+  const currentPage = clampPage(page, total, PAGE_SIZE)
   const isFiltering =
     searchText.trim().length > 0 || year !== '' || category !== '' || addressEntryId !== null
   const isNoData = !isFiltering && total === 0
