@@ -1,3 +1,9 @@
+import {
+  currentLocalYear,
+  formatDateOnlyDisplay,
+  formatLocalDate,
+  formatUtcToLocalDateTime,
+} from '../../lib/date'
 import type { PersonNameForm } from '../address/types'
 import { formatDisplayName } from '../address/types'
 
@@ -69,16 +75,10 @@ export function categoryLabel(category: PostcardReceiptCategory): string {
 }
 
 export function formatReceivedAt(value: string): string {
-  const [y, m, d] = value.split('-')
-  if (!y || !m || !d) return value
-  return `${y}/${m}/${d}`
+  return formatDateOnlyDisplay(value)
 }
 
-export function formatDateTime(value: string): string {
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
-  return date.toLocaleString('ja-JP')
-}
+export const formatDateTime = formatUtcToLocalDateTime
 
 export function resolveSenderDisplayName(item: {
   addressEntryId: string | null
@@ -129,13 +129,6 @@ export function toPostcardReceiptDtoInput(values: PostcardReceiptFormValues): Po
     category: values.category,
     memo: values.memo.trim() || null,
   }
-}
-
-function formatLocalDate(date: Date): string {
-  const y = date.getFullYear()
-  const m = String(date.getMonth() + 1).padStart(2, '0')
-  const d = String(date.getDate()).padStart(2, '0')
-  return `${y}-${m}-${d}`
 }
 
 export function createInitialPostcardReceiptFormValues(): PostcardReceiptFormValues {
@@ -189,7 +182,7 @@ export function formatAddressEntryLabel(
 }
 
 export function buildYearOptions(): { value: string; label: string }[] {
-  const currentYear = new Date().getFullYear()
+  const currentYear = currentLocalYear()
   const years: { value: string; label: string }[] = [{ value: '', label: '全期間' }]
   for (let y = currentYear; y >= currentYear - 10; y -= 1) {
     years.push({ value: String(y), label: String(y) })

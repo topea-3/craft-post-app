@@ -352,7 +352,7 @@ mod tests {
   #[tokio::test]
   async fn create_postcard_receipt_rejects_future_received_date() {
     let pool = setup_pool().await;
-    let future = (chrono::Utc::now().date_naive() + chrono::Duration::days(1))
+    let future = (chrono::Utc::now().date_naive() + chrono::Duration::days(2))
       .format("%Y-%m-%d")
       .to_string();
     let err = create_postcard_receipt_impl(

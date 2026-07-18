@@ -101,8 +101,10 @@ impl PostcardReceipt {
     sender_display_name: &Option<String>,
     received_at: NaiveDate,
   ) -> Result<(), PostcardReceiptError> {
-    let today = Utc::now().date_naive();
-    if received_at > today {
+    // 受取日はユーザーのローカルTZで解釈されたカレンダー日。バックエンドはTZを持たないため
+    // UTC 日付との最大ずれ（+1日）を許容し、厳密な未来判定はフロントに委ねる。
+    let latest_allowed = Utc::now().date_naive() + chrono::Duration::days(1);
+    if received_at > latest_allowed {
       return Err(PostcardReceiptError::FutureReceivedDate);
     }
     if address_entry_id.is_none() {
@@ -195,16 +197,30 @@ mod tests {
 
   #[test]
   fn create_new_rejects_future_received_date() {
-    let future = today() + chrono::Duration::days(1);
+    let too_far = today() + chrono::Duration::days(2);
     let err = PostcardReceipt::create_new(
       None,
       Some("田中家".to_string()),
-      future,
+      too_far,
       PostcardReceiptCategory::Nenga,
       None,
     )
-    .expect_err("should reject future date");
+    .expect_err("should reject date beyond timezone skew allowance");
     assert_eq!(err, PostcardReceiptError::FutureReceivedDate);
+  }
+
+  #[test]
+  fn create_new_allows_tomorrow_for_timezone_skew() {
+    let tomorrow = today() + chrono::Duration::days(1);
+    let receipt = PostcardReceipt::create_new(
+      None,
+      Some("田中家".to_string()),
+      tomorrow,
+      PostcardReceiptCategory::Nenga,
+      None,
+    )
+    .expect("UTC tomorrow should be allowed for local-TZ skew");
+    assert_eq!(receipt.received_at(), tomorrow);
   }
 
   #[test]

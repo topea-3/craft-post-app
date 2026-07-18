@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
+import { isFutureLocalDate } from '../../lib/date'
 import {
   type PostcardReceiptDtoInput,
   type PostcardReceiptFormValues,
@@ -39,13 +40,8 @@ const validateForm = (values: PostcardReceiptFormValues): PostcardReceiptFormErr
 
   if (!values.receivedAt.trim()) {
     errors.receivedAt = '受取日を入力してください。'
-  } else {
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
-    const received = new Date(`${values.receivedAt}T00:00:00`)
-    if (received > today) {
-      errors.receivedAt = '受取日に未来の日付は指定できません。'
-    }
+  } else if (isFutureLocalDate(values.receivedAt)) {
+    errors.receivedAt = '受取日に未来の日付は指定できません。'
   }
 
   if (values.linkMode === 'displayName' && !values.senderDisplayName.trim()) {
