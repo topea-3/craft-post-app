@@ -40,6 +40,9 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      - name: Typecheck tests
+        run: npm run typecheck:test
+
       - name: Test
         run: npm test
 

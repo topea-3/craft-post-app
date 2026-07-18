@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { renderHook, waitFor } from '@testing-library/react'
+import { act, renderHook, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { invoke } from '@tauri-apps/api/core'
 import type { PostcardReceiptDto } from './types'
@@ -113,35 +113,62 @@ describe('usePostcardReceiptList', () => {
     expect(onPageChange).not.toHaveBeenCalled()
   })
 
-  it('notifies onPageChange when clamping without applying empty items', async () => {
-    const onPageChange = vi.fn()
-    const pageSize = 2
-
-    invokeMock.mockResolvedValueOnce({
-      items: [],
-      total: 2,
+  it('does not refetch while search text is still debouncing', async () => {
+    vi.useFakeTimers()
+    invokeMock.mockResolvedValue({
+      items: [sampleDto()],
+      total: 1,
     })
 
-    const { result } = renderHook(() =>
-      usePostcardReceiptList({
-        searchText: '',
-        year: '',
-        category: '',
-        addressEntryId: null,
-        page: 2,
-        pageSize,
-        onPageChange,
-      }),
+    const onPageChange = vi.fn()
+    const { result, rerender } = renderHook(
+      ({ searchText, page }: { searchText: string; page: number }) =>
+        usePostcardReceiptList({
+          searchText,
+          year: '',
+          category: '',
+          addressEntryId: null,
+          page,
+          pageSize: 20,
+          onPageChange,
+        }),
+      { initialProps: { searchText: '', page: 2 } },
     )
 
-    await waitFor(() => {
-      expect(onPageChange).toHaveBeenCalledWith(1)
-      expect(result.current.isLoading).toBe(false)
+    // 初回 fetch 完了を待つ
+    await act(async () => {
+      await Promise.resolve()
     })
-
+    expect(result.current.isLoading).toBe(false)
     expect(invokeMock).toHaveBeenCalledTimes(1)
-    expect(result.current.total).toBe(2)
-    // 空結果を適用せず、前回の items（初期 []）のまま
-    expect(result.current.items).toEqual([])
+    invokeMock.mockClear()
+    onPageChange.mockClear()
+
+    rerender({ searchText: '田中', page: 2 })
+
+    // debounce 未経過: 旧 keyword での追加 invoke なし
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(299)
+    })
+    expect(invokeMock).not.toHaveBeenCalled()
+    expect(onPageChange).not.toHaveBeenCalled()
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1)
+    })
+    expect(onPageChange).toHaveBeenCalledWith(1)
+
+    // 親が page を 1 に更新した想定
+    rerender({ searchText: '田中', page: 1 })
+    await act(async () => {
+      await Promise.resolve()
+    })
+    expect(invokeMock).toHaveBeenCalledTimes(1)
+    expect(invokeMock).toHaveBeenCalledWith(
+      'search_postcard_receipts',
+      expect.objectContaining({ keyword: '田中', offset: 0 }),
+    )
+
+    vi.useRealTimers()
   })
 })

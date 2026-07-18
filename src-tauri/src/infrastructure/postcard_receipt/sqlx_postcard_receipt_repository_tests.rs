@@ -371,7 +371,11 @@ mod tests {
     )
     .unwrap();
 
-    let err = repo.update(&resurrected, None).await.expect_err("must not update deleted row");
+    let expected = receipt.updated_at().to_rfc3339();
+    let err = repo
+      .update(&resurrected, None, &expected)
+      .await
+      .expect_err("must not update deleted row");
     assert!(matches!(
       err,
       crate::domain::postcard_receipt::postcard_receipt_repository::PostcardReceiptRepositoryError::NotFound
@@ -580,8 +584,9 @@ mod tests {
       chrono::Utc::now(),
     )
     .unwrap();
+    let expected = receipt.updated_at().to_rfc3339();
     repo
-      .update(&updated, Some(address_id))
+      .update(&updated, Some(address_id), &expected)
       .await
       .expect("keeping same archived address must succeed");
   }
@@ -598,6 +603,7 @@ mod tests {
       NaiveDate::from_ymd_opt(2025, 6, 2).unwrap(),
     );
     let id = receipt.id().clone();
+    let expected0 = receipt.updated_at().to_rfc3339();
     repo.create(&receipt, None).await.unwrap();
 
     // 住所 A を archive
@@ -621,7 +627,10 @@ mod tests {
       chrono::Utc::now(),
     )
     .unwrap();
-    repo.update(&switched, None).await.unwrap();
+    repo.update(&switched, None, &expected0).await.unwrap();
+
+    let current = repo.find_by_id(&id).await.unwrap().unwrap();
+    let expected1 = current.receipt.updated_at().to_rfc3339();
 
     // 古い画面が「A を維持」として再紐付けしようとする → 拒否
     let stale = PostcardReceipt::from_persisted(
@@ -637,7 +646,7 @@ mod tests {
     )
     .unwrap();
     let err = repo
-      .update(&stale, Some(address_a))
+      .update(&stale, Some(address_a), &expected1)
       .await
       .expect_err("stale relink to archived A must be rejected");
     assert!(matches!(
@@ -647,6 +656,59 @@ mod tests {
 
     let found = repo.find_by_id(&id).await.unwrap().unwrap();
     assert_eq!(found.receipt.address_entry_id(), Some(address_b));
+  }
+
+  #[tokio::test]
+  async fn update_rejects_stale_expected_updated_at() {
+    let pool = setup_pool().await;
+    let repo = SqlxPostcardReceiptRepository::new(pool);
+    let receipt = sample_receipt(
+      None,
+      Some("競合"),
+      NaiveDate::from_ymd_opt(2025, 1, 1).unwrap(),
+    );
+    let id = receipt.id().clone();
+    let expected0 = receipt.updated_at().to_rfc3339();
+    repo.create(&receipt, None).await.unwrap();
+
+    let first = PostcardReceipt::from_persisted(
+      id.clone(),
+      None,
+      Some("競合".to_string()),
+      NaiveDate::from_ymd_opt(2025, 1, 1).unwrap(),
+      PostcardReceiptCategory::Mochu,
+      None,
+      None,
+      chrono::Utc::now(),
+      chrono::Utc::now(),
+    )
+    .unwrap();
+    repo.update(&first, None, &expected0).await.unwrap();
+
+    let stale = PostcardReceipt::from_persisted(
+      id.clone(),
+      None,
+      Some("競合".to_string()),
+      NaiveDate::from_ymd_opt(2025, 1, 1).unwrap(),
+      PostcardReceiptCategory::Nenga,
+      Some(crate::domain::address::memo::Memo::new("stale memo").unwrap()),
+      None,
+      chrono::Utc::now(),
+      chrono::Utc::now(),
+    )
+    .unwrap();
+    let err = repo
+      .update(&stale, None, &expected0)
+      .await
+      .expect_err("stale expected_updated_at must conflict");
+    assert!(matches!(
+      err,
+      crate::domain::postcard_receipt::postcard_receipt_repository::PostcardReceiptRepositoryError::Conflict
+    ));
+
+    let found = repo.find_by_id(&id).await.unwrap().unwrap();
+    assert_eq!(found.receipt.category(), PostcardReceiptCategory::Mochu);
+    assert!(found.receipt.memo().is_none());
   }
 
   #[tokio::test]

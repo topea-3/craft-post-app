@@ -15,6 +15,9 @@ pub enum PostcardReceiptRepositoryError {
   /// 紐付け先住所が存在しない、または active 条件を満たさない（並行 archive 等）
   #[error("address entry link rejected")]
   AddressLinkRejected,
+  /// 他操作による更新済み（楽観ロック不一致）
+  #[error("postcard receipt was updated concurrently")]
+  Conflict,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -138,6 +141,7 @@ pub trait PostcardReceiptRepository {
     &self,
     receipt: &PostcardReceipt,
     allow_archived_address_id: Option<Uuid>,
+    expected_updated_at: &str,
   ) -> Result<(), PostcardReceiptRepositoryError>;
 
   async fn find_by_id(

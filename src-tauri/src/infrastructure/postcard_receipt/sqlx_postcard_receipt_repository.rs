@@ -319,6 +319,7 @@ impl PostcardReceiptRepository for SqlxPostcardReceiptRepository {
     &self,
     receipt: &PostcardReceipt,
     allow_archived_address_id: Option<Uuid>,
+    expected_updated_at: &str,
   ) -> Result<(), PostcardReceiptRepositoryError> {
     let id = receipt.id().as_uuid().to_string();
     let address_entry_id = receipt.address_entry_id().map(|u| u.to_string());
@@ -339,7 +340,7 @@ impl PostcardReceiptRepository for SqlxPostcardReceiptRepository {
           category = ?,
           memo = ?,
           updated_at = ?
-        WHERE id = ? AND deleted_at IS NULL
+        WHERE id = ? AND deleted_at IS NULL AND updated_at = ?
           AND {pred}
       "#,
       pred = address_link_predicate_sql_for_update()
@@ -353,6 +354,7 @@ impl PostcardReceiptRepository for SqlxPostcardReceiptRepository {
       .bind(memo)
       .bind(updated_at)
       .bind(&id)
+      .bind(expected_updated_at)
       .bind(&address_entry_id)
       .bind(&address_entry_id)
       .bind(&allow_archived)
@@ -362,16 +364,23 @@ impl PostcardReceiptRepository for SqlxPostcardReceiptRepository {
       .await?;
 
     if result.rows_affected() == 0 {
-      // 削除済み or 住所リンク拒否
-      let exists: Option<(String,)> =
-        sqlx::query_as("SELECT id FROM postcard_receipts WHERE id = ? AND deleted_at IS NULL")
-          .bind(&id)
-          .fetch_optional(&self.pool)
-          .await?;
-      if exists.is_none() {
-        return Err(PostcardReceiptRepositoryError::NotFound);
+      let row = sqlx::query(
+        "SELECT updated_at FROM postcard_receipts WHERE id = ? AND deleted_at IS NULL",
+      )
+      .bind(&id)
+      .fetch_optional(&self.pool)
+      .await?;
+
+      match row {
+        None => return Err(PostcardReceiptRepositoryError::NotFound),
+        Some(r) => {
+          let current: String = r.get("updated_at");
+          if current != expected_updated_at {
+            return Err(PostcardReceiptRepositoryError::Conflict);
+          }
+          return Err(PostcardReceiptRepositoryError::AddressLinkRejected);
+        }
       }
-      return Err(PostcardReceiptRepositoryError::AddressLinkRejected);
     }
     Ok(())
   }

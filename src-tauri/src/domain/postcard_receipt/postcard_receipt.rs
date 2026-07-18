@@ -122,7 +122,8 @@ impl PostcardReceipt {
     })
   }
 
-  /// update 入力境界用: 未来日検証付きで再構成する。
+  /// update 入力境界用: 受取日を変更する場合のみ未来日検証する。
+  /// （既存日のままなら TZ/時計変更後もメモ等の編集を許可する）
   pub fn from_persisted_for_update(
     id: PostcardReceiptId,
     address_entry_id: Option<Uuid>,
@@ -133,9 +134,12 @@ impl PostcardReceipt {
     deleted_at: Option<DateTime<Utc>>,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
+    previous_received_at: NaiveDate,
     today: NaiveDate,
   ) -> Result<Self, PostcardReceiptError> {
-    Self::validate_received_at_not_future(received_at, today)?;
+    if received_at != previous_received_at {
+      Self::validate_received_at_not_future(received_at, today)?;
+    }
     Self::from_persisted(
       id,
       address_entry_id,
@@ -301,7 +305,7 @@ mod tests {
   }
 
   #[test]
-  fn from_persisted_for_update_rejects_local_tomorrow() {
+  fn from_persisted_for_update_rejects_local_tomorrow_when_date_changes() {
     let tomorrow = fixed_today() + chrono::Duration::days(1);
     let err = PostcardReceipt::from_persisted_for_update(
       PostcardReceiptId::new(),
@@ -314,9 +318,30 @@ mod tests {
       Utc::now(),
       Utc::now(),
       fixed_today(),
+      fixed_today(),
     )
-    .expect_err("update path must reject local tomorrow");
+    .expect_err("update path must reject local tomorrow when date changes");
     assert_eq!(err, PostcardReceiptError::FutureReceivedDate);
+  }
+
+  #[test]
+  fn from_persisted_for_update_allows_unchanged_future_looking_date() {
+    let tomorrow = fixed_today() + chrono::Duration::days(1);
+    let receipt = PostcardReceipt::from_persisted_for_update(
+      PostcardReceiptId::new(),
+      None,
+      Some("田中家".to_string()),
+      tomorrow,
+      PostcardReceiptCategory::Nenga,
+      None,
+      None,
+      Utc::now(),
+      Utc::now(),
+      tomorrow,
+      fixed_today(),
+    )
+    .expect("unchanged future-looking date must be allowed on update");
+    assert_eq!(receipt.received_at(), tomorrow);
   }
 
   #[test]

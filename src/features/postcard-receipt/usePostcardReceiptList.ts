@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { clampPage } from '../../lib/pagination'
 import type { PostcardReceiptCategory, PostcardReceiptDto, PostcardReceiptListItem } from './types'
@@ -57,14 +57,43 @@ export function usePostcardReceiptList(
   const [error, setError] = useState<string | null>(null)
   const [reloadToken, setReloadToken] = useState(0)
 
+  const debouncedRef = useRef(debouncedSearchText)
+  debouncedRef.current = debouncedSearchText
+  const pageRef = useRef(page)
+  pageRef.current = page
+  const onPageChangeRef = useRef(onPageChange)
+  onPageChangeRef.current = onPageChange
+  const pageResetPendingRef = useRef(false)
+
+  // 検索確定とページリセットを同じ debounce 遷移にまとめ、未確定入力では取得しない
   useEffect(() => {
-    const id = window.setTimeout(() => {
+    const timerId = window.setTimeout(() => {
+      if (debouncedRef.current === searchText) return
+      const needPageReset = pageRef.current !== 1
+      if (needPageReset) {
+        pageResetPendingRef.current = true
+      }
       setDebouncedSearchText(searchText)
+      if (needPageReset) {
+        onPageChangeRef.current?.(1)
+      }
     }, SEARCH_DEBOUNCE_MS)
-    return () => window.clearTimeout(id)
+    return () => window.clearTimeout(timerId)
   }, [searchText])
 
   useEffect(() => {
+    // 入力確定前は旧条件での再取得を起こさない
+    if (searchText !== debouncedSearchText) {
+      return
+    }
+    // 検索確定に伴う page リセット待ち（旧 page での余分な取得を避ける）
+    if (pageResetPendingRef.current) {
+      if (page !== 1) {
+        return
+      }
+      pageResetPendingRef.current = false
+    }
+
     let cancelled = false
     const fetchList = async () => {
       setIsLoading(true)
@@ -118,7 +147,7 @@ export function usePostcardReceiptList(
     }
     // onPageChange は親の setPage 想定のため deps に含めない（参照変化での再 fetch を避ける）
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional
-  }, [debouncedSearchText, year, category, addressEntryId, page, pageSize, reloadToken])
+  }, [debouncedSearchText, searchText, year, category, addressEntryId, page, pageSize, reloadToken])
 
   const reload = () => {
     setReloadToken((prev) => prev + 1)

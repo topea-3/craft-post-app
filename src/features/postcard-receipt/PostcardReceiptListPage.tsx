@@ -29,6 +29,7 @@ export function PostcardReceiptListPage() {
   const [isAddressDialogOpen, setAddressDialogOpen] = useState(false)
   const [page, setPage] = useState(1)
   const [availableYears, setAvailableYears] = useState<number[]>([])
+  const [yearsReloadToken, setYearsReloadToken] = useState(0)
 
   const { items, total, isLoading, error, reload } = usePostcardReceiptList({
     searchText,
@@ -54,9 +55,10 @@ export function PostcardReceiptListPage() {
     return () => {
       cancelled = true
     }
-  }, [total])
+  }, [yearsReloadToken])
 
   const yearOptions = useMemo(() => buildYearOptions(availableYears), [availableYears])
+  const reloadYears = () => setYearsReloadToken((t) => t + 1)
 
   const totalPages = totalPagesFor(total, PAGE_SIZE)
   const currentPage = clampPage(page, total, PAGE_SIZE)
@@ -92,6 +94,7 @@ export function PostcardReceiptListPage() {
       try {
         await invoke('delete_postcard_receipt', { id })
         reload()
+        reloadYears()
       } catch (deleteError) {
         console.error('Failed to delete postcard receipt:', deleteError)
         alert(POSTCARD_RECEIPT_OPERATION_ERROR_MESSAGE)
@@ -130,7 +133,6 @@ export function PostcardReceiptListPage() {
               value={searchText}
               onChange={(e) => {
                 setSearchText(e.target.value)
-                setPage(1)
               }}
               placeholder="表示名・メモで検索"
               className="address-list-filter-input"

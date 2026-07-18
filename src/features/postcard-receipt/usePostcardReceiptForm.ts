@@ -35,12 +35,18 @@ export type UsePostcardReceiptFormResult = {
   submit: () => Promise<boolean>
 }
 
-const validateForm = (values: PostcardReceiptFormValues): PostcardReceiptFormErrors => {
+const validateForm = (
+  values: PostcardReceiptFormValues,
+  baselineReceivedAt?: string,
+): PostcardReceiptFormErrors => {
   const errors: PostcardReceiptFormErrors = {}
 
   if (!values.receivedAt.trim()) {
     errors.receivedAt = '受取日を入力してください。'
-  } else if (isFutureLocalDate(values.receivedAt)) {
+  } else if (
+    isFutureLocalDate(values.receivedAt) &&
+    values.receivedAt !== baselineReceivedAt
+  ) {
     errors.receivedAt = '受取日に未来の日付は指定できません。'
   }
 
@@ -64,6 +70,7 @@ const usePostcardReceiptFormBase = (
   initialValues: PostcardReceiptFormValues,
   submitToServer: (dto: PostcardReceiptDtoInput) => Promise<void>,
   onSuccess: () => void,
+  baselineReceivedAt?: string,
 ): UsePostcardReceiptFormResult => {
   const [values, setValues] = useState<PostcardReceiptFormValues>(initialValues)
   const [errors, setErrors] = useState<PostcardReceiptFormErrors>({})
@@ -92,7 +99,7 @@ const usePostcardReceiptFormBase = (
   }
 
   const submit = async () => {
-    const validation = validateForm(values)
+    const validation = validateForm(values, baselineReceivedAt)
     setErrors(validation)
     if (Object.keys(validation).length > 0) {
       return false
@@ -163,13 +170,23 @@ export function usePostcardReceiptForm(onSuccess: (id: string) => void): UsePost
 export function usePostcardReceiptEditForm(
   id: string,
   initialValues: PostcardReceiptFormValues,
+  expectedUpdatedAt: string,
   onSuccess: () => void,
 ): UsePostcardReceiptFormResult {
   const submitToServer = useCallback(
     async (dto: PostcardReceiptDtoInput) => {
-      await invoke('update_postcard_receipt', { id, dto })
+      await invoke('update_postcard_receipt', {
+        id,
+        dto,
+        expectedUpdatedAt,
+      })
     },
-    [id],
+    [id, expectedUpdatedAt],
   )
-  return usePostcardReceiptFormBase(initialValues, submitToServer, onSuccess)
+  return usePostcardReceiptFormBase(
+    initialValues,
+    submitToServer,
+    onSuccess,
+    initialValues.receivedAt,
+  )
 }

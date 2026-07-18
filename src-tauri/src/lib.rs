@@ -5,7 +5,7 @@ mod command_tests;
 
 use std::sync::Arc;
 
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use sqlx::{Row, SqlitePool};
 use tauri::{Manager, State};
 use uuid::Uuid;
@@ -46,6 +46,8 @@ const SENDER_DUPLICATE_LABEL_MESSAGE: &str =
 const RECEIPT_FUTURE_DATE_MESSAGE: &str = "受取日に未来の日付は指定できません。";
 const RECEIPT_SENDER_DISPLAY_NAME_REQUIRED_MESSAGE: &str = "送り主の表示名を入力してください。";
 const RECEIPT_NOT_FOUND_MESSAGE: &str = "postcard receipt not found";
+const RECEIPT_CONFLICT_MESSAGE: &str =
+  "他の操作で更新済みです。画面を再読み込みしてから再度保存してください。";
 const ADDRESS_ENTRY_NOT_FOUND_MESSAGE: &str = "address entry not found";
 const ADDRESS_ENTRY_ARCHIVED_MESSAGE: &str = "address entry is archived";
 
@@ -1038,6 +1040,9 @@ fn map_postcard_receipt_write_error(
       // 事前検証後の競合: 多くの場合 archive への並行変更
       AppError::Validation(ADDRESS_ENTRY_ARCHIVED_MESSAGE.to_string()).to_string()
     }
+    PostcardReceiptRepositoryError::Conflict => {
+      AppError::Validation(RECEIPT_CONFLICT_MESSAGE.to_string()).to_string()
+    }
     other => {
       log::error!("{log_context} failed: {:?}", other);
       AppError::Repository(fallback_code.to_string()).to_string()
@@ -1183,19 +1188,24 @@ async fn update_postcard_receipt(
   pool: State<'_, SqlitePool>,
   id: String,
   dto: PostcardReceiptDtoInput,
+  expected_updated_at: String,
 ) -> Result<(), String> {
-  update_postcard_receipt_impl(pool.inner(), id, dto).await
+  update_postcard_receipt_impl(pool.inner(), id, dto, expected_updated_at).await
 }
 
 async fn update_postcard_receipt_impl(
   pool: &SqlitePool,
   id: String,
   dto: PostcardReceiptDtoInput,
+  expected_updated_at: String,
 ) -> Result<(), String> {
   let uuid =
     Uuid::parse_str(&id).map_err(|e| AppError::Validation(e.to_string()).to_string())?;
   let receipt_id = PostcardReceiptId::from_uuid(uuid);
   let repo = SqlxPostcardReceiptRepository::new(pool.clone());
+
+  DateTime::parse_from_rfc3339(&expected_updated_at)
+    .map_err(|e| AppError::Validation(format!("invalid expected_updated_at: {e}")).to_string())?;
 
   let existing = repo
     .find_by_id(&receipt_id)
@@ -1211,6 +1221,7 @@ async fn update_postcard_receipt_impl(
   }
 
   let existing_address_id = existing.receipt.address_entry_id();
+  let previous_received_at = existing.receipt.received_at();
 
   let (address_entry_id, sender_display_name, received_at, category, memo) =
     build_postcard_receipt_values_from_input(
@@ -1230,12 +1241,13 @@ async fn update_postcard_receipt_impl(
     existing.receipt.deleted_at(),
     existing.receipt.created_at(),
     Utc::now(),
+    previous_received_at,
     PostcardReceipt::local_today(),
   )
   .map_err(|e| map_postcard_receipt_error(e).to_string())?;
 
   repo
-    .update(&receipt, existing_address_id)
+    .update(&receipt, existing_address_id, &expected_updated_at)
     .await
     .map_err(|e| map_postcard_receipt_write_error(e, "update_postcard_receipt", "RECEIPT_UPDATE_FAILED"))?;
   Ok(())

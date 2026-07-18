@@ -10,9 +10,10 @@ import { POSTCARD_RECEIPT_OPERATION_ERROR_MESSAGE } from './messages'
 type LoadedProps = {
   id: string
   initialValues: PostcardReceiptFormValues
+  expectedUpdatedAt: string
 }
 
-function PostcardReceiptEditFormLoaded({ id, initialValues }: LoadedProps) {
+function PostcardReceiptEditFormLoaded({ id, initialValues, expectedUpdatedAt }: LoadedProps) {
   const navigate = useNavigate()
 
   const handleSuccess = useMemo(
@@ -23,7 +24,7 @@ function PostcardReceiptEditFormLoaded({ id, initialValues }: LoadedProps) {
   )
 
   // initialValues は親がロード完了後に一度だけ渡す
-  const form = usePostcardReceiptEditForm(id, initialValues, handleSuccess)
+  const form = usePostcardReceiptEditForm(id, initialValues, expectedUpdatedAt, handleSuccess)
 
   const handleCancel = () => {
     if (form.isDirty) {
@@ -54,6 +55,7 @@ function PostcardReceiptEditFormLoaded({ id, initialValues }: LoadedProps) {
 export function PostcardReceiptEditPage() {
   const { id } = useParams<{ id: string }>()
   const [initialValues, setInitialValues] = useState<PostcardReceiptFormValues | null>(null)
+  const [expectedUpdatedAt, setExpectedUpdatedAt] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -70,12 +72,14 @@ export function PostcardReceiptEditPage() {
         const dto = await invoke<PostcardReceiptDto>('get_postcard_receipt', { id })
         if (cancelled) return
         setInitialValues(formValuesFromDetail(fromPostcardReceiptDtoToDetail(dto)))
+        setExpectedUpdatedAt(dto.updated_at)
         setError(null)
       } catch (fetchError) {
         if (cancelled) return
         console.error('Failed to fetch postcard receipt for edit:', fetchError)
         setError(POSTCARD_RECEIPT_OPERATION_ERROR_MESSAGE)
         setInitialValues(null)
+        setExpectedUpdatedAt(null)
       } finally {
         if (!cancelled) setIsLoading(false)
       }
@@ -95,7 +99,7 @@ export function PostcardReceiptEditPage() {
     )
   }
 
-  if (!id || error || !initialValues) {
+  if (!id || error || !initialValues || !expectedUpdatedAt) {
     return (
       <div className="address-form-container">
         <p>{error ?? '受取履歴が見つかりませんでした。'}</p>
@@ -104,5 +108,11 @@ export function PostcardReceiptEditPage() {
   }
 
   // ロード成功後にだけフォーム hook をマウントし、プレースホルダ初期値による同期ループを避ける
-  return <PostcardReceiptEditFormLoaded id={id} initialValues={initialValues} />
+  return (
+    <PostcardReceiptEditFormLoaded
+      id={id}
+      initialValues={initialValues}
+      expectedUpdatedAt={expectedUpdatedAt}
+    />
+  )
 }

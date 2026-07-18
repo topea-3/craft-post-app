@@ -337,6 +337,15 @@ mod tests {
     }
   }
 
+  async fn update_receipt(
+    pool: &SqlitePool,
+    id: String,
+    dto: PostcardReceiptDtoInput,
+  ) -> Result<(), String> {
+    let current = get_postcard_receipt_impl(pool, id.clone()).await?;
+    update_postcard_receipt_impl(pool, id, dto, current.updated_at).await
+  }
+
   #[tokio::test]
   async fn create_postcard_receipt_requires_sender_display_name_when_unlinked() {
     let pool = setup_pool().await;
@@ -392,7 +401,7 @@ mod tests {
     let tomorrow = (chrono::Local::now().date_naive() + chrono::Duration::days(1))
       .format("%Y-%m-%d")
       .to_string();
-    let err = update_postcard_receipt_impl(
+    let err = update_receipt(
       &pool,
       id,
       sample_receipt_dto(&tomorrow, None, Some("田中家".to_string())),
@@ -400,6 +409,88 @@ mod tests {
     .await
     .expect_err("update with local tomorrow should fail");
     assert!(err.contains("受取日に未来の日付は指定できません"));
+  }
+
+  #[tokio::test]
+  async fn update_postcard_receipt_allows_memo_change_when_received_at_looks_future() {
+    let pool = setup_pool().await;
+    let tomorrow = chrono::Local::now().date_naive() + chrono::Duration::days(1);
+    let day_after = tomorrow + chrono::Duration::days(1);
+    let id = Uuid::new_v4();
+    let now = chrono::Utc::now().to_rfc3339();
+    sqlx::query(
+      r#"
+        INSERT INTO postcard_receipts (
+          id, address_entry_id, sender_display_name, received_at, category, memo,
+          deleted_at, created_at, updated_at
+        ) VALUES (?, NULL, ?, ?, 'nenga', NULL, NULL, ?, ?)
+      "#,
+    )
+    .bind(id.to_string())
+    .bind("未来見え")
+    .bind(tomorrow.format("%Y-%m-%d").to_string())
+    .bind(&now)
+    .bind(&now)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let mut dto = sample_receipt_dto(
+      &tomorrow.format("%Y-%m-%d").to_string(),
+      None,
+      Some("未来見え".to_string()),
+    );
+    dto.memo = Some("メモのみ".to_string());
+    update_receipt(&pool, id.to_string(), dto)
+      .await
+      .expect("memo-only update with unchanged future-looking date must succeed");
+
+    let err = update_receipt(
+      &pool,
+      id.to_string(),
+      sample_receipt_dto(
+        &day_after.format("%Y-%m-%d").to_string(),
+        None,
+        Some("未来見え".to_string()),
+      ),
+    )
+    .await
+    .expect_err("moving further into the future must fail");
+    assert!(err.contains("受取日に未来の日付は指定できません"));
+  }
+
+  #[tokio::test]
+  async fn update_postcard_receipt_rejects_stale_expected_updated_at() {
+    let pool = setup_pool().await;
+    let today = chrono::Local::now().date_naive().format("%Y-%m-%d").to_string();
+    let id = create_postcard_receipt_impl(
+      &pool,
+      sample_receipt_dto(&today, None, Some("同時編集".to_string())),
+    )
+    .await
+    .expect("create receipt");
+
+    let loaded = get_postcard_receipt_impl(&pool, id.clone())
+      .await
+      .expect("get receipt");
+    let stale_updated_at = loaded.updated_at.clone();
+
+    let mut first = sample_receipt_dto(&today, None, Some("同時編集".to_string()));
+    first.category = "mochu".to_string();
+    update_postcard_receipt_impl(&pool, id.clone(), first, stale_updated_at.clone())
+      .await
+      .expect("first update succeeds");
+
+    let mut second = sample_receipt_dto(&today, None, Some("同時編集".to_string()));
+    second.memo = Some("後勝ちメモ".to_string());
+    let err = update_postcard_receipt_impl(&pool, id.clone(), second, stale_updated_at)
+      .await
+      .expect_err("stale update must conflict");
+    assert!(err.contains("他の操作で更新済み"));
+
+    let got = get_postcard_receipt_impl(&pool, id).await.expect("get receipt");
+    assert_eq!(got.category, "mochu");
+    assert!(got.memo.is_none());
   }
 
   #[tokio::test]
@@ -427,7 +518,7 @@ mod tests {
     .await
     .expect("create receipt");
 
-    let err = update_postcard_receipt_impl(
+    let err = update_receipt(
       &pool,
       id,
       sample_receipt_dto("2025-01-03", Some(Uuid::new_v4().to_string()), None),
@@ -459,7 +550,7 @@ mod tests {
 
     let mut dto = sample_receipt_dto("2025-01-04", Some(address_id.to_string()), None);
     dto.memo = Some("メモ更新".to_string());
-    update_postcard_receipt_impl(&pool, id.clone(), dto)
+    update_receipt(&pool, id.clone(), dto)
       .await
       .expect("update with same archived address should succeed");
 
@@ -487,7 +578,7 @@ mod tests {
     .await
     .expect("create receipt");
 
-    let err = update_postcard_receipt_impl(
+    let err = update_receipt(
       &pool,
       id,
       sample_receipt_dto("2025-01-03", Some(archived_id.to_string()), None),
@@ -516,6 +607,7 @@ mod tests {
       &pool,
       id,
       sample_receipt_dto(&today, None, Some("更新しようとする".to_string())),
+      chrono::Utc::now().to_rfc3339(),
     )
     .await
     .expect_err("update after delete should fail");
