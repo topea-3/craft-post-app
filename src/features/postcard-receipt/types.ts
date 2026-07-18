@@ -178,7 +178,8 @@ export function formatAddressEntryLabel(
   honorific: string,
 ): string {
   const base = formatDisplayName(primaryName, coRecipients)
-  return honorific ? `${base} ${honorific}`.trim() : base
+  if (!honorific || honorific === 'なし') return base
+  return `${base} ${honorific}`.trim()
 }
 
 export function buildYearOptions(): { value: string; label: string }[] {

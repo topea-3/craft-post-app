@@ -3,16 +3,52 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { invoke } from '@tauri-apps/api/core'
 import { PostcardReceiptForm } from './PostcardReceiptForm'
 import { usePostcardReceiptEditForm } from './usePostcardReceiptForm'
-import type { PostcardReceiptDto } from './types'
-import { formValuesFromDetail, fromPostcardReceiptDtoToDetail, createInitialPostcardReceiptFormValues } from './types'
+import type { PostcardReceiptDto, PostcardReceiptFormValues } from './types'
+import { formValuesFromDetail, fromPostcardReceiptDtoToDetail } from './types'
 import { POSTCARD_RECEIPT_OPERATION_ERROR_MESSAGE } from './messages'
+
+type LoadedProps = {
+  id: string
+  initialValues: PostcardReceiptFormValues
+}
+
+function PostcardReceiptEditFormLoaded({ id, initialValues }: LoadedProps) {
+  const navigate = useNavigate()
+
+  const handleSuccess = useMemo(
+    () => () => {
+      navigate(`/receipts/${id}`, { state: { flash: '受取履歴を更新しました。' } })
+    },
+    [id, navigate],
+  )
+
+  // initialValues は親がロード完了後に一度だけ渡す
+  const form = usePostcardReceiptEditForm(id, initialValues, handleSuccess)
+
+  const handleCancel = () => {
+    if (form.isDirty) {
+      const confirmed = window.confirm('編集中の内容を破棄して詳細に戻りますか？')
+      if (!confirmed) return
+    }
+    navigate(`/receipts/${id}`)
+  }
+
+  return (
+    <div className="address-form-container">
+      <header className="address-form-header">
+        <h1>受取履歴編集</h1>
+        <button type="button" className="link-button" onClick={handleCancel}>
+          キャンセル
+        </button>
+      </header>
+      <PostcardReceiptForm form={form} onCancel={handleCancel} />
+    </div>
+  )
+}
 
 export function PostcardReceiptEditPage() {
   const { id } = useParams<{ id: string }>()
-  const navigate = useNavigate()
-  const [initialValues, setInitialValues] = useState<ReturnType<typeof formValuesFromDetail> | null>(
-    null,
-  )
+  const [initialValues, setInitialValues] = useState<PostcardReceiptFormValues | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -34,6 +70,7 @@ export function PostcardReceiptEditPage() {
         if (cancelled) return
         console.error('Failed to fetch postcard receipt for edit:', fetchError)
         setError(POSTCARD_RECEIPT_OPERATION_ERROR_MESSAGE)
+        setInitialValues(null)
       } finally {
         if (!cancelled) setIsLoading(false)
       }
@@ -45,44 +82,22 @@ export function PostcardReceiptEditPage() {
     }
   }, [id])
 
-  const handleSuccess = useMemo(
-    () => () => {
-      navigate(`/receipts/${id}`, { state: { flash: '受取履歴を更新しました。' } })
-    },
-    [id, navigate],
-  )
-
-  const form = usePostcardReceiptEditForm(
-    id ?? '',
-    initialValues ?? createInitialPostcardReceiptFormValues(),
-    handleSuccess,
-  )
-
-  const handleCancel = () => {
-    if (form.isDirty) {
-      const confirmed = window.confirm('編集中の内容を破棄して詳細に戻りますか？')
-      if (!confirmed) return
-    }
-    navigate(`/receipts/${id}`)
-  }
-
-  if (isLoading || !initialValues) {
+  if (isLoading) {
     return (
       <div className="address-form-container">
-        <p>{isLoading ? '読み込み中です…' : error ?? '受取履歴が見つかりませんでした。'}</p>
+        <p>読み込み中です…</p>
       </div>
     )
   }
 
-  return (
-    <div className="address-form-container">
-      <header className="address-form-header">
-        <h1>受取履歴編集</h1>
-        <button type="button" className="link-button" onClick={handleCancel}>
-          キャンセル
-        </button>
-      </header>
-      <PostcardReceiptForm form={form} onCancel={handleCancel} />
-    </div>
-  )
+  if (!id || error || !initialValues) {
+    return (
+      <div className="address-form-container">
+        <p>{error ?? '受取履歴が見つかりませんでした。'}</p>
+      </div>
+    )
+  }
+
+  // ロード成功後にだけフォーム hook をマウントし、プレースホルダ初期値による同期ループを避ける
+  return <PostcardReceiptEditFormLoaded id={id} initialValues={initialValues} />
 }

@@ -1,12 +1,15 @@
 use chrono::Utc;
 use sqlx::{Row, SqlitePool};
 
+use crate::domain::address::address_entry::AddressEntryId;
+use crate::domain::address::address_entry_repository::{AddressEntryRepository, AddressRepositoryError};
 use crate::domain::postcard_receipt::postcard_receipt::{PostcardReceipt, PostcardReceiptId};
 use crate::domain::postcard_receipt::postcard_receipt_repository::{
-  build_address_context_from_search_row, map_db_row_to_receipt, DbPostcardReceiptRow,
-  DbPostcardReceiptSearchRow, PostcardReceiptRepository, PostcardReceiptRepositoryError,
-  PostcardReceiptSearchQuery, PostcardReceiptWithContext, SortOrder,
+  map_db_row_to_receipt, DbPostcardReceiptRow, DbPostcardReceiptSearchRow, PostcardReceiptAddressContext,
+  PostcardReceiptRepository, PostcardReceiptRepositoryError, PostcardReceiptSearchQuery,
+  PostcardReceiptWithContext, SortOrder,
 };
+use crate::infrastructure::address::sqlx_address_entry_repository::SqlxAddressEntryRepository;
 
 pub struct SqlxPostcardReceiptRepository {
   pool: SqlitePool,
@@ -38,7 +41,16 @@ fn build_search_where_clause(query: &PostcardReceiptSearchQuery) -> String {
           IFNULL(pr.sender_display_name, '') LIKE ? OR
           IFNULL(pr.memo, '') LIKE ? OR
           IFNULL(ae.primary_last, '') LIKE ? OR
-          IFNULL(ae.primary_first, '') LIKE ?
+          IFNULL(ae.primary_first, '') LIKE ? OR
+          IFNULL(ae.prefecture, '') || IFNULL(ae.city, '') || IFNULL(ae.street, '') || IFNULL(ae.building, '') LIKE ? OR
+          EXISTS (
+            SELECT 1 FROM address_co_recipients acr
+            WHERE acr.address_entry_id = ae.id
+              AND (
+                IFNULL(acr.last, '') LIKE ? OR
+                IFNULL(acr.first, '') LIKE ?
+              )
+          )
         )",
     );
   }
@@ -66,20 +78,48 @@ fn map_search_row(row: &sqlx::sqlite::SqliteRow) -> DbPostcardReceiptSearchRow {
       created_at: row.get("created_at"),
       updated_at: row.get("updated_at"),
     },
-    address_primary_last: row.get("address_primary_last"),
-    address_primary_first: row.get("address_primary_first"),
-    address_honorific: row.get("address_honorific"),
-    address_prefecture: row.get("address_prefecture"),
-    address_city: row.get("address_city"),
-    address_street: row.get("address_street"),
-    address_building: row.get("address_building"),
-    address_archived_at: row.get("address_archived_at"),
   }
 }
 
-fn map_search_row_to_context(row: DbPostcardReceiptSearchRow) -> Result<PostcardReceiptWithContext, PostcardReceiptRepositoryError> {
-  let address = build_address_context_from_search_row(&row);
-  let receipt = map_db_row_to_receipt(row.receipt)?;
+fn map_search_row_to_receipt(row: DbPostcardReceiptSearchRow) -> Result<PostcardReceipt, PostcardReceiptRepositoryError> {
+  map_db_row_to_receipt(row.receipt)
+}
+
+fn map_address_repo_error(err: AddressRepositoryError) -> PostcardReceiptRepositoryError {
+  match err {
+    AddressRepositoryError::Db(e) => PostcardReceiptRepositoryError::Db(e),
+    AddressRepositoryError::InvalidPersistedData(s) => {
+      PostcardReceiptRepositoryError::InvalidPersistedData(s)
+    }
+    AddressRepositoryError::NotFound => {
+      PostcardReceiptRepositoryError::InvalidPersistedData("address entry not found".to_string())
+    }
+  }
+}
+
+async fn resolve_address_context(
+  pool: &SqlitePool,
+  address_entry_id: Option<uuid::Uuid>,
+) -> Result<Option<PostcardReceiptAddressContext>, PostcardReceiptRepositoryError> {
+  let Some(id) = address_entry_id else {
+    return Ok(None);
+  };
+  let entry = SqlxAddressEntryRepository::new(pool.clone())
+    .find_by_id(&AddressEntryId::from_uuid(id))
+    .await
+    .map_err(map_address_repo_error)?;
+  Ok(entry.map(|e| PostcardReceiptAddressContext {
+    display_name: e.display_full_recipient(),
+    address_line: e.address().to_single_line(),
+    archived: e.archived(),
+  }))
+}
+
+async fn with_resolved_address(
+  pool: &SqlitePool,
+  receipt: PostcardReceipt,
+) -> Result<PostcardReceiptWithContext, PostcardReceiptRepositoryError> {
+  let address = resolve_address_context(pool, receipt.address_entry_id()).await?;
   Ok(PostcardReceiptWithContext { receipt, address })
 }
 
@@ -126,10 +166,10 @@ impl PostcardReceiptRepository for SqlxPostcardReceiptRepository {
     let received_at = receipt.received_at().format("%Y-%m-%d").to_string();
     let category = receipt.category().as_str().to_string();
     let memo = receipt.memo().map(|m| m.text().to_string());
-    let deleted_at = receipt.deleted_at().map(|t| t.to_rfc3339());
-    let created_at = receipt.created_at().to_rfc3339();
     let updated_at = receipt.updated_at().to_rfc3339();
 
+    // deleted_at / created_at は通常 UPDATE で触らない。
+    // 削除済み行を復活させないため deleted_at IS NULL を必須にする。
     let result = sqlx::query(
       r#"
         UPDATE postcard_receipts
@@ -139,10 +179,8 @@ impl PostcardReceiptRepository for SqlxPostcardReceiptRepository {
           received_at = ?,
           category = ?,
           memo = ?,
-          deleted_at = ?,
-          created_at = ?,
           updated_at = ?
-        WHERE id = ?
+        WHERE id = ? AND deleted_at IS NULL
       "#,
     )
     .bind(address_entry_id)
@@ -150,8 +188,6 @@ impl PostcardReceiptRepository for SqlxPostcardReceiptRepository {
     .bind(received_at)
     .bind(category)
     .bind(memo)
-    .bind(deleted_at)
-    .bind(created_at)
     .bind(updated_at)
     .bind(&id)
     .execute(&self.pool)
@@ -179,17 +215,8 @@ impl PostcardReceiptRepository for SqlxPostcardReceiptRepository {
           pr.memo,
           pr.deleted_at,
           pr.created_at,
-          pr.updated_at,
-          ae.primary_last AS address_primary_last,
-          ae.primary_first AS address_primary_first,
-          ae.honorific AS address_honorific,
-          ae.prefecture AS address_prefecture,
-          ae.city AS address_city,
-          ae.street AS address_street,
-          ae.building AS address_building,
-          ae.archived_at AS address_archived_at
+          pr.updated_at
         FROM postcard_receipts pr
-        LEFT JOIN address_entries ae ON pr.address_entry_id = ae.id
         WHERE pr.id = ?
       "#,
     )
@@ -200,7 +227,8 @@ impl PostcardReceiptRepository for SqlxPostcardReceiptRepository {
     let Some(row) = row else {
       return Ok(None);
     };
-    Ok(Some(map_search_row_to_context(map_search_row(&row))?))
+    let receipt = map_search_row_to_receipt(map_search_row(&row))?;
+    Ok(Some(with_resolved_address(&self.pool, receipt).await?))
   }
 
   async fn search(
@@ -237,15 +265,7 @@ impl PostcardReceiptRepository for SqlxPostcardReceiptRepository {
           pr.memo,
           pr.deleted_at,
           pr.created_at,
-          pr.updated_at,
-          ae.primary_last AS address_primary_last,
-          ae.primary_first AS address_primary_first,
-          ae.honorific AS address_honorific,
-          ae.prefecture AS address_prefecture,
-          ae.city AS address_city,
-          ae.street AS address_street,
-          ae.building AS address_building,
-          ae.archived_at AS address_archived_at
+          pr.updated_at
         FROM postcard_receipts pr
         LEFT JOIN address_entries ae ON pr.address_entry_id = ae.id
         WHERE 1=1
@@ -264,7 +284,8 @@ impl PostcardReceiptRepository for SqlxPostcardReceiptRepository {
     let rows = list_q.fetch_all(&self.pool).await?;
     let mut items = Vec::with_capacity(rows.len());
     for row in rows {
-      items.push(map_search_row_to_context(map_search_row(&row))?);
+      let receipt = map_search_row_to_receipt(map_search_row(&row))?;
+      items.push(with_resolved_address(&self.pool, receipt).await?);
     }
     Ok((items, total))
   }
@@ -310,10 +331,13 @@ fn bind_search_params<'q>(
   if let Some(keyword) = &query.keyword {
     let pattern = format!("%{}%", keyword);
     q = q
-      .bind(pattern.clone())
-      .bind(pattern.clone())
-      .bind(pattern.clone())
-      .bind(pattern);
+      .bind(pattern.clone()) // sender_display_name
+      .bind(pattern.clone()) // memo
+      .bind(pattern.clone()) // primary_last
+      .bind(pattern.clone()) // primary_first
+      .bind(pattern.clone()) // address line
+      .bind(pattern.clone()) // co last
+      .bind(pattern); // co first
   }
   q
 }

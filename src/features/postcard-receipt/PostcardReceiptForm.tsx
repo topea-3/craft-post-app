@@ -2,9 +2,9 @@ import { useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { AddressEntrySelectDialog } from '../sender/AddressEntrySelectDialog'
 import type { AddressEntryDto } from '../address/types'
-import { fromAddressEntryDto, formatDisplayName } from '../address/types'
+import { fromAddressEntryDto } from '../address/types'
 import type { UsePostcardReceiptFormResult } from './usePostcardReceiptForm'
-import { POSTCARD_RECEIPT_CATEGORY_OPTIONS } from './types'
+import { formatAddressEntryLabel, POSTCARD_RECEIPT_CATEGORY_OPTIONS } from './types'
 
 type Props = {
   form: UsePostcardReceiptFormResult
@@ -38,8 +38,11 @@ export function PostcardReceiptForm({ form, onCancel, submitLabel = '保存' }: 
     try {
       const dto = await invoke<AddressEntryDto>('get_address_entry', { id: addressEntryId })
       const item = fromAddressEntryDto(dto)
-      const label = formatDisplayName(item.primaryName, item.coRecipients)
-      const displayName = item.honorific ? `${label} ${item.honorific}`.trim() : label
+      const displayName = formatAddressEntryLabel(
+        item.primaryName,
+        item.coRecipients,
+        item.honorific,
+      )
       setAddressEntry(addressEntryId, displayName)
     } catch (error) {
       console.error('Failed to load selected address entry:', error)

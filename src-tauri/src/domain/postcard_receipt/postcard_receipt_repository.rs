@@ -67,14 +67,6 @@ pub struct DbPostcardReceiptRow {
 #[derive(Debug, Clone)]
 pub struct DbPostcardReceiptSearchRow {
   pub receipt: DbPostcardReceiptRow,
-  pub address_primary_last: Option<String>,
-  pub address_primary_first: Option<String>,
-  pub address_honorific: Option<String>,
-  pub address_prefecture: Option<String>,
-  pub address_city: Option<String>,
-  pub address_street: Option<String>,
-  pub address_building: Option<String>,
-  pub address_archived_at: Option<String>,
 }
 
 pub fn map_db_row_to_receipt(row: DbPostcardReceiptRow) -> Result<PostcardReceipt, PostcardReceiptRepositoryError> {
@@ -129,32 +121,6 @@ fn parse_optional_datetime(value: Option<String>) -> Result<Option<DateTime<Utc>
     )),
     _ => Ok(None),
   }
-}
-
-pub fn build_address_context_from_search_row(row: &DbPostcardReceiptSearchRow) -> Option<PostcardReceiptAddressContext> {
-  if row.receipt.address_entry_id.is_none() {
-    return None;
-  }
-  let last = row.address_primary_last.as_deref().unwrap_or("");
-  let first = row.address_primary_first.as_deref().unwrap_or("");
-  let honorific = row.address_honorific.as_deref().unwrap_or("");
-  let mut display_name = format!("{} {}", last, first).trim().to_string();
-  if !honorific.is_empty() {
-    display_name = format!("{} {}", display_name, honorific).trim().to_string();
-  }
-  let prefecture = row.address_prefecture.as_deref().unwrap_or("");
-  let city = row.address_city.as_deref().unwrap_or("");
-  let street = row.address_street.as_deref().unwrap_or("");
-  let building = row.address_building.as_deref().unwrap_or("");
-  let mut address_line = format!("{}{}{}", prefecture, city, street);
-  if !building.is_empty() {
-    address_line.push_str(building);
-  }
-  Some(PostcardReceiptAddressContext {
-    display_name,
-    address_line,
-    archived: row.address_archived_at.is_some(),
-  })
 }
 
 #[async_trait::async_trait]

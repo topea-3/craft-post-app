@@ -498,6 +498,31 @@ mod tests {
   }
 
   #[tokio::test]
+  async fn update_postcard_receipt_rejects_after_delete() {
+    let pool = setup_pool().await;
+    let today = chrono::Local::now().date_naive().format("%Y-%m-%d").to_string();
+    let id = create_postcard_receipt_impl(
+      &pool,
+      sample_receipt_dto(&today, None, Some("削除競合".to_string())),
+    )
+    .await
+    .expect("create receipt");
+
+    delete_postcard_receipt_impl(&pool, id.clone())
+      .await
+      .expect("delete receipt");
+
+    let err = update_postcard_receipt_impl(
+      &pool,
+      id,
+      sample_receipt_dto(&today, None, Some("更新しようとする".to_string())),
+    )
+    .await
+    .expect_err("update after delete should fail");
+    assert!(err.contains("postcard receipt not found"));
+  }
+
+  #[tokio::test]
   async fn delete_postcard_receipt_makes_get_fail() {
     let pool = setup_pool().await;
     let id = create_postcard_receipt_impl(

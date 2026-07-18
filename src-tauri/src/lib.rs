@@ -1215,9 +1215,14 @@ async fn update_postcard_receipt_impl(
   repo
     .update(&receipt)
     .await
-    .map_err(|e| {
-      log::error!("update_postcard_receipt failed: {:?}", e);
-      AppError::Repository("RECEIPT_UPDATE_FAILED".to_string())
+    .map_err(|e| match e {
+      crate::domain::postcard_receipt::postcard_receipt_repository::PostcardReceiptRepositoryError::NotFound => {
+        AppError::Validation(RECEIPT_NOT_FOUND_MESSAGE.to_string()).to_string()
+      }
+      other => {
+        log::error!("update_postcard_receipt failed: {:?}", other);
+        AppError::Repository("RECEIPT_UPDATE_FAILED".to_string()).to_string()
+      }
     })?;
   Ok(())
 }
