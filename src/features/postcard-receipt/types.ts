@@ -86,13 +86,29 @@ export function resolveSenderDisplayName(item: {
   addressEntryDisplayName: string | null
   addressEntryArchived?: boolean | null
 }): string {
-  if (item.addressEntryId && item.addressEntryDisplayName) {
-    if (item.addressEntryArchived) {
-      return `（アーカイブ済みの宛名）${item.addressEntryDisplayName}`
+  if (item.addressEntryId) {
+    if (item.addressEntryDisplayName) {
+      if (item.addressEntryArchived) {
+        return `（アーカイブ済みの宛名）${item.addressEntryDisplayName}`
+      }
+      return item.addressEntryDisplayName
     }
-    return item.addressEntryDisplayName
+    const snapshot = item.senderDisplayName?.trim()
+    return snapshot || '（削除済みの宛名）'
   }
   return item.senderDisplayName?.trim() || '—'
+}
+
+/** メモ抜粋（Unicode scalar 単位。絵文字の途中切断を避ける） */
+export function formatMemoSnippet(
+  memo: string | null | undefined,
+  maxChars = 30,
+): { text: string; truncated: boolean } {
+  const chars = Array.from(memo ?? '')
+  return {
+    text: chars.slice(0, maxChars).join(''),
+    truncated: chars.length > maxChars,
+  }
 }
 
 export function fromPostcardReceiptDto(dto: PostcardReceiptDto): PostcardReceiptListItem {

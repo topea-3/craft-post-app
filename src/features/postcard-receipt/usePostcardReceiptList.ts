@@ -23,6 +23,9 @@ type UsePostcardReceiptListResult = {
   total: number
   isLoading: boolean
   error: string | null
+  /** debounce 確定済みの検索文字列（空状態判定用） */
+  settledSearchText: string
+  isDebouncing: boolean
   reload: () => void
 }
 
@@ -39,7 +42,6 @@ async function searchPostcardReceipts(args: {
     year: args.year,
     category: args.category,
     addressEntryId: args.addressEntryId,
-    includeDeleted: false,
     limit: args.limit,
     offset: args.offset,
     sortOrder: 'desc',
@@ -153,5 +155,13 @@ export function usePostcardReceiptList(
     setReloadToken((prev) => prev + 1)
   }
 
-  return { items, total, isLoading, error, reload }
+  return {
+    items,
+    total,
+    isLoading,
+    error,
+    settledSearchText: debouncedSearchText,
+    isDebouncing: searchText !== debouncedSearchText,
+    reload,
+  }
 }

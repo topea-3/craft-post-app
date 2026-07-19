@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { Link, useNavigate } from 'react-router-dom'
 import { PaginationControls } from '../../components/PaginationControls'
@@ -12,6 +12,7 @@ import {
   buildYearOptions,
   categoryLabel,
   formatAddressEntryLabel,
+  formatMemoSnippet,
   formatReceivedAt,
   resolveSenderDisplayName,
 } from './types'
@@ -30,8 +31,11 @@ export function PostcardReceiptListPage() {
   const [page, setPage] = useState(1)
   const [availableYears, setAvailableYears] = useState<number[]>([])
   const [yearsReloadToken, setYearsReloadToken] = useState(0)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+  const isDeletingRef = useRef(false)
+  const cancelledRef = useRef(false)
 
-  const { items, total, isLoading, error, reload } = usePostcardReceiptList({
+  const { items, total, isLoading, error, settledSearchText, reload } = usePostcardReceiptList({
     searchText,
     year,
     category,
@@ -42,11 +46,19 @@ export function PostcardReceiptListPage() {
   })
 
   useEffect(() => {
+    cancelledRef.current = false
+    return () => {
+      cancelledRef.current = true
+    }
+  }, [])
+
+  useEffect(() => {
     let cancelled = false
     ;(async () => {
       try {
         const years = await invoke<number[]>('list_postcard_receipt_years')
-        if (!cancelled) setAvailableYears(years)
+        if (cancelled) return
+        setAvailableYears(years)
       } catch (e) {
         console.error('Failed to load postcard receipt years:', e)
         if (!cancelled) setAvailableYears([])
@@ -58,15 +70,31 @@ export function PostcardReceiptListPage() {
   }, [yearsReloadToken])
 
   const yearOptions = useMemo(() => buildYearOptions(availableYears), [availableYears])
+
+  // 選択中の年度が候補から消えたら条件をクリア（表示と検索条件の乖離を防ぐ）
+  useEffect(() => {
+    if (!year) return
+    const stillSelectable = yearOptions.some((option) => option.value === year)
+    if (!stillSelectable) {
+      setYear('')
+      setPage(1)
+    }
+  }, [yearOptions, year])
+
   const reloadYears = () => setYearsReloadToken((t) => t + 1)
 
   const totalPages = totalPagesFor(total, PAGE_SIZE)
   const currentPage = clampPage(page, total, PAGE_SIZE)
+  // 空状態は debounce 確定後の条件と揃える
   const isFiltering =
-    searchText.trim().length > 0 || year !== '' || category !== '' || addressEntryId !== null
+    settledSearchText.trim().length > 0 ||
+    year !== '' ||
+    category !== '' ||
+    addressEntryId !== null
   const isNoData = !isFiltering && total === 0
   const isNoSearchResult = isFiltering && total === 0
   const hasItems = total > 0
+  const isBusy = deletingId !== null
 
   const handleClearFilters = () => {
     setSearchText('')
@@ -87,17 +115,27 @@ export function PostcardReceiptListPage() {
   }
 
   const handleDelete = (id: string) => {
+    if (isDeletingRef.current) return
     const confirmed = window.confirm('この受取履歴を削除しますか？一覧からは非表示になります。')
     if (!confirmed) return
 
+    isDeletingRef.current = true
+    setDeletingId(id)
     ;(async () => {
       try {
         await invoke('delete_postcard_receipt', { id })
+        if (cancelledRef.current) return
         reload()
         reloadYears()
       } catch (deleteError) {
+        if (cancelledRef.current) return
         console.error('Failed to delete postcard receipt:', deleteError)
         alert(POSTCARD_RECEIPT_OPERATION_ERROR_MESSAGE)
+      } finally {
+        isDeletingRef.current = false
+        if (!cancelledRef.current) {
+          setDeletingId(null)
+        }
       }
     })()
   }
@@ -111,6 +149,7 @@ export function PostcardReceiptListPage() {
             type="button"
             className="address-list-filter-toggle"
             onClick={() => setIsFilterOpen((open) => !open)}
+            disabled={isBusy}
           >
             フィルタ
           </button>
@@ -118,6 +157,7 @@ export function PostcardReceiptListPage() {
             type="button"
             className="address-list-create-button"
             onClick={() => navigate('/receipts/new')}
+            disabled={isBusy}
           >
             新規作成
           </button>
@@ -136,6 +176,7 @@ export function PostcardReceiptListPage() {
               }}
               placeholder="表示名・メモで検索"
               className="address-list-filter-input"
+              disabled={isBusy}
             />
           </label>
 
@@ -147,6 +188,8 @@ export function PostcardReceiptListPage() {
                 setYear(e.target.value)
                 setPage(1)
               }}
+              disabled={isBusy}
+              aria-label="受取年"
             >
               {yearOptions.map((option) => (
                 <option key={option.value || 'all'} value={option.value}>
@@ -164,6 +207,7 @@ export function PostcardReceiptListPage() {
                 setCategory(e.target.value)
                 setPage(1)
               }}
+              disabled={isBusy}
             >
               <option value="">全種別</option>
               {POSTCARD_RECEIPT_CATEGORY_OPTIONS.map((option) => (
@@ -176,7 +220,7 @@ export function PostcardReceiptListPage() {
 
           <div className="address-list-filter-label">
             <span>相手</span>
-            <button type="button" onClick={() => setAddressDialogOpen(true)}>
+            <button type="button" onClick={() => setAddressDialogOpen(true)} disabled={isBusy}>
               相手を選択
             </button>
             {addressFilterLabel ? (
@@ -189,6 +233,7 @@ export function PostcardReceiptListPage() {
                     setAddressFilterLabel(null)
                     setPage(1)
                   }}
+                  disabled={isBusy}
                 >
                   クリア
                 </button>
@@ -197,7 +242,7 @@ export function PostcardReceiptListPage() {
           </div>
 
           <div className="address-list-filter-actions">
-            <button type="button" onClick={handleClearFilters} disabled={!isFiltering}>
+            <button type="button" onClick={handleClearFilters} disabled={!isFiltering || isBusy}>
               条件クリア
             </button>
           </div>
@@ -210,7 +255,12 @@ export function PostcardReceiptListPage() {
       {!isLoading && !error && isNoData ? (
         <div className="address-list-empty">
           <p>まだ受取履歴が登録されていません。</p>
-          <button type="button" className="address-list-create-button-primary" onClick={() => navigate('/receipts/new')}>
+          <button
+            type="button"
+            className="address-list-create-button-primary"
+            onClick={() => navigate('/receipts/new')}
+            disabled={isBusy}
+          >
             新規作成
           </button>
         </div>
@@ -219,7 +269,7 @@ export function PostcardReceiptListPage() {
       {!isLoading && !error && isNoSearchResult ? (
         <div className="address-list-no-results">
           <p>該当する受取履歴が見つかりませんでした。</p>
-          <button type="button" onClick={handleClearFilters}>
+          <button type="button" onClick={handleClearFilters} disabled={isBusy}>
             条件クリア
           </button>
         </div>
@@ -240,7 +290,7 @@ export function PostcardReceiptListPage() {
             <tbody>
               {items.map((item) => {
                 const senderName = resolveSenderDisplayName(item)
-                const memoSnippet = (item.memo ?? '').slice(0, 30)
+                const memo = formatMemoSnippet(item.memo)
                 return (
                   <tr key={item.id} className="address-list-row">
                     <td>{formatReceivedAt(item.receivedAt)}</td>
@@ -251,15 +301,23 @@ export function PostcardReceiptListPage() {
                       </Link>
                     </td>
                     <td className="address-list-memo" title={item.memo ?? ''}>
-                      {memoSnippet}
-                      {item.memo && item.memo.length > memoSnippet.length ? '…' : ''}
+                      {memo.text}
+                      {memo.truncated ? '…' : ''}
                     </td>
                     <td className="address-list-actions">
-                      <button type="button" onClick={() => navigate(`/receipts/${item.id}/edit`)}>
+                      <button
+                        type="button"
+                        onClick={() => navigate(`/receipts/${item.id}/edit`)}
+                        disabled={isBusy}
+                      >
                         編集
                       </button>
-                      <button type="button" onClick={() => handleDelete(item.id)}>
-                        削除
+                      <button
+                        type="button"
+                        onClick={() => handleDelete(item.id)}
+                        disabled={isBusy}
+                      >
+                        {deletingId === item.id ? '削除中…' : '削除'}
                       </button>
                     </td>
                   </tr>

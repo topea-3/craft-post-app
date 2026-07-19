@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { invoke } from '@tauri-apps/api/core'
 import type { PostcardReceiptDto } from './types'
@@ -18,9 +18,19 @@ export function PostcardReceiptDetailPage() {
   const [entry, setEntry] = useState<ReturnType<typeof fromPostcardReceiptDtoToDetail> | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [isDeleting, setIsDeleting] = useState(false)
   const [flash, setFlash] = useState<string | null>(
     (location.state as { flash?: string } | null)?.flash ?? null,
   )
+  const isDeletingRef = useRef(false)
+  const cancelledRef = useRef(false)
+
+  useEffect(() => {
+    cancelledRef.current = false
+    return () => {
+      cancelledRef.current = true
+    }
+  }, [])
 
   useEffect(() => {
     if (!id) {
@@ -52,25 +62,35 @@ export function PostcardReceiptDetailPage() {
   }, [id])
 
   const handleBackToList = () => {
+    if (isDeletingRef.current) return
     navigate('/receipts')
   }
 
   const handleEdit = () => {
-    if (!id) return
+    if (!id || isDeletingRef.current) return
     navigate(`/receipts/${id}/edit`)
   }
 
   const handleDelete = async () => {
-    if (!entry) return
+    if (!entry || isDeletingRef.current) return
     const confirmed = window.confirm('この受取履歴を削除しますか？一覧からは非表示になります。')
     if (!confirmed) return
 
+    isDeletingRef.current = true
+    setIsDeleting(true)
     try {
       await invoke('delete_postcard_receipt', { id: entry.id })
+      if (cancelledRef.current) return
       navigate('/receipts')
     } catch (deleteError) {
+      if (cancelledRef.current) return
       console.error('Failed to delete postcard receipt:', deleteError)
       alert(POSTCARD_RECEIPT_OPERATION_ERROR_MESSAGE)
+    } finally {
+      isDeletingRef.current = false
+      if (!cancelledRef.current) {
+        setIsDeleting(false)
+      }
     }
   }
 
@@ -111,7 +131,7 @@ export function PostcardReceiptDetailPage() {
       {flash ? (
         <p className="address-detail-flash" role="status">
           {flash}
-          <button type="button" onClick={() => setFlash(null)}>
+          <button type="button" onClick={() => setFlash(null)} disabled={isDeleting}>
             閉じる
           </button>
         </p>
@@ -125,13 +145,18 @@ export function PostcardReceiptDetailPage() {
           </div>
         </div>
         <div className="address-detail-header-actions">
-          <button type="button" className="address-list-create-button" onClick={handleEdit}>
+          <button
+            type="button"
+            className="address-list-create-button"
+            onClick={handleEdit}
+            disabled={isDeleting}
+          >
             編集
           </button>
-          <button type="button" onClick={handleDelete}>
-            削除
+          <button type="button" onClick={handleDelete} disabled={isDeleting}>
+            {isDeleting ? '削除中…' : '削除'}
           </button>
-          <button type="button" onClick={handleBackToList}>
+          <button type="button" onClick={handleBackToList} disabled={isDeleting}>
             戻る
           </button>
         </div>
@@ -168,7 +193,7 @@ export function PostcardReceiptDetailPage() {
                 <div className="address-detail-row">
                   <dt>住所録</dt>
                   <dd>
-                    {entry.addressEntryDisplayName ?? '—'}
+                    {entry.addressEntryDisplayName ?? '（削除済みの宛名）'}
                     {entry.addressEntryAddressLine ? ` / ${entry.addressEntryAddressLine}` : ''}
                     {entry.addressEntryArchived ? '（アーカイブ済みの宛名）' : ''}
                   </dd>
@@ -180,6 +205,7 @@ export function PostcardReceiptDetailPage() {
                       type="button"
                       className="link-button"
                       onClick={() => navigate(`/addresses/${entry.addressEntryId}`)}
+                      disabled={isDeleting}
                     >
                       住所録詳細へ
                     </button>

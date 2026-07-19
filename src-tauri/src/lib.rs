@@ -1290,7 +1290,29 @@ async fn search_postcard_receipts(
   year: Option<i32>,
   category: Option<String>,
   address_entry_id: Option<String>,
-  include_deleted: Option<bool>,
+  limit: Option<i64>,
+  offset: Option<i64>,
+  sort_order: Option<String>,
+) -> Result<PostcardReceiptSearchResult, String> {
+  search_postcard_receipts_impl(
+    pool.inner(),
+    keyword,
+    year,
+    category,
+    address_entry_id,
+    limit,
+    offset,
+    sort_order,
+  )
+  .await
+}
+
+async fn search_postcard_receipts_impl(
+  pool: &SqlitePool,
+  keyword: Option<String>,
+  year: Option<i32>,
+  category: Option<String>,
+  address_entry_id: Option<String>,
   limit: Option<i64>,
   offset: Option<i64>,
   sort_order: Option<String>,
@@ -1328,20 +1350,21 @@ async fn search_postcard_receipts(
     _ => ReceiptSortOrder::Desc,
   };
 
+  // 削除済み一覧・復元は v1 非スコープのため、公開 API は常に active のみ返す
   let query = PostcardReceiptSearchQuery {
     keyword: keyword.filter(|k| !k.trim().is_empty()),
     year,
     category: parsed_category,
     address_entry_id: parsed_address_entry_id,
-    include_deleted: include_deleted.unwrap_or(false),
+    include_deleted: false,
     pagination: ReceiptPagination { limit: l, offset: o },
     sort_order,
   };
 
-  let repo = SqlxPostcardReceiptRepository::new(pool.inner().clone());
+  let repo = SqlxPostcardReceiptRepository::new(pool.clone());
   let (items, total) = repo.search(query).await.map_err(|e| {
     log::error!("search_postcard_receipts failed: {:?}", e);
-    AppError::Repository("RECEIPT_SEARCH_FAILED".to_string())
+    String::from(AppError::Repository("RECEIPT_SEARCH_FAILED".to_string()))
   })?;
 
   Ok(PostcardReceiptSearchResult {

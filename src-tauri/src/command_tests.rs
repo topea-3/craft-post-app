@@ -9,9 +9,10 @@ mod tests {
 
   use crate::{
     create_postcard_receipt_impl, create_sender_entry_impl, delete_postcard_receipt_impl,
-    get_postcard_receipt_impl, list_sender_linked_addresses_impl, set_sender_for_address_entry_impl,
-    update_postcard_receipt_impl, update_sender_entry_impl, update_sender_entry_links_impl,
-    AddressDto, PersonNameDto, PostcardReceiptDtoInput, SenderEntryDtoInput,
+    get_postcard_receipt_impl, list_sender_linked_addresses_impl, search_postcard_receipts_impl,
+    set_sender_for_address_entry_impl, update_postcard_receipt_impl, update_sender_entry_impl,
+    update_sender_entry_links_impl, AddressDto, PersonNameDto, PostcardReceiptDtoInput,
+    SenderEntryDtoInput,
   };
 
   async fn setup_pool() -> SqlitePool {
@@ -375,15 +376,14 @@ mod tests {
   #[tokio::test]
   async fn create_postcard_receipt_rejects_future_received_date() {
     let pool = setup_pool().await;
-    let tomorrow = (chrono::Local::now().date_naive() + chrono::Duration::days(1))
-      .format("%Y-%m-%d")
-      .to_string();
+    // 日付跨ぎフレーク回避のため十分遠い固定未来日を使う
+    let far_future = "2099-12-31";
     let err = create_postcard_receipt_impl(
       &pool,
-      sample_receipt_dto(&tomorrow, None, Some("田中家".to_string())),
+      sample_receipt_dto(far_future, None, Some("田中家".to_string())),
     )
     .await
-    .expect_err("local tomorrow should fail");
+    .expect_err("far future date should fail");
     assert!(err.contains("受取日に未来の日付は指定できません"));
   }
 
@@ -398,24 +398,23 @@ mod tests {
     .await
     .expect("create receipt");
 
-    let tomorrow = (chrono::Local::now().date_naive() + chrono::Duration::days(1))
-      .format("%Y-%m-%d")
-      .to_string();
+    let far_future = "2099-12-31";
     let err = update_receipt(
       &pool,
       id,
-      sample_receipt_dto(&tomorrow, None, Some("田中家".to_string())),
+      sample_receipt_dto(far_future, None, Some("田中家".to_string())),
     )
     .await
-    .expect_err("update with local tomorrow should fail");
+    .expect_err("update with far future date should fail");
     assert!(err.contains("受取日に未来の日付は指定できません"));
   }
 
   #[tokio::test]
   async fn update_postcard_receipt_allows_memo_change_when_received_at_looks_future() {
     let pool = setup_pool().await;
-    let tomorrow = chrono::Local::now().date_naive() + chrono::Duration::days(1);
-    let day_after = tomorrow + chrono::Duration::days(1);
+    // DB 直挿入の「未来に見える日」も固定遠未来で境界フレークを避ける
+    let future_looking = "2099-06-01";
+    let further_future = "2099-12-31";
     let id = Uuid::new_v4();
     let now = chrono::Utc::now().to_rfc3339();
     sqlx::query(
@@ -428,18 +427,14 @@ mod tests {
     )
     .bind(id.to_string())
     .bind("未来見え")
-    .bind(tomorrow.format("%Y-%m-%d").to_string())
+    .bind(future_looking)
     .bind(&now)
     .bind(&now)
     .execute(&pool)
     .await
     .unwrap();
 
-    let mut dto = sample_receipt_dto(
-      &tomorrow.format("%Y-%m-%d").to_string(),
-      None,
-      Some("未来見え".to_string()),
-    );
+    let mut dto = sample_receipt_dto(future_looking, None, Some("未来見え".to_string()));
     dto.memo = Some("メモのみ".to_string());
     update_receipt(&pool, id.to_string(), dto)
       .await
@@ -448,15 +443,55 @@ mod tests {
     let err = update_receipt(
       &pool,
       id.to_string(),
-      sample_receipt_dto(
-        &day_after.format("%Y-%m-%d").to_string(),
-        None,
-        Some("未来見え".to_string()),
-      ),
+      sample_receipt_dto(further_future, None, Some("未来見え".to_string())),
     )
     .await
     .expect_err("moving further into the future must fail");
     assert!(err.contains("受取日に未来の日付は指定できません"));
+  }
+
+  #[tokio::test]
+  async fn search_postcard_receipts_excludes_deleted_rows() {
+    let pool = setup_pool().await;
+    let id = create_postcard_receipt_impl(
+      &pool,
+      sample_receipt_dto("2025-01-03", None, Some("検索対象".to_string())),
+    )
+    .await
+    .expect("create");
+
+    let before = search_postcard_receipts_impl(
+      &pool,
+      Some("検索対象".to_string()),
+      None,
+      None,
+      None,
+      Some(20),
+      Some(0),
+      None,
+    )
+    .await
+    .expect("search before delete");
+    assert_eq!(before.total, 1);
+
+    delete_postcard_receipt_impl(&pool, id)
+      .await
+      .expect("delete");
+
+    let after = search_postcard_receipts_impl(
+      &pool,
+      Some("検索対象".to_string()),
+      None,
+      None,
+      None,
+      Some(20),
+      Some(0),
+      None,
+    )
+    .await
+    .expect("search after delete");
+    assert_eq!(after.total, 0);
+    assert!(after.items.is_empty());
   }
 
   #[tokio::test]

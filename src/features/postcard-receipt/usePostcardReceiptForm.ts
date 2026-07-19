@@ -7,7 +7,7 @@ import {
   createInitialPostcardReceiptFormValues,
   toPostcardReceiptDtoInput,
 } from './types'
-import { POSTCARD_RECEIPT_OPERATION_ERROR_MESSAGE } from './messages'
+import { mapPostcardReceiptInvokeError } from './messages'
 
 export type PostcardReceiptFormErrors = {
   receivedAt?: string
@@ -19,6 +19,36 @@ export type PostcardReceiptFormErrors = {
 }
 
 const MAX_MEMO_LENGTH = 1000
+
+export const POSTCARD_RECEIPT_FIELD_IDS = {
+  receivedAt: 'postcard-receipt-received-at',
+  category: 'postcard-receipt-category',
+  memo: 'postcard-receipt-memo',
+  addressEntryId: 'postcard-receipt-address-entry',
+  senderDisplayName: 'postcard-receipt-sender-display-name',
+  form: 'postcard-receipt-form-error',
+} as const
+
+const ERROR_FOCUS_ORDER: (keyof PostcardReceiptFormErrors)[] = [
+  'receivedAt',
+  'category',
+  'senderDisplayName',
+  'addressEntryId',
+  'memo',
+  'form',
+]
+
+function focusFirstPostcardReceiptError(errors: PostcardReceiptFormErrors) {
+  for (const key of ERROR_FOCUS_ORDER) {
+    if (!errors[key]) continue
+    const id = POSTCARD_RECEIPT_FIELD_IDS[key]
+    const el = document.getElementById(id)
+    if (el) {
+      el.focus()
+      return
+    }
+  }
+}
 
 export type UsePostcardReceiptFormResult = {
   values: PostcardReceiptFormValues
@@ -102,6 +132,7 @@ const usePostcardReceiptFormBase = (
     const validation = validateForm(values, baselineReceivedAt)
     setErrors(validation)
     if (Object.keys(validation).length > 0) {
+      queueMicrotask(() => focusFirstPostcardReceiptError(validation))
       return false
     }
 
@@ -120,15 +151,10 @@ const usePostcardReceiptFormBase = (
         return false
       }
       console.error('Failed to submit postcard receipt:', error)
-      const message =
-        typeof error === 'string' && error.includes('address entry is archived')
-          ? '選択した宛名はアーカイブ済みです。'
-          : typeof error === 'string' && error.includes('address entry not found')
-            ? '選択した宛名が見つかりません。'
-            : typeof error === 'string'
-              ? error
-              : POSTCARD_RECEIPT_OPERATION_ERROR_MESSAGE
-      setErrors((prev) => ({ ...prev, form: message }))
+      const message = mapPostcardReceiptInvokeError(error)
+      const nextErrors = { form: message }
+      setErrors((prev) => ({ ...prev, ...nextErrors }))
+      queueMicrotask(() => focusFirstPostcardReceiptError(nextErrors))
       return false
     } finally {
       isSubmittingRef.current = false

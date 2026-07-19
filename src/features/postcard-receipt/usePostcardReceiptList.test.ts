@@ -135,7 +135,6 @@ describe('usePostcardReceiptList', () => {
       { initialProps: { searchText: '', page: 2 } },
     )
 
-    // 初回 fetch 完了を待つ
     await act(async () => {
       await Promise.resolve()
     })
@@ -146,7 +145,6 @@ describe('usePostcardReceiptList', () => {
 
     rerender({ searchText: '田中', page: 2 })
 
-    // debounce 未経過: 旧 keyword での追加 invoke なし
     await act(async () => {
       await vi.advanceTimersByTimeAsync(299)
     })
@@ -158,7 +156,6 @@ describe('usePostcardReceiptList', () => {
     })
     expect(onPageChange).toHaveBeenCalledWith(1)
 
-    // 親が page を 1 に更新した想定
     rerender({ searchText: '田中', page: 1 })
     await act(async () => {
       await Promise.resolve()
@@ -168,6 +165,51 @@ describe('usePostcardReceiptList', () => {
       'search_postcard_receipts',
       expect.objectContaining({ keyword: '田中', offset: 0 }),
     )
+
+    vi.useRealTimers()
+  })
+
+  it('does not show empty-all message while clearing a zero-result search', async () => {
+    vi.useFakeTimers()
+    invokeMock
+      .mockResolvedValueOnce({ items: [], total: 0 })
+      .mockResolvedValueOnce({
+        items: [sampleDto({ id: 'a', sender_display_name: '実データ' })],
+        total: 1,
+      })
+
+    const { result, rerender } = renderHook(
+      ({ searchText }: { searchText: string }) =>
+        usePostcardReceiptList({
+          searchText,
+          year: '',
+          category: '',
+          addressEntryId: null,
+          page: 1,
+          pageSize: 20,
+        }),
+      { initialProps: { searchText: '存在しない' } },
+    )
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300)
+      await Promise.resolve()
+    })
+    expect(result.current.total).toBe(0)
+    expect(result.current.settledSearchText).toBe('存在しない')
+
+    rerender({ searchText: '' })
+    // debounce 中は settled が旧条件のまま → 空全体メッセージ用の !isFiltering にはならない
+    expect(result.current.isDebouncing).toBe(true)
+    expect(result.current.settledSearchText).toBe('存在しない')
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300)
+      await Promise.resolve()
+    })
+    expect(result.current.isDebouncing).toBe(false)
+    expect(result.current.settledSearchText).toBe('')
+    expect(result.current.total).toBe(1)
 
     vi.useRealTimers()
   })
