@@ -129,6 +129,10 @@ const usePostcardReceiptFormBase = (
   }
 
   const submit = async () => {
+    if (isSubmittingRef.current) {
+      return false
+    }
+
     const validation = validateForm(values, baselineReceivedAt)
     setErrors(validation)
     if (Object.keys(validation).length > 0) {

@@ -1026,6 +1026,11 @@ fn map_postcard_receipt_error(err: PostcardReceiptError) -> AppError {
   }
 }
 
+/// postcard command の rejection 文字列（`Display` ではなく `From<AppError>` と揃える）
+fn postcard_command_error(err: AppError) -> String {
+  String::from(err)
+}
+
 fn map_postcard_receipt_write_error(
   err: crate::domain::postcard_receipt::postcard_receipt_repository::PostcardReceiptRepositoryError,
   log_context: &str,
@@ -1034,18 +1039,18 @@ fn map_postcard_receipt_write_error(
   use crate::domain::postcard_receipt::postcard_receipt_repository::PostcardReceiptRepositoryError;
   match err {
     PostcardReceiptRepositoryError::NotFound => {
-      AppError::Validation(RECEIPT_NOT_FOUND_MESSAGE.to_string()).to_string()
+      postcard_command_error(AppError::Validation(RECEIPT_NOT_FOUND_MESSAGE.to_string()))
     }
     PostcardReceiptRepositoryError::AddressLinkRejected => {
       // 事前検証後の競合: 多くの場合 archive への並行変更
-      AppError::Validation(ADDRESS_ENTRY_ARCHIVED_MESSAGE.to_string()).to_string()
+      postcard_command_error(AppError::Validation(ADDRESS_ENTRY_ARCHIVED_MESSAGE.to_string()))
     }
     PostcardReceiptRepositoryError::Conflict => {
-      AppError::Validation(RECEIPT_CONFLICT_MESSAGE.to_string()).to_string()
+      postcard_command_error(AppError::Validation(RECEIPT_CONFLICT_MESSAGE.to_string()))
     }
     other => {
       log::error!("{log_context} failed: {:?}", other);
-      AppError::Repository(fallback_code.to_string()).to_string()
+      postcard_command_error(AppError::Repository(fallback_code.to_string()))
     }
   }
 }
@@ -1094,12 +1099,14 @@ async fn validate_address_entry_for_receipt(
       log::error!("validate_address_entry_for_receipt failed: {:?}", e);
       AppError::Repository("RECEIPT_ADDRESS_LOOKUP_FAILED".to_string())
     })?
-    .ok_or_else(|| AppError::Validation(ADDRESS_ENTRY_NOT_FOUND_MESSAGE.to_string()).to_string())?;
+    .ok_or_else(|| postcard_command_error(AppError::Validation(ADDRESS_ENTRY_NOT_FOUND_MESSAGE.to_string())))?;
 
   if found.archived() {
     let keep_existing_link = allow_archived_if_same_as == Some(*address_entry_id);
     if !keep_existing_link {
-      return Err(AppError::Validation(ADDRESS_ENTRY_ARCHIVED_MESSAGE.to_string()).to_string());
+      return Err(postcard_command_error(AppError::Validation(
+        ADDRESS_ENTRY_ARCHIVED_MESSAGE.to_string(),
+      )));
     }
   }
   Ok(())
@@ -1122,7 +1129,7 @@ async fn build_postcard_receipt_values_from_input(
   let address_entry_id = match dto.address_entry_id {
     Some(id) => {
       let uuid =
-        Uuid::parse_str(&id).map_err(|e| AppError::Validation(e.to_string()).to_string())?;
+        Uuid::parse_str(&id).map_err(|e| postcard_command_error(AppError::Validation(e.to_string())))?;
       validate_address_entry_for_receipt(pool, &uuid, allow_archived_if_same_as).await?;
       Some(uuid)
     }
@@ -1130,13 +1137,13 @@ async fn build_postcard_receipt_values_from_input(
   };
 
   let received_at = chrono::NaiveDate::parse_from_str(&dto.received_at, "%Y-%m-%d")
-    .map_err(|e| AppError::Validation(e.to_string()).to_string())?;
+    .map_err(|e| postcard_command_error(AppError::Validation(e.to_string())))?;
   let category = PostcardReceiptCategory::parse(&dto.category)
-    .map_err(|e| AppError::Validation(e.to_string()).to_string())?;
+    .map_err(|e| postcard_command_error(AppError::Validation(e.to_string())))?;
   let memo = match dto.memo {
     Some(text) if !text.is_empty() => Some(
       crate::domain::address::memo::Memo::new(text)
-        .map_err(|e| AppError::Validation(e.to_string()).to_string())?,
+        .map_err(|e| postcard_command_error(AppError::Validation(e.to_string())))?,
     ),
     _ => None,
   };
@@ -1172,7 +1179,7 @@ async fn create_postcard_receipt_impl(
     category,
     memo,
   )
-  .map_err(|e| map_postcard_receipt_error(e).to_string())?;
+  .map_err(|e| postcard_command_error(map_postcard_receipt_error(e)))?;
 
   let id = receipt.id().as_uuid().to_string();
   let repo = SqlxPostcardReceiptRepository::new(pool.clone());
@@ -1200,12 +1207,12 @@ async fn update_postcard_receipt_impl(
   expected_updated_at: String,
 ) -> Result<(), String> {
   let uuid =
-    Uuid::parse_str(&id).map_err(|e| AppError::Validation(e.to_string()).to_string())?;
+    Uuid::parse_str(&id).map_err(|e| postcard_command_error(AppError::Validation(e.to_string())))?;
   let receipt_id = PostcardReceiptId::from_uuid(uuid);
   let repo = SqlxPostcardReceiptRepository::new(pool.clone());
 
   DateTime::parse_from_rfc3339(&expected_updated_at)
-    .map_err(|e| AppError::Validation(format!("invalid expected_updated_at: {e}")).to_string())?;
+    .map_err(|e| postcard_command_error(AppError::Validation(format!("invalid expected_updated_at: {e}"))))?;
 
   let existing = repo
     .find_by_id(&receipt_id)
@@ -1217,7 +1224,9 @@ async fn update_postcard_receipt_impl(
     .ok_or_else(|| AppError::Validation(RECEIPT_NOT_FOUND_MESSAGE.to_string()))?;
 
   if existing.receipt.is_deleted() {
-    return Err(AppError::Validation(RECEIPT_NOT_FOUND_MESSAGE.to_string()).to_string());
+    return Err(postcard_command_error(AppError::Validation(
+      RECEIPT_NOT_FOUND_MESSAGE.to_string(),
+    )));
   }
 
   let existing_address_id = existing.receipt.address_entry_id();
@@ -1244,7 +1253,7 @@ async fn update_postcard_receipt_impl(
     previous_received_at,
     PostcardReceipt::local_today(),
   )
-  .map_err(|e| map_postcard_receipt_error(e).to_string())?;
+  .map_err(|e| postcard_command_error(map_postcard_receipt_error(e)))?;
 
   repo
     .update(&receipt, existing_address_id, &expected_updated_at)
@@ -1263,7 +1272,7 @@ async fn get_postcard_receipt(
 
 async fn get_postcard_receipt_impl(pool: &SqlitePool, id: String) -> Result<PostcardReceiptDto, String> {
   let uuid =
-    Uuid::parse_str(&id).map_err(|e| AppError::Validation(e.to_string()).to_string())?;
+    Uuid::parse_str(&id).map_err(|e| postcard_command_error(AppError::Validation(e.to_string())))?;
   let receipt_id = PostcardReceiptId::from_uuid(uuid);
   let repo = SqlxPostcardReceiptRepository::new(pool.clone());
 
@@ -1277,7 +1286,9 @@ async fn get_postcard_receipt_impl(pool: &SqlitePool, id: String) -> Result<Post
     .ok_or_else(|| AppError::Validation(RECEIPT_NOT_FOUND_MESSAGE.to_string()))?;
 
   if found.receipt.is_deleted() {
-    return Err(AppError::Validation(RECEIPT_NOT_FOUND_MESSAGE.to_string()).to_string());
+    return Err(postcard_command_error(AppError::Validation(
+      RECEIPT_NOT_FOUND_MESSAGE.to_string(),
+    )));
   }
 
   Ok(postcard_receipt_dto_from_context(found))
@@ -1322,25 +1333,28 @@ async fn search_postcard_receipts_impl(
     offset.unwrap_or(DEFAULT_SEARCH_OFFSET),
   );
   if l < 1 || l > MAX_PAGE_LIMIT {
-    return Err(
-      AppError::Validation(format!("limit must be between 1 and {}", MAX_PAGE_LIMIT)).to_string(),
-    );
+    return Err(postcard_command_error(AppError::Validation(format!(
+      "limit must be between 1 and {}",
+      MAX_PAGE_LIMIT
+    ))));
   }
   if o < 0 {
-    return Err(AppError::Validation("offset must be >= 0".to_string()).to_string());
+    return Err(postcard_command_error(AppError::Validation(
+      "offset must be >= 0".to_string(),
+    )));
   }
 
   let parsed_category = match category {
     Some(value) if !value.is_empty() => Some(
       PostcardReceiptCategory::parse(&value)
-        .map_err(|e| AppError::Validation(e.to_string()).to_string())?,
+        .map_err(|e| postcard_command_error(AppError::Validation(e.to_string())))?,
     ),
     _ => None,
   };
 
   let parsed_address_entry_id = match address_entry_id {
     Some(id) if !id.is_empty() => Some(
-      Uuid::parse_str(&id).map_err(|e| AppError::Validation(e.to_string()).to_string())?,
+      Uuid::parse_str(&id).map_err(|e| postcard_command_error(AppError::Validation(e.to_string())))?,
     ),
     _ => None,
   };
@@ -1396,7 +1410,7 @@ async fn delete_postcard_receipt(pool: State<'_, SqlitePool>, id: String) -> Res
 
 async fn delete_postcard_receipt_impl(pool: &SqlitePool, id: String) -> Result<(), String> {
   let uuid =
-    Uuid::parse_str(&id).map_err(|e| AppError::Validation(e.to_string()).to_string())?;
+    Uuid::parse_str(&id).map_err(|e| postcard_command_error(AppError::Validation(e.to_string())))?;
   let receipt_id = PostcardReceiptId::from_uuid(uuid);
   let repo = SqlxPostcardReceiptRepository::new(pool.clone());
   repo

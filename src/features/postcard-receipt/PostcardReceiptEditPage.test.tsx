@@ -1,4 +1,5 @@
 import { render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { invoke } from '@tauri-apps/api/core'
@@ -20,7 +21,7 @@ function sampleDto(overrides: Partial<PostcardReceiptDto> = {}): PostcardReceipt
     category: 'nenga',
     memo: 'メモ',
     created_at: '2025-01-03T00:00:00Z',
-    updated_at: '2025-01-03T00:00:00Z',
+    updated_at: '2025-01-03T12:00:00Z',
     address_entry_display_name: null,
     address_entry_address_line: null,
     address_entry_archived: null,
@@ -57,6 +58,59 @@ describe('PostcardReceiptEditPage', () => {
     })
 
     expect(invokeMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('saves with expectedUpdatedAt from loaded dto', async () => {
+    const user = userEvent.setup()
+    invokeMock.mockResolvedValueOnce(sampleDto()).mockResolvedValueOnce(undefined)
+
+    renderEditPage()
+
+    await waitFor(() => {
+      expect(screen.getByDisplayValue('メモ')).toBeInTheDocument()
+    })
+
+    const memo = screen.getByDisplayValue('メモ')
+    await user.clear(memo)
+    await user.type(memo, '更新メモ')
+    await user.click(screen.getByRole('button', { name: '保存' }))
+
+    await waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith('update_postcard_receipt', {
+        id: 'receipt-1',
+        dto: {
+          address_entry_id: null,
+          sender_display_name: '田中家',
+          received_at: '2025-01-03',
+          category: 'nenga',
+          memo: '更新メモ',
+        },
+        expectedUpdatedAt: '2025-01-03T12:00:00Z',
+      })
+    })
+  })
+
+  it('shows conflict guidance when update is rejected', async () => {
+    const user = userEvent.setup()
+    invokeMock
+      .mockResolvedValueOnce(sampleDto())
+      .mockRejectedValueOnce(
+        '他の操作で更新済みです。画面を再読み込みしてから再度保存してください。',
+      )
+
+    renderEditPage()
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: '保存' })).toBeInTheDocument()
+    })
+
+    await user.click(screen.getByRole('button', { name: '保存' }))
+
+    await waitFor(() => {
+      expect(
+        screen.getByText('他の操作で更新済みです。画面を再読み込みしてから再度保存してください。'),
+      ).toBeInTheDocument()
+    })
   })
 
   it('converges on load failure without update-depth loops', async () => {

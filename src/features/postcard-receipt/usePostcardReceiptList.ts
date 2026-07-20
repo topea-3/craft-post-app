@@ -118,6 +118,7 @@ export function usePostcardReceiptList(
         const clamped = clampPage(page, result.total, pageSize)
         if (clamped !== page) {
           if (!cancelled) {
+            setItems(result.items.map(fromPostcardReceiptDto))
             setTotal(result.total)
             setError(null)
             onPageChange?.(clamped)

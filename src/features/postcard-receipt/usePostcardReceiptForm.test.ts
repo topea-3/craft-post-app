@@ -1,7 +1,8 @@
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { invoke } from '@tauri-apps/api/core'
-import { usePostcardReceiptForm } from './usePostcardReceiptForm'
+import { usePostcardReceiptEditForm, usePostcardReceiptForm } from './usePostcardReceiptForm'
+import type { PostcardReceiptFormValues } from './types'
 
 vi.mock('@tauri-apps/api/core', () => ({
   invoke: vi.fn(),
@@ -105,5 +106,80 @@ describe('usePostcardReceiptForm', () => {
     })
 
     expect(onSuccess).not.toHaveBeenCalled()
+  })
+
+  it('does not invoke twice when submit is called while a request is in flight', async () => {
+    const onSuccess = vi.fn()
+    let resolveInvoke: (() => void) | undefined
+
+    invokeMock.mockImplementationOnce(
+      () =>
+        new Promise<string>((resolve) => {
+          resolveInvoke = () => resolve('receipt-new')
+        }),
+    )
+
+    const { result } = renderHook(() => usePostcardReceiptForm(onSuccess))
+
+    act(() => {
+      result.current.setLinkMode('displayName')
+      result.current.updateSenderDisplayName('送り主')
+    })
+
+    let first: Promise<boolean>
+    let second: Promise<boolean>
+    act(() => {
+      first = result.current.submit()
+      second = result.current.submit()
+    })
+
+    let secondResult = true
+    await act(async () => {
+      secondResult = await second!
+    })
+    expect(secondResult).toBe(false)
+    expect(invokeMock).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      resolveInvoke?.()
+      await first!
+    })
+    expect(onSuccess).toHaveBeenCalledWith('receipt-new')
+  })
+
+  it('passes expectedUpdatedAt when editing', async () => {
+    const onSuccess = vi.fn()
+    const initialValues: PostcardReceiptFormValues = {
+      receivedAt: '2025-01-03',
+      category: 'nenga',
+      memo: '更新後',
+      linkMode: 'displayName',
+      addressEntryId: null,
+      addressEntryDisplayName: null,
+      senderDisplayName: '田中家',
+    }
+
+    invokeMock.mockResolvedValueOnce(undefined)
+
+    const { result } = renderHook(() =>
+      usePostcardReceiptEditForm('receipt-1', initialValues, '2025-01-03T12:00:00Z', onSuccess),
+    )
+
+    await act(async () => {
+      await result.current.submit()
+    })
+
+    expect(invokeMock).toHaveBeenCalledWith('update_postcard_receipt', {
+      id: 'receipt-1',
+      dto: {
+        address_entry_id: null,
+        sender_display_name: '田中家',
+        received_at: '2025-01-03',
+        category: 'nenga',
+        memo: '更新後',
+      },
+      expectedUpdatedAt: '2025-01-03T12:00:00Z',
+    })
+    expect(onSuccess).toHaveBeenCalled()
   })
 })

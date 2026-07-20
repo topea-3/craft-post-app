@@ -213,4 +213,67 @@ describe('usePostcardReceiptList', () => {
 
     vi.useRealTimers()
   })
+
+  it('clears stale items when clamping page after delete on last page', async () => {
+    const pageSize = 2
+    const staleItem = sampleDto({ id: 'stale', sender_display_name: '削除済み' })
+
+    // page=2 は total=3 のとき有効（2ページ目に1件）
+    invokeMock
+      .mockResolvedValueOnce({
+        items: [staleItem],
+        total: 3,
+      })
+      .mockResolvedValueOnce({
+        items: [],
+        total: 2,
+      })
+      .mockResolvedValueOnce({
+        items: [
+          sampleDto({ id: 'a', sender_display_name: 'A' }),
+          sampleDto({ id: 'b', sender_display_name: 'B' }),
+        ],
+        total: 2,
+      })
+
+    const { result } = renderHook(() => {
+      const [page, setPage] = useState(2)
+      const list = usePostcardReceiptList({
+        searchText: '',
+        year: '',
+        category: '',
+        addressEntryId: null,
+        page,
+        pageSize,
+        onPageChange: setPage,
+      })
+      return { page, list }
+    })
+
+    await waitFor(() => {
+      expect(result.current.list.items).toHaveLength(1)
+      expect(result.current.list.items[0]?.id).toBe('stale')
+    })
+
+    invokeMock.mockClear()
+    invokeMock
+      .mockResolvedValueOnce({ items: [], total: 2 })
+      .mockResolvedValueOnce({
+        items: [
+          sampleDto({ id: 'a', sender_display_name: 'A' }),
+          sampleDto({ id: 'b', sender_display_name: 'B' }),
+        ],
+        total: 2,
+      })
+
+    act(() => {
+      result.current.list.reload()
+    })
+
+    await waitFor(() => {
+      expect(result.current.page).toBe(1)
+      expect(result.current.list.items).toHaveLength(2)
+      expect(result.current.list.items.some((item) => item.id === 'stale')).toBe(false)
+    })
+  })
 })
