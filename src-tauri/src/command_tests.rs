@@ -8,8 +8,10 @@ mod tests {
   use crate::infrastructure::sender::sqlx_sender_entry_repository::SqlxSenderEntryRepository;
 
   use crate::{
-    create_sender_entry_impl, list_sender_linked_addresses_impl, set_sender_for_address_entry_impl,
-    update_sender_entry_impl, update_sender_entry_links_impl, AddressDto, PersonNameDto,
+    create_postcard_receipt_impl, create_sender_entry_impl, delete_postcard_receipt_impl,
+    get_postcard_receipt_impl, list_sender_linked_addresses_impl, search_postcard_receipts_impl,
+    set_sender_for_address_entry_impl, update_postcard_receipt_impl, update_sender_entry_impl,
+    update_sender_entry_links_impl, AddressDto, PersonNameDto, PostcardReceiptDtoInput,
     SenderEntryDtoInput,
   };
 
@@ -320,6 +322,360 @@ mod tests {
       .await
       .expect_err("archived address should fail");
     assert!(err.contains("address entry is archived"));
+  }
+
+  fn sample_receipt_dto(
+    received_at: &str,
+    address_entry_id: Option<String>,
+    sender_display_name: Option<String>,
+  ) -> PostcardReceiptDtoInput {
+    PostcardReceiptDtoInput {
+      address_entry_id,
+      sender_display_name,
+      received_at: received_at.to_string(),
+      category: "nenga".to_string(),
+      memo: None,
+    }
+  }
+
+  async fn update_receipt(
+    pool: &SqlitePool,
+    id: String,
+    dto: PostcardReceiptDtoInput,
+  ) -> Result<(), String> {
+    let current = get_postcard_receipt_impl(pool, id.clone()).await?;
+    update_postcard_receipt_impl(pool, id, dto, current.updated_at).await
+  }
+
+  // postcard command rejection 文字列（フロントの KNOWN_ERROR_MESSAGES と一致させる）
+  const RECEIPT_FUTURE_DATE_MESSAGE: &str = "受取日に未来の日付は指定できません。";
+  const RECEIPT_SENDER_DISPLAY_NAME_REQUIRED_MESSAGE: &str = "送り主の表示名を入力してください。";
+  const RECEIPT_NOT_FOUND_MESSAGE: &str = "postcard receipt not found";
+  const RECEIPT_CONFLICT_MESSAGE: &str =
+    "他の操作で更新済みです。画面を再読み込みしてから再度保存してください。";
+  const ADDRESS_ENTRY_NOT_FOUND_MESSAGE: &str = "address entry not found";
+  const ADDRESS_ENTRY_ARCHIVED_MESSAGE: &str = "address entry is archived";
+
+  #[tokio::test]
+  async fn create_postcard_receipt_requires_sender_display_name_when_unlinked() {
+    let pool = setup_pool().await;
+    let err = create_postcard_receipt_impl(
+      &pool,
+      sample_receipt_dto("2025-01-03", None, None),
+    )
+    .await
+    .expect_err("unlinked without display name should fail");
+    assert_eq!(err, RECEIPT_SENDER_DISPLAY_NAME_REQUIRED_MESSAGE);
+  }
+
+  #[tokio::test]
+  async fn create_postcard_receipt_allows_local_today() {
+    let pool = setup_pool().await;
+    let today = chrono::Local::now().date_naive().format("%Y-%m-%d").to_string();
+    let id = create_postcard_receipt_impl(
+      &pool,
+      sample_receipt_dto(&today, None, Some("田中家".to_string())),
+    )
+    .await
+    .expect("local today must be allowed");
+    let got = get_postcard_receipt_impl(&pool, id).await.expect("get receipt");
+    assert_eq!(got.received_at, today);
+  }
+
+  #[tokio::test]
+  async fn create_postcard_receipt_rejects_future_received_date() {
+    let pool = setup_pool().await;
+    // 日付跨ぎフレーク回避のため十分遠い固定未来日を使う
+    let far_future = "2099-12-31";
+    let err = create_postcard_receipt_impl(
+      &pool,
+      sample_receipt_dto(far_future, None, Some("田中家".to_string())),
+    )
+    .await
+    .expect_err("far future date should fail");
+    assert_eq!(err, RECEIPT_FUTURE_DATE_MESSAGE);
+  }
+
+  #[tokio::test]
+  async fn update_postcard_receipt_rejects_local_tomorrow() {
+    let pool = setup_pool().await;
+    let today = chrono::Local::now().date_naive().format("%Y-%m-%d").to_string();
+    let id = create_postcard_receipt_impl(
+      &pool,
+      sample_receipt_dto(&today, None, Some("田中家".to_string())),
+    )
+    .await
+    .expect("create receipt");
+
+    let far_future = "2099-12-31";
+    let err = update_receipt(
+      &pool,
+      id,
+      sample_receipt_dto(far_future, None, Some("田中家".to_string())),
+    )
+    .await
+    .expect_err("update with far future date should fail");
+    assert_eq!(err, RECEIPT_FUTURE_DATE_MESSAGE);
+  }
+
+  #[tokio::test]
+  async fn update_postcard_receipt_allows_memo_change_when_received_at_looks_future() {
+    let pool = setup_pool().await;
+    // DB 直挿入の「未来に見える日」も固定遠未来で境界フレークを避ける
+    let future_looking = "2099-06-01";
+    let further_future = "2099-12-31";
+    let id = Uuid::new_v4();
+    let now = chrono::Utc::now().to_rfc3339();
+    sqlx::query(
+      r#"
+        INSERT INTO postcard_receipts (
+          id, address_entry_id, sender_display_name, received_at, category, memo,
+          deleted_at, created_at, updated_at
+        ) VALUES (?, NULL, ?, ?, 'nenga', NULL, NULL, ?, ?)
+      "#,
+    )
+    .bind(id.to_string())
+    .bind("未来見え")
+    .bind(future_looking)
+    .bind(&now)
+    .bind(&now)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let mut dto = sample_receipt_dto(future_looking, None, Some("未来見え".to_string()));
+    dto.memo = Some("メモのみ".to_string());
+    update_receipt(&pool, id.to_string(), dto)
+      .await
+      .expect("memo-only update with unchanged future-looking date must succeed");
+
+    let err = update_receipt(
+      &pool,
+      id.to_string(),
+      sample_receipt_dto(further_future, None, Some("未来見え".to_string())),
+    )
+    .await
+    .expect_err("moving further into the future must fail");
+    assert_eq!(err, RECEIPT_FUTURE_DATE_MESSAGE);
+  }
+
+  #[tokio::test]
+  async fn search_postcard_receipts_excludes_deleted_rows() {
+    let pool = setup_pool().await;
+    let id = create_postcard_receipt_impl(
+      &pool,
+      sample_receipt_dto("2025-01-03", None, Some("検索対象".to_string())),
+    )
+    .await
+    .expect("create");
+
+    let before = search_postcard_receipts_impl(
+      &pool,
+      Some("検索対象".to_string()),
+      None,
+      None,
+      None,
+      Some(20),
+      Some(0),
+      None,
+    )
+    .await
+    .expect("search before delete");
+    assert_eq!(before.total, 1);
+
+    delete_postcard_receipt_impl(&pool, id)
+      .await
+      .expect("delete");
+
+    let after = search_postcard_receipts_impl(
+      &pool,
+      Some("検索対象".to_string()),
+      None,
+      None,
+      None,
+      Some(20),
+      Some(0),
+      None,
+    )
+    .await
+    .expect("search after delete");
+    assert_eq!(after.total, 0);
+    assert!(after.items.is_empty());
+  }
+
+  #[tokio::test]
+  async fn update_postcard_receipt_rejects_stale_expected_updated_at() {
+    let pool = setup_pool().await;
+    let today = chrono::Local::now().date_naive().format("%Y-%m-%d").to_string();
+    let id = create_postcard_receipt_impl(
+      &pool,
+      sample_receipt_dto(&today, None, Some("同時編集".to_string())),
+    )
+    .await
+    .expect("create receipt");
+
+    let loaded = get_postcard_receipt_impl(&pool, id.clone())
+      .await
+      .expect("get receipt");
+    let stale_updated_at = loaded.updated_at.clone();
+
+    let mut first = sample_receipt_dto(&today, None, Some("同時編集".to_string()));
+    first.category = "mochu".to_string();
+    update_postcard_receipt_impl(&pool, id.clone(), first, stale_updated_at.clone())
+      .await
+      .expect("first update succeeds");
+
+    let mut second = sample_receipt_dto(&today, None, Some("同時編集".to_string()));
+    second.memo = Some("後勝ちメモ".to_string());
+    let err = update_postcard_receipt_impl(&pool, id.clone(), second, stale_updated_at)
+      .await
+      .expect_err("stale update must conflict");
+    assert_eq!(err, RECEIPT_CONFLICT_MESSAGE);
+
+    let got = get_postcard_receipt_impl(&pool, id).await.expect("get receipt");
+    assert_eq!(got.category, "mochu");
+    assert!(got.memo.is_none());
+  }
+
+  #[tokio::test]
+  async fn create_postcard_receipt_rejects_archived_address_entry() {
+    let pool = setup_pool().await;
+    let address_id = Uuid::new_v4();
+    insert_address_entry(&pool, address_id, true).await;
+
+    let err = create_postcard_receipt_impl(
+      &pool,
+      sample_receipt_dto("2025-01-03", Some(address_id.to_string()), None),
+    )
+    .await
+    .expect_err("archived address should fail");
+    assert_eq!(err, ADDRESS_ENTRY_ARCHIVED_MESSAGE);
+  }
+
+  #[tokio::test]
+  async fn update_postcard_receipt_rejects_missing_address_entry() {
+    let pool = setup_pool().await;
+    let id = create_postcard_receipt_impl(
+      &pool,
+      sample_receipt_dto("2025-01-03", None, Some("田中家".to_string())),
+    )
+    .await
+    .expect("create receipt");
+
+    let err = update_receipt(
+      &pool,
+      id,
+      sample_receipt_dto("2025-01-03", Some(Uuid::new_v4().to_string()), None),
+    )
+    .await
+    .expect_err("missing address should fail");
+    assert_eq!(err, ADDRESS_ENTRY_NOT_FOUND_MESSAGE);
+  }
+
+  #[tokio::test]
+  async fn update_postcard_receipt_allows_existing_archived_address_entry() {
+    let pool = setup_pool().await;
+    let address_id = Uuid::new_v4();
+    insert_address_entry(&pool, address_id, false).await;
+
+    let id = create_postcard_receipt_impl(
+      &pool,
+      sample_receipt_dto("2025-01-03", Some(address_id.to_string()), None),
+    )
+    .await
+    .expect("create receipt");
+
+    sqlx::query("UPDATE address_entries SET archived_at = ? WHERE id = ?")
+      .bind(chrono::Utc::now().to_rfc3339())
+      .bind(address_id.to_string())
+      .execute(&pool)
+      .await
+      .expect("archive address");
+
+    let mut dto = sample_receipt_dto("2025-01-04", Some(address_id.to_string()), None);
+    dto.memo = Some("メモ更新".to_string());
+    update_receipt(&pool, id.clone(), dto)
+      .await
+      .expect("update with same archived address should succeed");
+
+    let got = get_postcard_receipt_impl(&pool, id)
+      .await
+      .expect("get receipt");
+    assert_eq!(got.received_at, "2025-01-04");
+    assert_eq!(got.memo.as_deref(), Some("メモ更新"));
+    assert_eq!(got.address_entry_id.as_deref(), Some(address_id.to_string().as_str()));
+    assert_eq!(got.address_entry_archived, Some(true));
+  }
+
+  #[tokio::test]
+  async fn update_postcard_receipt_rejects_switching_to_archived_address_entry() {
+    let pool = setup_pool().await;
+    let active_id = Uuid::new_v4();
+    let archived_id = Uuid::new_v4();
+    insert_address_entry(&pool, active_id, false).await;
+    insert_address_entry(&pool, archived_id, true).await;
+
+    let id = create_postcard_receipt_impl(
+      &pool,
+      sample_receipt_dto("2025-01-03", Some(active_id.to_string()), None),
+    )
+    .await
+    .expect("create receipt");
+
+    let err = update_receipt(
+      &pool,
+      id,
+      sample_receipt_dto("2025-01-03", Some(archived_id.to_string()), None),
+    )
+    .await
+    .expect_err("switching to archived address should fail");
+    assert_eq!(err, ADDRESS_ENTRY_ARCHIVED_MESSAGE);
+  }
+
+  #[tokio::test]
+  async fn update_postcard_receipt_rejects_after_delete() {
+    let pool = setup_pool().await;
+    let today = chrono::Local::now().date_naive().format("%Y-%m-%d").to_string();
+    let id = create_postcard_receipt_impl(
+      &pool,
+      sample_receipt_dto(&today, None, Some("削除競合".to_string())),
+    )
+    .await
+    .expect("create receipt");
+
+    delete_postcard_receipt_impl(&pool, id.clone())
+      .await
+      .expect("delete receipt");
+
+    let err = update_postcard_receipt_impl(
+      &pool,
+      id,
+      sample_receipt_dto(&today, None, Some("更新しようとする".to_string())),
+      chrono::Utc::now().to_rfc3339(),
+    )
+    .await
+    .expect_err("update after delete should fail");
+    assert_eq!(err, RECEIPT_NOT_FOUND_MESSAGE);
+  }
+
+  #[tokio::test]
+  async fn delete_postcard_receipt_makes_get_fail() {
+    let pool = setup_pool().await;
+    let id = create_postcard_receipt_impl(
+      &pool,
+      sample_receipt_dto("2025-01-03", None, Some("削除テスト".to_string())),
+    )
+    .await
+    .expect("create receipt");
+
+    delete_postcard_receipt_impl(&pool, id.clone())
+      .await
+      .expect("delete receipt");
+
+    let err = get_postcard_receipt_impl(&pool, id)
+      .await
+      .expect_err("deleted receipt should not be returned");
+    assert_eq!(err, RECEIPT_NOT_FOUND_MESSAGE);
   }
 }
 

@@ -175,12 +175,14 @@ export function SenderEntryEditPage() {
     }
   }
 
-  const handleAddLink = async (addressEntryId: string) => {
-    if (!id) return
+  const handleAddLink = async (item: AddressEntryListItem): Promise<boolean> => {
+    if (!id) return false
+
+    const addressEntryId = item.id
 
     // 既にこの差出人に紐づいている場合は何もしない
     if (linkedAddresses.some((a) => a.id === addressEntryId)) {
-      return
+      return false
     }
 
     try {
@@ -191,7 +193,7 @@ export function SenderEntryEditPage() {
         const confirmed = window.confirm(
           'この宛名はすでに別の差出人に紐づいています。置き換えますか？',
         )
-        if (!confirmed) return
+        if (!confirmed) return false
       }
 
       const nextIds = [...linkedAddresses.map((a) => a.id), addressEntryId]
@@ -200,9 +202,11 @@ export function SenderEntryEditPage() {
         addressEntryIds: nextIds,
       })
       await reloadLinked()
+      return true
     } catch (e) {
       console.error('Failed to add sender link:', e)
       alert(SENDER_OPERATION_ERROR_MESSAGE)
+      return false
     }
   }
 
