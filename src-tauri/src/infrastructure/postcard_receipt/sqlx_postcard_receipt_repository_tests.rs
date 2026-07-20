@@ -271,6 +271,67 @@ mod tests {
   }
 
   #[tokio::test]
+  async fn search_count_and_items_are_consistent_for_valid_page() {
+    let pool = setup_pool().await;
+    let repo = SqlxPostcardReceiptRepository::new(pool.clone());
+    let r1 = sample_receipt(None, Some("A"), NaiveDate::from_ymd_opt(2025, 1, 1).unwrap());
+    let r2 = sample_receipt(None, Some("B"), NaiveDate::from_ymd_opt(2025, 1, 2).unwrap());
+    let r3 = sample_receipt(None, Some("C"), NaiveDate::from_ymd_opt(2025, 1, 3).unwrap());
+    repo.create(&r1, None).await.unwrap();
+    repo.create(&r2, None).await.unwrap();
+    repo.create(&r3, None).await.unwrap();
+
+    let (items, total) = repo
+      .search(PostcardReceiptSearchQuery {
+        keyword: None,
+        year: None,
+        category: None,
+        address_entry_id: None,
+        include_deleted: false,
+        pagination: Pagination {
+          limit: 20,
+          offset: 0,
+        },
+        sort_order: SortOrder::Desc,
+      })
+      .await
+      .unwrap();
+    assert_eq!(total, 3);
+    assert_eq!(items.len(), 3);
+  }
+
+  #[tokio::test]
+  async fn search_total_matches_items_after_delete() {
+    let pool = setup_pool().await;
+    let repo = SqlxPostcardReceiptRepository::new(pool.clone());
+    let r1 = sample_receipt(None, Some("A"), NaiveDate::from_ymd_opt(2025, 1, 1).unwrap());
+    let r2 = sample_receipt(None, Some("B"), NaiveDate::from_ymd_opt(2025, 1, 2).unwrap());
+    let r3 = sample_receipt(None, Some("C"), NaiveDate::from_ymd_opt(2025, 1, 3).unwrap());
+    repo.create(&r1, None).await.unwrap();
+    repo.create(&r2, None).await.unwrap();
+    repo.create(&r3, None).await.unwrap();
+    repo.delete(r3.id()).await.unwrap();
+
+    let (items, total) = repo
+      .search(PostcardReceiptSearchQuery {
+        keyword: None,
+        year: None,
+        category: None,
+        address_entry_id: None,
+        include_deleted: false,
+        pagination: Pagination {
+          limit: 20,
+          offset: 0,
+        },
+        sort_order: SortOrder::Desc,
+      })
+      .await
+      .unwrap();
+    assert_eq!(total, 2);
+    assert_eq!(items.len(), 2);
+  }
+
+  #[tokio::test]
   async fn find_by_id_display_name_includes_co_recipients_and_skips_none_honorific() {
     let pool = setup_pool().await;
     let address_id =

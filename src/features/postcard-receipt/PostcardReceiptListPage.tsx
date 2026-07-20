@@ -31,6 +31,8 @@ export function PostcardReceiptListPage() {
   const [page, setPage] = useState(1)
   const [availableYears, setAvailableYears] = useState<number[]>([])
   const [yearsReloadToken, setYearsReloadToken] = useState(0)
+  const [yearsFetchStatus, setYearsFetchStatus] = useState<'idle' | 'ok' | 'error'>('idle')
+  const [yearsError, setYearsError] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const isDeletingRef = useRef(false)
   const cancelledRef = useRef(false)
@@ -59,9 +61,14 @@ export function PostcardReceiptListPage() {
         const years = await invoke<number[]>('list_postcard_receipt_years')
         if (cancelled) return
         setAvailableYears(years)
+        setYearsError(null)
+        setYearsFetchStatus('ok')
       } catch (e) {
         console.error('Failed to load postcard receipt years:', e)
-        if (!cancelled) setAvailableYears([])
+        if (!cancelled) {
+          setYearsError(POSTCARD_RECEIPT_OPERATION_ERROR_MESSAGE)
+          setYearsFetchStatus('error')
+        }
       }
     })()
     return () => {
@@ -71,15 +78,16 @@ export function PostcardReceiptListPage() {
 
   const yearOptions = useMemo(() => buildYearOptions(availableYears), [availableYears])
 
-  // 選択中の年度が候補から消えたら条件をクリア（表示と検索条件の乖離を防ぐ）
+  // 年度一覧の取得成功後にのみ、選択中の年度が候補から消えたら条件をクリア
   useEffect(() => {
+    if (yearsFetchStatus !== 'ok') return
     if (!year) return
     const stillSelectable = yearOptions.some((option) => option.value === year)
     if (!stillSelectable) {
       setYear('')
       setPage(1)
     }
-  }, [yearOptions, year])
+  }, [yearOptions, year, yearsFetchStatus])
 
   const reloadYears = () => setYearsReloadToken((t) => t + 1)
 
@@ -251,6 +259,9 @@ export function PostcardReceiptListPage() {
 
       {isLoading ? <p className="address-list-loading">読み込み中です…</p> : null}
       {error ? <p className="address-list-error">一覧の取得に失敗しました: {error}</p> : null}
+      {yearsError ? (
+        <p className="address-list-error">受取年の取得に失敗しました: {yearsError}</p>
+      ) : null}
 
       {!isLoading && !error && isNoData ? (
         <div className="address-list-empty">

@@ -10,7 +10,7 @@ type Props = {
   isOpen: boolean
   excludeIds?: string[]
   onClose: () => void
-  onSelect: (item: AddressEntryListItem) => void
+  onSelect: (item: AddressEntryListItem) => boolean | Promise<boolean> | void
 }
 
 const PAGE_SIZE = 10
@@ -22,6 +22,7 @@ export function AddressEntrySelectDialog({ isOpen, excludeIds = [], onClose, onS
   const [total, setTotal] = useState(0)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [selectingId, setSelectingId] = useState<string | null>(null)
 
   const totalPages = useMemo(() => Math.max(1, Math.ceil(total / PAGE_SIZE)), [total])
   const currentPage = Math.min(page, totalPages)
@@ -76,6 +77,19 @@ export function AddressEntrySelectDialog({ isOpen, excludeIds = [], onClose, onS
   }, [isOpen, keyword])
 
   if (!isOpen) return null
+
+  const handleSelect = async (item: AddressEntryListItem) => {
+    if (selectingId) return
+    setSelectingId(item.id)
+    try {
+      const shouldClose = await onSelect(item)
+      if (shouldClose !== false) {
+        onClose()
+      }
+    } finally {
+      setSelectingId(null)
+    }
+  }
 
   return (
     <div className="dialog-overlay" role="dialog" aria-modal="true">
@@ -134,12 +148,12 @@ export function AddressEntrySelectDialog({ isOpen, excludeIds = [], onClose, onS
                       <td className="address-list-actions">
                         <button
                           type="button"
+                          disabled={selectingId !== null}
                           onClick={() => {
-                            onSelect(a)
-                            onClose()
+                            void handleSelect(a)
                           }}
                         >
-                          選択
+                          {selectingId === a.id ? '選択中…' : '選択'}
                         </button>
                       </td>
                     </tr>

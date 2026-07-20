@@ -5,6 +5,7 @@ import {
 } from './messages'
 
 describe('mapPostcardReceiptInvokeError', () => {
+  // 公開 rejection 文字列の正本は Rust command_tests の assert_eq!（postcard セクション）
   it('maps known backend rejection strings to user-facing messages', () => {
     expect(mapPostcardReceiptInvokeError('address entry is archived')).toBe(
       '選択した宛名はアーカイブ済みです。',

@@ -103,4 +103,60 @@ describe('PostcardReceiptListPage', () => {
     const lastSearch = searchCalls[searchCalls.length - 1]?.[1] as { year: number | null }
     expect(lastSearch.year).toBeNull()
   })
+
+  it('keeps selected year when list_postcard_receipt_years fails after delete', async () => {
+    const user = userEvent.setup()
+    let yearsCallCount = 0
+    let deleted = false
+
+    invokeMock.mockImplementation(async (cmd: string, args?: unknown) => {
+      const params = (args ?? {}) as Record<string, unknown>
+      if (cmd === 'list_postcard_receipt_years') {
+        yearsCallCount += 1
+        if (yearsCallCount === 1) {
+          return [2012]
+        }
+        throw new Error('years failed')
+      }
+      if (cmd === 'search_postcard_receipts') {
+        if (!deleted && params.year === 2012) {
+          return { items: [sampleDto()], total: 1 }
+        }
+        if (deleted && params.year === 2012) {
+          return { items: [], total: 0 }
+        }
+        return { items: [], total: 0 }
+      }
+      if (cmd === 'delete_postcard_receipt') {
+        deleted = true
+        return undefined
+      }
+      throw new Error(`unexpected command ${cmd}`)
+    })
+
+    render(
+      <MemoryRouter>
+        <PostcardReceiptListPage />
+      </MemoryRouter>,
+    )
+
+    await user.click(await screen.findByRole('button', { name: 'フィルタ' }))
+    const yearSelect = screen.getByRole('combobox', { name: '受取年' }) as HTMLSelectElement
+    await user.selectOptions(yearSelect, '2012')
+
+    await waitFor(() => {
+      expect(screen.getByText('田中家')).toBeInTheDocument()
+    })
+
+    await user.click(screen.getByRole('button', { name: '削除' }))
+
+    await waitFor(() => {
+      expect(screen.getByText(/受取年の取得に失敗しました/)).toBeInTheDocument()
+    })
+    expect(yearSelect.value).toBe('2012')
+
+    const searchCalls = invokeMock.mock.calls.filter((c) => c[0] === 'search_postcard_receipts')
+    const lastSearch = searchCalls[searchCalls.length - 1]?.[1] as { year: number | null }
+    expect(lastSearch.year).toBe(2012)
+  })
 })

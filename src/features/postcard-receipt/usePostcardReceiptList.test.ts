@@ -218,23 +218,10 @@ describe('usePostcardReceiptList', () => {
     const pageSize = 2
     const staleItem = sampleDto({ id: 'stale', sender_display_name: '削除済み' })
 
-    // page=2 は total=3 のとき有効（2ページ目に1件）
-    invokeMock
-      .mockResolvedValueOnce({
-        items: [staleItem],
-        total: 3,
-      })
-      .mockResolvedValueOnce({
-        items: [],
-        total: 2,
-      })
-      .mockResolvedValueOnce({
-        items: [
-          sampleDto({ id: 'a', sender_display_name: 'A' }),
-          sampleDto({ id: 'b', sender_display_name: 'B' }),
-        ],
-        total: 2,
-      })
+    invokeMock.mockResolvedValueOnce({
+      items: [staleItem],
+      total: 3,
+    })
 
     const { result } = renderHook(() => {
       const [page, setPage] = useState(2)
@@ -255,9 +242,16 @@ describe('usePostcardReceiptList', () => {
       expect(result.current.list.items[0]?.id).toBe('stale')
     })
 
-    invokeMock.mockClear()
+    let resolveClampFetch: (value: { items: PostcardReceiptDto[]; total: number }) => void
+    const clampFetchPromise = new Promise<{ items: PostcardReceiptDto[]; total: number }>(
+      (resolve) => {
+        resolveClampFetch = resolve
+      },
+    )
+
+    invokeMock.mockReset()
     invokeMock
-      .mockResolvedValueOnce({ items: [], total: 2 })
+      .mockImplementationOnce(() => clampFetchPromise)
       .mockResolvedValueOnce({
         items: [
           sampleDto({ id: 'a', sender_display_name: 'A' }),
@@ -270,10 +264,18 @@ describe('usePostcardReceiptList', () => {
       result.current.list.reload()
     })
 
+    await act(async () => {
+      resolveClampFetch!({ items: [], total: 2 })
+      await Promise.resolve()
+    })
+
     await waitFor(() => {
       expect(result.current.page).toBe(1)
+    })
+    expect(result.current.list.items.some((item) => item.id === 'stale')).toBe(false)
+
+    await waitFor(() => {
       expect(result.current.list.items).toHaveLength(2)
-      expect(result.current.list.items.some((item) => item.id === 'stale')).toBe(false)
     })
   })
 })

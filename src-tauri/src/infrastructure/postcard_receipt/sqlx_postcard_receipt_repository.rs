@@ -439,8 +439,6 @@ impl PostcardReceiptRepository for SqlxPostcardReceiptRepository {
     let mut count_q = sqlx::query(&count_sql);
     count_q = bind_search_params(count_q, &query);
 
-    let total: i64 = count_q.fetch_one(&self.pool).await?.get("cnt");
-
     let list_sql = format!(
       r#"
         SELECT
@@ -470,7 +468,11 @@ impl PostcardReceiptRepository for SqlxPostcardReceiptRepository {
       .bind(query.pagination.limit)
       .bind(query.pagination.offset);
 
-    let rows = list_q.fetch_all(&self.pool).await?;
+    // COUNT と一覧を同一スナップショットで取得し、並行削除/追加による total/items 不整合を防ぐ
+    let mut tx = self.pool.begin().await?;
+    let total: i64 = count_q.fetch_one(&mut *tx).await?.get("cnt");
+    let rows = list_q.fetch_all(&mut *tx).await?;
+    tx.commit().await?;
     let mut receipts = Vec::with_capacity(rows.len());
     for row in rows {
       receipts.push(map_search_row_to_receipt(map_search_row(&row))?);

@@ -347,6 +347,15 @@ mod tests {
     update_postcard_receipt_impl(pool, id, dto, current.updated_at).await
   }
 
+  // postcard command rejection 文字列（フロントの KNOWN_ERROR_MESSAGES と一致させる）
+  const RECEIPT_FUTURE_DATE_MESSAGE: &str = "受取日に未来の日付は指定できません。";
+  const RECEIPT_SENDER_DISPLAY_NAME_REQUIRED_MESSAGE: &str = "送り主の表示名を入力してください。";
+  const RECEIPT_NOT_FOUND_MESSAGE: &str = "postcard receipt not found";
+  const RECEIPT_CONFLICT_MESSAGE: &str =
+    "他の操作で更新済みです。画面を再読み込みしてから再度保存してください。";
+  const ADDRESS_ENTRY_NOT_FOUND_MESSAGE: &str = "address entry not found";
+  const ADDRESS_ENTRY_ARCHIVED_MESSAGE: &str = "address entry is archived";
+
   #[tokio::test]
   async fn create_postcard_receipt_requires_sender_display_name_when_unlinked() {
     let pool = setup_pool().await;
@@ -356,7 +365,7 @@ mod tests {
     )
     .await
     .expect_err("unlinked without display name should fail");
-    assert!(err.contains("送り主の表示名を入力してください"));
+    assert_eq!(err, RECEIPT_SENDER_DISPLAY_NAME_REQUIRED_MESSAGE);
   }
 
   #[tokio::test]
@@ -384,7 +393,7 @@ mod tests {
     )
     .await
     .expect_err("far future date should fail");
-    assert!(err.contains("受取日に未来の日付は指定できません"));
+    assert_eq!(err, RECEIPT_FUTURE_DATE_MESSAGE);
   }
 
   #[tokio::test]
@@ -406,7 +415,7 @@ mod tests {
     )
     .await
     .expect_err("update with far future date should fail");
-    assert!(err.contains("受取日に未来の日付は指定できません"));
+    assert_eq!(err, RECEIPT_FUTURE_DATE_MESSAGE);
   }
 
   #[tokio::test]
@@ -447,7 +456,7 @@ mod tests {
     )
     .await
     .expect_err("moving further into the future must fail");
-    assert!(err.contains("受取日に未来の日付は指定できません"));
+    assert_eq!(err, RECEIPT_FUTURE_DATE_MESSAGE);
   }
 
   #[tokio::test]
@@ -521,7 +530,7 @@ mod tests {
     let err = update_postcard_receipt_impl(&pool, id.clone(), second, stale_updated_at)
       .await
       .expect_err("stale update must conflict");
-    assert!(err.contains("他の操作で更新済み"));
+    assert_eq!(err, RECEIPT_CONFLICT_MESSAGE);
 
     let got = get_postcard_receipt_impl(&pool, id).await.expect("get receipt");
     assert_eq!(got.category, "mochu");
@@ -540,7 +549,7 @@ mod tests {
     )
     .await
     .expect_err("archived address should fail");
-    assert!(err.contains("address entry is archived"));
+    assert_eq!(err, ADDRESS_ENTRY_ARCHIVED_MESSAGE);
   }
 
   #[tokio::test]
@@ -560,7 +569,7 @@ mod tests {
     )
     .await
     .expect_err("missing address should fail");
-    assert!(err.contains("address entry not found"));
+    assert_eq!(err, ADDRESS_ENTRY_NOT_FOUND_MESSAGE);
   }
 
   #[tokio::test]
@@ -620,7 +629,7 @@ mod tests {
     )
     .await
     .expect_err("switching to archived address should fail");
-    assert!(err.contains("address entry is archived"));
+    assert_eq!(err, ADDRESS_ENTRY_ARCHIVED_MESSAGE);
   }
 
   #[tokio::test]
@@ -646,7 +655,7 @@ mod tests {
     )
     .await
     .expect_err("update after delete should fail");
-    assert!(err.contains("postcard receipt not found"));
+    assert_eq!(err, RECEIPT_NOT_FOUND_MESSAGE);
   }
 
   #[tokio::test]
@@ -666,7 +675,7 @@ mod tests {
     let err = get_postcard_receipt_impl(&pool, id)
       .await
       .expect_err("deleted receipt should not be returned");
-    assert!(err.contains("postcard receipt not found"));
+    assert_eq!(err, RECEIPT_NOT_FOUND_MESSAGE);
   }
 }
 
