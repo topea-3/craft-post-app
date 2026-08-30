@@ -45,14 +45,17 @@ src/
 | テスト用型チェック | `npm run typecheck:test` |
 | フロントテスト | `npm test` |
 | 型 + フロント build | `npm run build` |
+| Rust 型チェック | `cd src-tauri && cargo check` |
 | Rust テスト | `cd src-tauri && cargo test` |
-| 一式 | `task check` / `task test` |
+| 一式（上記を全て） | `task lint` + `task check` + `task test` + `npm run typecheck:test` |
+
+`task check` 単体は `npm run build` + `cargo check` のみ。lint / フロントテスト / `typecheck:test` は含まない。
 
 特定モジュール: `cargo test <module_name>` / `npm test -- <pattern>`
 
 ## ユニットテスト
 
-Step 6 で使用する手順。**全テスト成功まで** 6c–6e を繰り返す。
+Step 6 で使用する手順。6c–6e は **最大 3 回** 繰り返す。3 回超過または環境要因で失敗が続く場合は、未達項目と選択肢をユーザーに確認して停止する。
 
 ```
 - [ ] 6a. テストケース洗い出し
@@ -108,6 +111,8 @@ npm test                                           # フロント全体
 | 本番コードのバグ | Step 5 に戻る |
 | テストの期待値・セットアップ誤り | テスト修正 → 6c |
 | 既存テストも失敗（regression） | 本番コードの副作用を修正 |
+| 環境・ツールチェーン不足で失敗 | 再試行せずユーザーに確認して停止 |
+| 同一失敗が 3 回 | 未達項目と選択肢を確認して停止 |
 
 ### 雛形（command_tests）
 
@@ -158,7 +163,7 @@ Step 7–8 で使用する checklist。**ブロッカー** がすべて `[x]` �
 | 既存パターン | ブロッカー | 命名、エラー型、invoke 名が揃っているか |
 | エッジケース | ブロッカー | 空入力、not found、archived、競合、ページング |
 | テストカバレッジ | ブロッカー | 受け入れ条件・Validation・DB 制約・UI 変更がテストで担保されているか |
-| 検証 | ブロッカー | [検証コマンド](#検証コマンド) 一式が成功 |
+| 検証 | ブロッカー | [検証コマンド](#検証コマンド) の「一式（上記を全て）」が成功 |
 | スコープ | ブロッカー | 無関係な変更が混ざっていないか |
 
 ## 実装パターン（クイックリファレンス）

@@ -1,6 +1,6 @@
 # Linear Issue ワークフロー — 共通リファレンス
 
-`linear-issue-design` / `linear-issue-implement` スキル（`.cursor/skills/`）の Step 1–3 で参照する共通手順。
+`linear-issue-design` / `linear-issue-implement` スキル（`.cursor/skills/`）の Step 1–3 および作業完了時のステータス更新で参照する共通手順。
 
 ---
 
@@ -25,19 +25,28 @@
 3. `list_issue_statuses`（`team` 必須）でチームの正式ステータス名を確認
 4. 現在ステータスに応じて以下を実行:
 
+**判定ルール**: `name`（正式名）を先に見る。`type` は補助（`completed` / `canceled` → 終端、`unstarted` / `backlog` → 着手前）。In Progress と Review はどちらも `type=started` になりうるため、**`type` だけで Review 中を判定しない**。
+
 | 分類 | 判定 | 動作 |
 |------|------|------|
 | 終端 | Done / Canceled / Duplicate 相当 | 作業不要。サマリのみ報告して終了 |
+| ブロック中 | Blocked / On Hold / Parked 相当 | In Progress にしない。ユーザーに継続可否を確認 |
+| レビュー中 | 名前が Review / In Review / レビュー | **In Progress に戻さない**。ユーザーに継続可否を確認（下記） |
 | 作業中 | In Progress 相当 | 変更しない |
-| レビュー中 | Review / In Review / レビュー 相当 | **In Progress に戻さない**。ユーザーに続行可否を確認 |
 | 着手前 | 上記以外（Todo / Backlog 等） | In Progress 相当の正式名で `save_issue` 更新 |
 
-`list_issue_statuses` の `name` / `type` で照合する。名称が不明な場合は候補一覧をユーザーに確認する。
+名称が不明な場合は候補一覧をユーザーに確認する。
+
+#### レビュー中 / ブロック中の継続確認
+
+- **続行する** → ステータスはそのまま（In Progress に戻さない）。Step 3 以降を実行
+- **続行しない** → サマリのみ報告して終了
+- **判断不能** → 候補一覧を出してユーザーに確認
 
 ### 作業完了時のステータス更新
 
-1. `list_issue_statuses` で Review 相当の正式名を確認
-2. `save_issue` で更新
+1. 現在が Review 相当 → 更新不要（既に Review）。Step 8 / 9 へ
+2. 上記以外 → `list_issue_statuses` で Review 相当の正式名を確認し `save_issue` で更新
 3. **失敗時** — 再試行せず、取得した候補名をユーザーに確認する
 
 ---
