@@ -1,6 +1,6 @@
 # Linear Issue 実装 — リファレンス
 
-手順・フローは [SKILL.md](../SKILL.md)。本ファイルは実装作業の参照資料のみ。
+`SKILL.md` がワークフローとルールを担う。本ファイルは Step 5（本番コード実装）、Step 6（ユニットテスト）、Step 7（自己レビュー）の参照資料のみ。
 
 ## プロジェクト構成
 
@@ -50,7 +50,7 @@ src/
 
 ## ユニットテスト
 
-### 手順（Step 6）
+Step 6 で使用する手順。**全テスト成功まで** 6c–6e を繰り返す。
 
 ```
 - [ ] 6a. テストケース洗い出し
@@ -127,7 +127,7 @@ async fn create_xxx_validation_error_on_duplicate() {
 
 ## 自己レビュー
 
-ワークフロー Step 7 の観点に対応するチェックリスト。
+Step 7–8 で使用する checklist。すべて `[x]` になるまで Step 5 または Step 6 に戻る。
 
 ```
 - [ ] Issue 受け入れ条件を満たす
@@ -164,4 +164,4 @@ async fn create_xxx_validation_error_on_duplicate() {
 | `linear-issue-design` | docs/ に設計書を作成 |
 | `linear-issue-implement` | 本スキル — 設計に基づき実装 |
 
-設計書が無い Issue は、実装前に設計スキルの実行を提案する。
+設計書が無い Issue は、実装前に `linear-issue-design` の実行を提案する。
