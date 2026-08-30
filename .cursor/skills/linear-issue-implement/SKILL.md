@@ -18,11 +18,13 @@ Linear issue を起点に、設計書・既存実装に沿ってコードを実�
 |----------|------|
 | `SKILL.md`（本ファイル） | 起動条件、自律実行ワークフロー、不変ルール |
 | `references/implement-reference.md` | レイヤー慣例、テスト手順、検証コマンド、実装パターン、自己レビュー checklist |
-| `docs/project-setup/linear-issue-workflow-common.md` | Linear MCP、ブランチ運用、質問テンプレート（design / implement 共通） |
+| `docs/project-setup/linear-issue-workflow-common.md` | Linear MCP、ステータス遷移、ブランチ運用、質問テンプレート（design / implement 共通） |
 
 ## 自律実行ワークフロー
 
-以下を上から順に実行する。Step 5 以降は **自己レビューがすべてクリアするまで** Step 5–8 を繰り返す。
+以下を上から順に実行する。Task Progress は作業メモに複製し、進むごとに更新する。
+
+Step 5–8 は **ブロッカー項目がすべてクリアするまで** 繰り返す（最大 3 周）。收束しない場合は未達項目と選択肢をユーザーに確認して停止する。Step 9（サマリ）はループに含めない。
 
 ```
 Task Progress:
@@ -37,19 +39,11 @@ Task Progress:
 
 ### Step 1–2: Linear issue とステータス
 
-[Linear MCP](../../../docs/project-setup/linear-issue-workflow-common.md#linear-mcp) に従う。
-
-- Issue ID 未指定 → ユーザーに確認
-- Done → 作業不要で Step 9（終了サマリのみ）
-- In Progress → 変更しない
-- 上記以外 → In Progress に更新
-- `get_issue` で title / description / state / team / labels / relations / gitBranchName を取得
+[Step 1–2: Issue 取得とステータス更新](../../../docs/project-setup/linear-issue-workflow-common.md#step-12-issue-取得とステータス更新) に従う。
 
 ### Step 3: ブランチ確認・作成
 
 [ブランチ運用](../../../docs/project-setup/linear-issue-workflow-common.md#ブランチ運用) に従う。
-
-- 未コミット変更で checkout 不可 → ユーザーに stash / commit / 破棄を確認
 
 ### Step 4: 実装対象の把握
 
@@ -66,13 +60,14 @@ Issue・設計書から受け入れ条件・変更レイヤー・非スコープ
 
 [ユニットテスト](references/implement-reference.md#ユニットテスト) の手順（洗い出し → 実装 → 実行 → 確認 → 修正）に従い、**全テスト成功まで繰り返す**。
 
-完了後、[検証コマンド](references/implement-reference.md#検証コマンド) で lint / build / テスト全体を実行する。
+完了後、[検証コマンド](references/implement-reference.md#検証コマンド) で lint / build / テスト一式を実行する。
 
 ### Step 7–8: 自己レビューと修正ループ
 
-1. [自己レビュー checklist](references/implement-reference.md#自己レビュー) の全項目を確認し、結果を記録する
-2. 未達項目がある → 原因に応じ Step 5 または Step 6 に戻り修正 → Step 7 から再実行
-3. **すべてクリア** → Issue を Review に更新 → Step 9 へ
+1. [自己レビュー checklist](references/implement-reference.md#自己レビュー) の **ブロッカー** 項目を確認し、結果を記録する
+2. ブロッカー未達 → 原因に応じ Step 5 または Step 6 に戻り修正 → Step 7 から再実行（最大 3 周）
+3. 3 周以内にブロッカーすべてクリア → [作業完了時のステータス更新](../../../docs/project-setup/linear-issue-workflow-common.md#作業完了時のステータス更新) に従い Issue を更新 → Step 9 へ
+4. 3 周超過 → 未達項目と選択肢をユーザーに確認して停止
 
 ### Step 9: サマリ報告
 

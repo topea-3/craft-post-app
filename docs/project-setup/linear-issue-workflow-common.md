@@ -12,18 +12,33 @@
 |------|--------|------|
 | Issue 取得 | `get_issue` | `id` に `CRA-123` 形式。`gitBranchName` も確認 |
 | ステータス一覧 | `list_issue_statuses` | `team` 必須 |
-| ステータス更新 | `save_issue` | `id` + `state` |
-
-### ステータス遷移
-
-| 現在 | 動作 |
-|------|------|
-| Done | 作業不要。サマリのみ報告して終了 |
-| In Progress | 変更しない |
-| 上記以外 | `In Progress` に更新 |
-| 作業完了後 | チームの **Review** 相当に更新（`list_issue_statuses` で正式名を確認） |
+| ステータス更新 | `save_issue` | `id` + `state`（正式名を使用） |
 
 `description` の Markdown はエスケープせずそのまま渡す。
+
+### Step 1–2: Issue 取得とステータス更新
+
+**必ず以下の順序で実行する**（状態未取得のまま更新しない）。
+
+1. Issue ID 未指定 → ユーザーに確認
+2. `get_issue` で title / description / state / team / labels / relations / gitBranchName を取得
+3. `list_issue_statuses`（`team` 必須）でチームの正式ステータス名を確認
+4. 現在ステータスに応じて以下を実行:
+
+| 分類 | 判定 | 動作 |
+|------|------|------|
+| 終端 | Done / Canceled / Duplicate 相当 | 作業不要。サマリのみ報告して終了 |
+| 作業中 | In Progress 相当 | 変更しない |
+| レビュー中 | Review / In Review / レビュー 相当 | **In Progress に戻さない**。ユーザーに続行可否を確認 |
+| 着手前 | 上記以外（Todo / Backlog 等） | In Progress 相当の正式名で `save_issue` 更新 |
+
+`list_issue_statuses` の `name` / `type` で照合する。名称が不明な場合は候補一覧をユーザーに確認する。
+
+### 作業完了時のステータス更新
+
+1. `list_issue_statuses` で Review 相当の正式名を確認
+2. `save_issue` で更新
+3. **失敗時** — 再試行せず、取得した候補名をユーザーに確認する
 
 ---
 
@@ -65,6 +80,7 @@ git status --short
 ローカルに存在?         → git checkout <branch>
 リモートのみ?           → git checkout -t origin/<branch>
 未作成?                 → ベースブランチをユーザーに確認 → git checkout -b
+未コミット変更で checkout 不可 → ユーザーに stash / commit / 破棄を確認
 ```
 
 ### ベースブランチ（新規作成時・ユーザー確認必須）
