@@ -1,6 +1,6 @@
 # Linear Issue 設計 — リファレンス
 
-手順・フローは [SKILL.md](../SKILL.md)。本ファイルは設計作業の参照資料のみ。
+`SKILL.md` がワークフローとルールを担う。本ファイルは Step 5（調査・設計書作成）と Step 6（自己レビュー）の参照資料のみ。
 
 ## 調査の優先順
 
@@ -82,7 +82,7 @@ docs/
 
 ## 自己レビュー
 
-ワークフロー Step 6 の観点に対応するチェックリスト。
+Step 6–7 で使用する checklist。すべて `[x]` になるまで Step 5 に戻る。
 
 ```
 - [ ] Issue 要件の充足
@@ -114,4 +114,4 @@ docs/
 | `linear-issue-design` | 本スキル — docs/ に設計書を作成 |
 | `linear-issue-implement` | 設計に基づきコードを実装 |
 
-設計書が無い Issue で実装依頼が来た場合は、先に本スキルの実行を提案する。
+設計書が無い Issue で実装依頼が来た場合は、先に `linear-issue-design` の実行を提案する。

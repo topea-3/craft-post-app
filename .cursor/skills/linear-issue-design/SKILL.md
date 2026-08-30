@@ -1,6 +1,9 @@
 ---
 name: linear-issue-design
-description: Linear issue から docs/ に設計書を作成・更新するワークフロー。Issue のステータス管理、ブランチ確認・作成、既存 docs/ と実装コードの調査、自己レビュー、Linear ステータス更新まで行う。ユーザーが Linear issue の設計、設計書作成、docs 更新、issue 設計フローを依頼したときに使う。
+description: >-
+  Linear issue から docs/ に設計書を作成・更新する。Issue ステータス管理、ブランチ確認、
+  docs/ と実装コードの調査、自己レビューループ、Linear ステータス更新まで自律実行する。
+  ユーザーが Linear issue の設計、設計書作成、docs 更新、issue 設計フローを依頼したときに使う。
 disable-model-invocation: true
 ---
 
@@ -8,53 +11,57 @@ disable-model-invocation: true
 
 Linear issue を起点に、プロジェクトの `docs/` に設計書を作成・更新する。
 
-## ワークフロー
+## 構成ファイルの責務
 
-1. Linear issue を確認してステータスをチェックする。Issue IDが未指定の場合はユーザーに確認する。
-2. issueがDoneならそのまま終了する。DoneまたはIn progress以外ならIn Progressにステータスを変更する。
-3. 作業ブランチを確認し、必要なら作成またはチェックアウトする。
-4. Issueの内容を確認し設計する内容を把握する。
-5. @docs の内容と既存の実装コードを確認して、設計を行い@docs に設計書を作成、更新する。
-6. 作成した設計書を自己レビューする。観点は以下の通り。
-    - Issueに記載されていることが実現できているか。
-    - 機能において矛盾がないか
-    - 実装済みの機能と整合しているか
-    - プロジェクトの方針、要件、アーキテクチャに整合しているか
-    - 改善点はないか
-7. 6のレビュー結果を基に5以降を実行する。問題点や改善点が解決したらIssueのステータスをレビューに変更する。
-8. サマリを報告する
+| ファイル | 責務 |
+|----------|------|
+| `SKILL.md`（本ファイル） | 起動条件、自律実行ワークフロー、不変ルール |
+| `references/design-reference.md` | 調査先、docs 構成、設計書テンプレート、自己レビュー checklist |
+| `docs/project-setup/linear-issue-workflow-common.md` | Linear MCP、ブランチ運用、質問テンプレート（design / implement 共通） |
 
-## ルール
+## 自律実行ワークフロー
 
-- 設計に迷う部分は都度ユーザに質問する。その際は可能な限り選択肢を検討してから質問をする
-- ブランチの checkout / 作成は Step 3。push / commit はユーザー明示依頼時のみ
-- 新規ブランチ作成時はベースブランチをユーザーに確認してから作成する
+以下を上から順に実行する。Step 5 以降は **自己レビューがすべてクリアするまで** Step 5–7 を繰り返す。
 
-## 実行手順
+```
+Task Progress:
+- [ ] Step 1–2: Linear issue 確認・ステータス更新
+- [ ] Step 3: ブランチ確認・作成
+- [ ] Step 4: 設計対象の把握
+- [ ] Step 5: 調査と設計書作成
+- [ ] Step 6–7: 自己レビューと修正ループ
+- [ ] Step 8: サマリ報告
+```
 
 ### Step 1–2: Linear issue とステータス
 
-[docs/project-setup/linear-issue-workflow-common.md — Linear MCP](../../../docs/project-setup/linear-issue-workflow-common.md#linear-mcp) に従う。
+[Linear MCP](../../../docs/project-setup/linear-issue-workflow-common.md#linear-mcp) に従う。
 
 - Issue ID 未指定 → ユーザーに確認
+- Done → 作業不要で Step 8（終了サマリのみ）
+- In Progress → 変更しない
+- 上記以外 → In Progress に更新
 - `get_issue` で title / description / state / team / labels / relations を取得
 
 ### Step 3: ブランチ確認・作成
 
-[docs/project-setup/linear-issue-workflow-common.md — ブランチ運用](../../../docs/project-setup/linear-issue-workflow-common.md#ブランチ運用) に従う。
+[ブランチ運用](../../../docs/project-setup/linear-issue-workflow-common.md#ブランチ運用) に従う。
 
 ### Step 4: 設計対象の把握
 
-Issue から目的・受け入れ条件・対象機能/画面/API/DB・非スコープ・依存を整理する。不足は [質問テンプレート](../../../docs/project-setup/linear-issue-workflow-common.md#質問テンプレート) で確認。
+Issue から目的・受け入れ条件・対象（機能 / 画面 / API / DB）・非スコープ・依存を整理する。不足は [質問テンプレート](../../../docs/project-setup/linear-issue-workflow-common.md#質問テンプレート) で確認。
 
 ### Step 5: 調査と設計書作成
 
-1. 必読 docs・関連実装を調査（一覧は [references/design-reference.md](references/design-reference.md)）
-2. 設計書を作成・更新（テンプレート・配置ルールは [references/design-reference.md](references/design-reference.md)）
+1. [references/design-reference.md](references/design-reference.md) を読む
+2. 必読 docs・関連実装を調査
+3. 設計書テンプレートに従い `docs/` に作成・更新
 
 ### Step 6–7: 自己レビューと修正ループ
 
-[references/design-reference.md — 自己レビュー](references/design-reference.md#自己レビュー) のチェックリストで記録する。指摘がある間は Step 5 に戻る。全項目クリア後、Issue を **Review** に更新。
+1. [自己レビュー checklist](references/design-reference.md#自己レビュー) の全項目を確認し、結果を記録する
+2. 未達項目がある → 設計書を修正（Step 5）→ Step 6 から再実行
+3. **すべてクリア** → Issue を Review に更新 → Step 8 へ
 
 ### Step 8: サマリ報告
 
@@ -65,9 +72,8 @@ Issue から目的・受け入れ条件・対象機能/画面/API/DB・非スコ
 - 自己レビュー結果
 - 未決事項（あれば）
 
-## 追加リソース
+## 不変ルール
 
-| 内容 | 参照先 |
-|------|--------|
-| Linear MCP・ブランチ・質問形式 | [docs/project-setup/linear-issue-workflow-common.md](../../../docs/project-setup/linear-issue-workflow-common.md) |
-| docs 構成・設計書テンプレート・レビュー詳細 | [references/design-reference.md](references/design-reference.md) |
+- 設計に迷う部分は都度ユーザーに質問する。可能な限り選択肢を提示してから質問する
+- ブランチの checkout / 作成は Step 3 のみ。commit / push はユーザー明示依頼時のみ
+- 新規ブランチ作成時はベースブランチをユーザーに確認してから作成する
