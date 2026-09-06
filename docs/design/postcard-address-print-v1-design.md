@@ -281,7 +281,7 @@ PDF 生成は**フロント**。Tauri はデータ解決・永続化・送付記
 | `printPostcardType` | 直前の `PostcardType`（FR-09 復元用） | セッション。`printJobDraft` と独立 |
 | `printJobPendingId`（任意） | INSERT 未完了時の UUID | INSERT 成功で削除 |
 
-`printJobId` の発行・破棄は §5.1.3 の寿命定義に従う（INSERT **成功**後に破棄）。
+`printJobId` の発行・破棄は §5.1.3 の寿命定義に従う（PDF 失敗時破棄 / INSERT 成功後破棄）。
 
 #### 5.3.2 レイヤー ID（要求仕様準拠）
 
