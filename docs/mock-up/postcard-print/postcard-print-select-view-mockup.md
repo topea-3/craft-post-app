@@ -49,7 +49,7 @@
 - 種別の復元は別キー `printPostcardType`（PRT003 側。本画面では触らない）
 - ページリフレッシュ時は本画面へ戻す（state 喪失防止）
 - archived `AddressEntry` は一覧に表示しない（既存一覧方針）
-- **入場時 prune**: 表示中の検索・ページ `items` は使わない。`filter_active_address_entry_ids(draft.ids)` で archived / not found のみ除外。「N 件は削除またはアーカイブ済みのため選択から外しました」。選択カウンタを同期。一覧未取得・取得失敗では draft を触らない
+- **入場時 prune**: 表示中の検索・ページ `items` は使わない。`filter_active_address_entry_ids(draft.addressEntryIds)`（上限 200）で archived / not found のみ除外。「N 件は削除またはアーカイブ済みのため選択から外しました」。選択カウンタを同期。一覧未取得・取得失敗・**filter コマンド失敗**では draft を触らない（失敗 ≠ 空成功）
 - **resolve 失敗時（方針 B）**: エラーの offending ID を draft から除外し本画面に残留。残りで再実行可
 
 ---
