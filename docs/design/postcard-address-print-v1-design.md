@@ -259,6 +259,7 @@ PRT002（差出人確認）は、除外後の一覧を表示する**読み取り
 | コマンド | 用途 |
 |----------|------|
 | `resolve_print_job_items` | `address_entry_id[]` → 有効 `PrintJobItem[]` + 除外理由一覧。入力に `AddressEntry` archived / not found が 1 件でもあればコマンド全体失敗（offending id[] + reason を返す） |
+| `filter_active_address_entry_ids` | `address_entry_id[]` → 非 archived として存在する ID のみ返す（検索・ページ非依存。入場時 draft prune 用） |
 | `build_address_print_snapshot` | 1 件スナップショット（archived / not found は Validation エラー） |
 | `build_sender_print_snapshot` | 1 件スナップショット（archived / not found は Validation エラー） |
 | `list_print_layout_preferences` | `postcard_type` でオフセット一覧 |
@@ -290,7 +291,8 @@ PDF 生成は**フロント**。Tauri はデータ解決・永続化・送付記
 
 **draft 同期（stale ID 回復）**:
 
-- PRT001 入場時: 有効一覧（非 archived）に無い ID を `printJobDraft` から除外。表示例: 「N 件は削除またはアーカイブ済みのため選択から外しました」。選択カウンタを同期
+- PRT001 入場時 prune: 表示中の検索結果・ページ `items` を正に**しない**。`filter_active_address_entry_ids(draft.ids)` で **draft の ID だけ**存在確認し、archived / not found のみ除外。表示例: 「N 件は削除またはアーカイブ済みのため選択から外しました」。選択カウンタを同期
+- 一覧未取得（ロード中の空配列）・一覧取得失敗では draft を**触らない**
 - `resolve` 失敗時（方針 B）: エラーの offending ID を draft から除外し PRT001 に残留。残り ID で再実行できる
 - [キャンセル]: `printJobDraft` を破棄 |
 
@@ -402,7 +404,8 @@ flowchart TD
 | 全件紐づき差出人なし | アラートのみ。プレビューへ進めない |
 | 一部のみ差出人未紐づけ / 差出人 archived | 除外宛名をアラート表示。残りで続行 |
 | ドラフト ID に AddressEntry archived / not found | `resolve_print_job_items` **全体失敗**。offending ID を draft から除外し PRT001 残留。残りで再実行可 |
-| PRT001 入場時に一覧外 ID が draft に残存 | draft から除外し「N 件は削除またはアーカイブ済みのため選択から外しました」。選択カウンタ同期 |
+| PRT001 入場時の stale ID | `filter_active_address_entry_ids` で archived / not found のみ draft から除外。検索・PAGE_SIZE・ロード中の表示 `items` は使わない |
+| 一覧未取得 / 取得失敗 | draft を変更しない |
 | [キャンセル] | `printJobDraft` を破棄 |
 | 連名上限超過 | Validation エラー。プレビュー入場前にブロック |
 | 印刷直前に archived | all-or-nothing で停止、エラー一覧 |
@@ -437,7 +440,8 @@ flowchart TD
 | frontend | react-pdf / jsPDF compat で Y 反転しない場合、HTML と PDF の始点が同じ象限 |
 | frontend（0b） | html2canvas 全面キャプチャは `addImage(..., 0, 0)` でレイヤー単位 Y 反転を重ねない |
 | command | ドラフト ID が PRT001 後に AddressEntry archived → resolve 全体失敗 → draft から除外 → 残りで再実行できる |
-| frontend | PRT001 入場時に一覧外 ID を draft から落とし、選択カウンタが同期する |
+| frontend | 50 件選択 + `PAGE_SIZE` 20 でリフレッシュしても draft は 50 のまま（表示ページを prune 正にしない） |
+| frontend | ロード中・一覧取得失敗では draft を空にしない |
 
 ---
 
@@ -450,7 +454,7 @@ flowchart TD
 | 1 | 0a Pass → react-pdf / 0a Fail かつ 0b Pass → html2canvas / **両方 Fail → TOP-28 停止・代替設計** | 0a, 0b |
 | 2 | `nengaLayoutSpec` + 印字パイプライン 1 ページ | 1 |
 | 3 | migration: `print_layout_preferences`, `postcard_sends` | — |
-| 4 | Tauri: `resolve_print_job_items` + snapshot + prefs + batch send | 3 |
+| 4 | Tauri: `resolve_print_job_items` + `filter_active_address_entry_ids` + snapshot + prefs + batch send | 3 |
 | 5 | PRT001 + ジョブ state（sessionStorage） | — |
 | 6 | PRT002 確認（省略可） | 4 |
 | 7 | PRT003 HTML プレビュー + レイヤー調整 | 2, 4 |
@@ -504,6 +508,7 @@ flowchart TD
 - [x] PRT001 モック — 除外行チェック不可・選択数から除外・住所録導線・ADDR001
 - [x] 種別 — デフォルト `nenga`・復元キーは `printPostcardType`（draft と分離）
 - [x] printJobPendingId — v1 は React メモリのみ（sessionStorage 非採用）
-- [x] AddressEntry archived at resolve — コマンド全体失敗（方針 B）+ draft から offending ID 除外で再試行可（review 5124703185）
+- [x] AddressEntry archived at resolve — コマンド全体失敗（方針 B）+ draft から offending ID 除外で再試行可
+- [x] 入場時 prune — `filter_active_address_entry_ids`（検索・ページ非依存）。表示 items / ロード中では draft を触らない（review 5124716742）
 - [x] 改善点は対応済み、または未決事項に移した
 ```
