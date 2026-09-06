@@ -27,6 +27,16 @@ use crate::domain::postcard_receipt::postcard_receipt_repository::{
   Pagination as ReceiptPagination, PostcardReceiptAddressContext, PostcardReceiptRepository,
   PostcardReceiptSearchQuery, PostcardReceiptWithContext, SortOrder as ReceiptSortOrder,
 };
+use crate::domain::print::postcard_send::PostcardSend;
+use crate::domain::print::postcard_send_repository::{
+  PostcardSendRepository, PostcardSendRepositoryError,
+};
+use crate::domain::print::postcard_type::PostcardType;
+use crate::domain::print::print_layout_preference::PrintLayoutPreference;
+use crate::domain::print::print_layout_preference_repository::PrintLayoutPreferenceRepository;
+use crate::domain::print::print_snapshot::{
+  AddressPrintSnapshot, PrintSnapshotError, SenderPrintSnapshot,
+};
 use crate::domain::sender::phone_number::PhoneNumber;
 use crate::domain::sender::sender_entry::{SenderEntry, SenderEntryId};
 use crate::domain::sender::sender_entry_repository::{
@@ -35,9 +45,13 @@ use crate::domain::sender::sender_entry_repository::{
 use crate::domain::sender::sender_label::SenderLabel;
 use crate::infrastructure::address::sqlx_address_entry_repository::SqlxAddressEntryRepository;
 use crate::infrastructure::postcard_receipt::sqlx_postcard_receipt_repository::SqlxPostcardReceiptRepository;
+use crate::infrastructure::print::sqlx_postcard_send_repository::SqlxPostcardSendRepository;
+use crate::infrastructure::print::sqlx_print_layout_preference_repository::SqlxPrintLayoutPreferenceRepository;
 use crate::infrastructure::sender::sqlx_sender_entry_repository::SqlxSenderEntryRepository;
 
 const MAX_PAGE_LIMIT: i64 = 200;
+/// 印刷ジョブの宛名選択上限（設計 FR-01）
+const MAX_PRINT_ADDRESS_ENTRY_IDS: usize = 200;
 /// 連名の上限（UI と同一。API 直叩き対策でサーバー側でも検証する）
 const MAX_CO_RECIPIENTS: usize = 3;
 const MAX_SENDER_CO_RECIPIENTS: usize = 4;
@@ -50,6 +64,8 @@ const RECEIPT_CONFLICT_MESSAGE: &str =
   "他の操作で更新済みです。画面を再読み込みしてから再度保存してください。";
 const ADDRESS_ENTRY_NOT_FOUND_MESSAGE: &str = "address entry not found";
 const ADDRESS_ENTRY_ARCHIVED_MESSAGE: &str = "address entry is archived";
+const SENDER_ENTRY_NOT_FOUND_MESSAGE: &str = "sender entry not found";
+const SENDER_ENTRY_ARCHIVED_MESSAGE: &str = "sender entry is archived";
 
 fn map_sender_write_error(e: SenderRepositoryError, log_context: &str, fallback_code: &str) -> AppError {
   match e {
@@ -106,6 +122,13 @@ pub fn run() {
       search_postcard_receipts,
       list_postcard_receipt_years,
       delete_postcard_receipt,
+      filter_active_address_entry_ids,
+      resolve_print_job_items,
+      build_address_print_snapshot,
+      build_sender_print_snapshot,
+      list_print_layout_preferences,
+      save_print_layout_preferences,
+      create_postcard_sends_batch,
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");
@@ -1426,4 +1449,498 @@ async fn delete_postcard_receipt_impl(pool: &SqlitePool, id: String) -> Result<(
       }
     })?;
   Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Print (TOP-28)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
+pub struct CoRecipientPrintDto {
+  pub last: String,
+  pub first: String,
+  pub omit_last: bool,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
+pub struct AddressPrintSnapshotDto {
+  pub address_entry_id: String,
+  pub postal_code: String,
+  pub address_line1: String,
+  pub address_line2: String,
+  pub address_line3: String,
+  pub primary_last: String,
+  pub primary_first: String,
+  pub co_recipients: Vec<CoRecipientPrintDto>,
+  pub honorific_print: String,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
+pub struct SenderPrintSnapshotDto {
+  pub sender_entry_id: String,
+  pub postal_code: String,
+  pub address_line1: String,
+  pub address_line2: String,
+  pub address_line3: String,
+  pub primary_last: String,
+  pub primary_first: String,
+  pub co_recipients: Vec<CoRecipientPrintDto>,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
+pub struct PrintJobItemDto {
+  pub address: AddressPrintSnapshotDto,
+  pub sender: SenderPrintSnapshotDto,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
+pub struct ExcludedAlertDto {
+  pub address_entry_id: String,
+  /// `"no_sender_link"` | `"sender_archived"`
+  pub reason: String,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
+pub struct ResolvePrintJobItemsResult {
+  pub items: Vec<PrintJobItemDto>,
+  pub excluded: Vec<ExcludedAlertDto>,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
+pub struct PrintLayoutPreferenceDto {
+  pub layer_id: String,
+  pub offset_x_pt: f64,
+  pub offset_y_pt: f64,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
+pub struct CreatePostcardSendItemDto {
+  pub address_entry_id: String,
+  pub sender_entry_id: String,
+  pub address_snapshot: AddressPrintSnapshotDto,
+  pub sender_snapshot: SenderPrintSnapshotDto,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
+pub struct CreatePostcardSendsBatchInput {
+  pub print_job_id: String,
+  /// `"nenga"` | `"mochu"`
+  pub postcard_type: String,
+  pub items: Vec<CreatePostcardSendItemDto>,
+}
+
+/// `resolve_print_job_items` が AddressEntry 側で失敗したときのエラー契約。
+///
+/// `Err(String)` に次の JSON を載せる（フロントが parse して draft から除外する）:
+/// ```json
+/// {"code":"ADDRESS_ENTRIES_INVALID","entries":[{"address_entry_id":"...","reason":"archived"|"not_found"}]}
+/// ```
+/// - `reason`: `"archived"`（存在するが archived） / `"not_found"`（不正 UUID または DB に無い）
+/// - 宛名側に 1 件でも該当があればコマンド全体失敗（部分 items は返さない）
+fn address_entries_invalid_error(
+  entries: &[(String, &'static str)],
+) -> String {
+  let entry_objs: Vec<serde_json::Value> = entries
+    .iter()
+    .map(|(id, reason)| {
+      serde_json::json!({
+        "address_entry_id": id,
+        "reason": reason,
+      })
+    })
+    .collect();
+  // Validation 経路: AppError::Validation の中身がそのまま String になる
+  String::from(AppError::Validation(
+    serde_json::json!({
+      "code": "ADDRESS_ENTRIES_INVALID",
+      "entries": entry_objs,
+    })
+    .to_string(),
+  ))
+}
+
+fn map_print_snapshot_error(err: PrintSnapshotError) -> String {
+  String::from(AppError::Validation(err.to_string()))
+}
+
+fn address_print_snapshot_dto_from(snap: AddressPrintSnapshot) -> AddressPrintSnapshotDto {
+  AddressPrintSnapshotDto {
+    address_entry_id: snap.address_entry_id,
+    postal_code: snap.postal_code,
+    address_line1: snap.address_line1,
+    address_line2: snap.address_line2,
+    address_line3: snap.address_line3,
+    primary_last: snap.primary_last,
+    primary_first: snap.primary_first,
+    co_recipients: snap
+      .co_recipients
+      .into_iter()
+      .map(|c| CoRecipientPrintDto {
+        last: c.last,
+        first: c.first,
+        omit_last: c.omit_last,
+      })
+      .collect(),
+    honorific_print: snap.honorific_print,
+  }
+}
+
+fn sender_print_snapshot_dto_from(snap: SenderPrintSnapshot) -> SenderPrintSnapshotDto {
+  SenderPrintSnapshotDto {
+    sender_entry_id: snap.sender_entry_id,
+    postal_code: snap.postal_code,
+    address_line1: snap.address_line1,
+    address_line2: snap.address_line2,
+    address_line3: snap.address_line3,
+    primary_last: snap.primary_last,
+    primary_first: snap.primary_first,
+    co_recipients: snap
+      .co_recipients
+      .into_iter()
+      .map(|c| CoRecipientPrintDto {
+        last: c.last,
+        first: c.first,
+        omit_last: c.omit_last,
+      })
+      .collect(),
+  }
+}
+
+fn truncate_print_ids(mut ids: Vec<String>) -> Vec<String> {
+  if ids.len() > MAX_PRINT_ADDRESS_ENTRY_IDS {
+    ids.truncate(MAX_PRINT_ADDRESS_ENTRY_IDS);
+  }
+  ids
+}
+
+#[tauri::command]
+async fn filter_active_address_entry_ids(
+  pool: State<'_, SqlitePool>,
+  address_entry_ids: Vec<String>,
+) -> Result<Vec<String>, String> {
+  filter_active_address_entry_ids_impl(pool.inner(), address_entry_ids).await
+}
+
+/// 入力順を保った非 archived 存在 ID の subset。
+/// 不正 UUID / not found / archived は落とす（エラーにしない）。IPC/DB 失敗のみエラー。
+async fn filter_active_address_entry_ids_impl(
+  pool: &SqlitePool,
+  address_entry_ids: Vec<String>,
+) -> Result<Vec<String>, String> {
+  let address_entry_ids = truncate_print_ids(address_entry_ids);
+  if address_entry_ids.is_empty() {
+    return Ok(vec![]);
+  }
+
+  let repo = SqlxAddressEntryRepository::new(pool.clone());
+  let mut active = Vec::new();
+  for id_str in address_entry_ids {
+    let Ok(uuid) = Uuid::parse_str(&id_str) else {
+      continue;
+    };
+    let entry = repo
+      .find_by_id(&AddressEntryId::from_uuid(uuid))
+      .await
+      .map_err(|e| {
+        log::error!("filter_active_address_entry_ids failed: {:?}", e);
+        String::from(AppError::Repository("PRINT_FILTER_ACTIVE_FAILED".to_string()))
+      })?;
+    match entry {
+      Some(e) if !e.archived() => active.push(id_str),
+      _ => {}
+    }
+  }
+  Ok(active)
+}
+
+#[tauri::command]
+async fn resolve_print_job_items(
+  pool: State<'_, SqlitePool>,
+  address_entry_ids: Vec<String>,
+) -> Result<ResolvePrintJobItemsResult, String> {
+  resolve_print_job_items_impl(pool.inner(), address_entry_ids).await
+}
+
+async fn resolve_print_job_items_impl(
+  pool: &SqlitePool,
+  address_entry_ids: Vec<String>,
+) -> Result<ResolvePrintJobItemsResult, String> {
+  let address_entry_ids = truncate_print_ids(address_entry_ids);
+  let address_repo = SqlxAddressEntryRepository::new(pool.clone());
+  let sender_repo = SqlxSenderEntryRepository::new(pool.clone());
+
+  let mut offending: Vec<(String, &'static str)> = Vec::new();
+  let mut resolved_entries: Vec<(String, AddressEntry)> = Vec::new();
+
+  for id_str in &address_entry_ids {
+    let Ok(uuid) = Uuid::parse_str(id_str) else {
+      offending.push((id_str.clone(), "not_found"));
+      continue;
+    };
+    let entry = address_repo
+      .find_by_id(&AddressEntryId::from_uuid(uuid))
+      .await
+      .map_err(|e| {
+        log::error!("resolve_print_job_items address lookup failed: {:?}", e);
+        String::from(AppError::Repository("PRINT_RESOLVE_FAILED".to_string()))
+      })?;
+    match entry {
+      None => offending.push((id_str.clone(), "not_found")),
+      Some(e) if e.archived() => offending.push((id_str.clone(), "archived")),
+      Some(e) => resolved_entries.push((id_str.clone(), e)),
+    }
+  }
+
+  if !offending.is_empty() {
+    return Err(address_entries_invalid_error(&offending));
+  }
+
+  let mut items = Vec::new();
+  let mut excluded = Vec::new();
+
+  for (id_str, address_entry) in resolved_entries {
+    let address_uuid = address_entry.id().as_uuid();
+    let sender_id = sender_repo
+      .find_sender_id_by_address_entry_id(address_uuid)
+      .await
+      .map_err(|e| {
+        log::error!("resolve_print_job_items sender link lookup failed: {:?}", e);
+        String::from(AppError::Repository("PRINT_RESOLVE_FAILED".to_string()))
+      })?;
+
+    let Some(sender_id) = sender_id else {
+      excluded.push(ExcludedAlertDto {
+        address_entry_id: id_str,
+        reason: "no_sender_link".to_string(),
+      });
+      continue;
+    };
+
+    let sender_entry = sender_repo
+      .find_by_id(&sender_id)
+      .await
+      .map_err(|e| {
+        log::error!("resolve_print_job_items sender lookup failed: {:?}", e);
+        String::from(AppError::Repository("PRINT_RESOLVE_FAILED".to_string()))
+      })?;
+
+    let Some(sender_entry) = sender_entry else {
+      // リンク先が消えている場合は未紐づけと同様に除外
+      excluded.push(ExcludedAlertDto {
+        address_entry_id: id_str,
+        reason: "no_sender_link".to_string(),
+      });
+      continue;
+    };
+
+    if sender_entry.archived() {
+      excluded.push(ExcludedAlertDto {
+        address_entry_id: id_str,
+        reason: "sender_archived".to_string(),
+      });
+      continue;
+    }
+
+    let address_snap = AddressPrintSnapshot::from_address_entry(&address_entry)
+      .map_err(map_print_snapshot_error)?;
+    let sender_snap =
+      SenderPrintSnapshot::from_sender_entry(&sender_entry).map_err(map_print_snapshot_error)?;
+
+    items.push(PrintJobItemDto {
+      address: address_print_snapshot_dto_from(address_snap),
+      sender: sender_print_snapshot_dto_from(sender_snap),
+    });
+  }
+
+  Ok(ResolvePrintJobItemsResult { items, excluded })
+}
+
+#[tauri::command]
+async fn build_address_print_snapshot(
+  pool: State<'_, SqlitePool>,
+  address_entry_id: String,
+) -> Result<AddressPrintSnapshotDto, String> {
+  build_address_print_snapshot_impl(pool.inner(), address_entry_id).await
+}
+
+async fn build_address_print_snapshot_impl(
+  pool: &SqlitePool,
+  address_entry_id: String,
+) -> Result<AddressPrintSnapshotDto, String> {
+  let uuid = Uuid::parse_str(&address_entry_id)
+    .map_err(|e| String::from(AppError::Validation(e.to_string())))?;
+  let repo = SqlxAddressEntryRepository::new(pool.clone());
+  let entry = repo
+    .find_by_id(&AddressEntryId::from_uuid(uuid))
+    .await
+    .map_err(|e| {
+      log::error!("build_address_print_snapshot failed: {:?}", e);
+      String::from(AppError::Repository("PRINT_SNAPSHOT_FAILED".to_string()))
+    })?
+    .ok_or_else(|| String::from(AppError::Validation(ADDRESS_ENTRY_NOT_FOUND_MESSAGE.to_string())))?;
+
+  if entry.archived() {
+    return Err(String::from(AppError::Validation(
+      ADDRESS_ENTRY_ARCHIVED_MESSAGE.to_string(),
+    )));
+  }
+
+  let snap =
+    AddressPrintSnapshot::from_address_entry(&entry).map_err(map_print_snapshot_error)?;
+  Ok(address_print_snapshot_dto_from(snap))
+}
+
+#[tauri::command]
+async fn build_sender_print_snapshot(
+  pool: State<'_, SqlitePool>,
+  sender_entry_id: String,
+) -> Result<SenderPrintSnapshotDto, String> {
+  build_sender_print_snapshot_impl(pool.inner(), sender_entry_id).await
+}
+
+async fn build_sender_print_snapshot_impl(
+  pool: &SqlitePool,
+  sender_entry_id: String,
+) -> Result<SenderPrintSnapshotDto, String> {
+  let uuid = Uuid::parse_str(&sender_entry_id)
+    .map_err(|e| String::from(AppError::Validation(e.to_string())))?;
+  let repo = SqlxSenderEntryRepository::new(pool.clone());
+  let entry = repo
+    .find_by_id(&SenderEntryId::from_uuid(uuid))
+    .await
+    .map_err(|e| {
+      log::error!("build_sender_print_snapshot failed: {:?}", e);
+      String::from(AppError::Repository("PRINT_SNAPSHOT_FAILED".to_string()))
+    })?
+    .ok_or_else(|| String::from(AppError::Validation(SENDER_ENTRY_NOT_FOUND_MESSAGE.to_string())))?;
+
+  if entry.archived() {
+    return Err(String::from(AppError::Validation(
+      SENDER_ENTRY_ARCHIVED_MESSAGE.to_string(),
+    )));
+  }
+
+  let snap = SenderPrintSnapshot::from_sender_entry(&entry).map_err(map_print_snapshot_error)?;
+  Ok(sender_print_snapshot_dto_from(snap))
+}
+
+#[tauri::command]
+async fn list_print_layout_preferences(
+  pool: State<'_, SqlitePool>,
+  postcard_type: String,
+) -> Result<Vec<PrintLayoutPreferenceDto>, String> {
+  list_print_layout_preferences_impl(pool.inner(), postcard_type).await
+}
+
+async fn list_print_layout_preferences_impl(
+  pool: &SqlitePool,
+  postcard_type: String,
+) -> Result<Vec<PrintLayoutPreferenceDto>, String> {
+  let postcard_type = PostcardType::from_str(&postcard_type)
+    .map_err(|e| String::from(AppError::Validation(e.to_string())))?;
+  let repo = SqlxPrintLayoutPreferenceRepository::new(pool.clone());
+  let prefs = repo.list_by_postcard_type(postcard_type).await.map_err(|e| {
+    log::error!("list_print_layout_preferences failed: {:?}", e);
+    String::from(AppError::Repository("PRINT_LAYOUT_LIST_FAILED".to_string()))
+  })?;
+  Ok(
+    prefs
+      .into_iter()
+      .map(|p| PrintLayoutPreferenceDto {
+        layer_id: p.layer_id().to_string(),
+        offset_x_pt: p.offset_x_pt(),
+        offset_y_pt: p.offset_y_pt(),
+      })
+      .collect(),
+  )
+}
+
+#[tauri::command]
+async fn save_print_layout_preferences(
+  pool: State<'_, SqlitePool>,
+  postcard_type: String,
+  offsets: Vec<PrintLayoutPreferenceDto>,
+) -> Result<(), String> {
+  save_print_layout_preferences_impl(pool.inner(), postcard_type, offsets).await
+}
+
+async fn save_print_layout_preferences_impl(
+  pool: &SqlitePool,
+  postcard_type: String,
+  offsets: Vec<PrintLayoutPreferenceDto>,
+) -> Result<(), String> {
+  let postcard_type = PostcardType::from_str(&postcard_type)
+    .map_err(|e| String::from(AppError::Validation(e.to_string())))?;
+  let prefs: Vec<PrintLayoutPreference> = offsets
+    .into_iter()
+    .map(|o| {
+      PrintLayoutPreference::create_new(postcard_type, o.layer_id, o.offset_x_pt, o.offset_y_pt)
+    })
+    .collect();
+  let repo = SqlxPrintLayoutPreferenceRepository::new(pool.clone());
+  repo.save_all(postcard_type, &prefs).await.map_err(|e| {
+    log::error!("save_print_layout_preferences failed: {:?}", e);
+    String::from(AppError::Repository("PRINT_LAYOUT_SAVE_FAILED".to_string()))
+  })?;
+  Ok(())
+}
+
+#[tauri::command]
+async fn create_postcard_sends_batch(
+  pool: State<'_, SqlitePool>,
+  input: CreatePostcardSendsBatchInput,
+) -> Result<(), String> {
+  create_postcard_sends_batch_impl(pool.inner(), input).await
+}
+
+async fn create_postcard_sends_batch_impl(
+  pool: &SqlitePool,
+  input: CreatePostcardSendsBatchInput,
+) -> Result<(), String> {
+  let print_job_id = Uuid::parse_str(&input.print_job_id)
+    .map_err(|e| String::from(AppError::Validation(e.to_string())))?;
+  let postcard_type = PostcardType::from_str(&input.postcard_type)
+    .map_err(|e| String::from(AppError::Validation(e.to_string())))?;
+
+  let mut sends = Vec::with_capacity(input.items.len());
+  for item in input.items {
+    let address_entry_id = Uuid::parse_str(&item.address_entry_id)
+      .map_err(|e| String::from(AppError::Validation(e.to_string())))?;
+    let sender_entry_id = Uuid::parse_str(&item.sender_entry_id)
+      .map_err(|e| String::from(AppError::Validation(e.to_string())))?;
+
+    let address_snapshot = serde_json::to_string(&item.address_snapshot).map_err(|e| {
+      log::error!("create_postcard_sends_batch address snapshot serialize failed: {:?}", e);
+      String::from(AppError::Repository("PRINT_SEND_CREATE_FAILED".to_string()))
+    })?;
+    let sender_snapshot = serde_json::to_string(&item.sender_snapshot).map_err(|e| {
+      log::error!("create_postcard_sends_batch sender snapshot serialize failed: {:?}", e);
+      String::from(AppError::Repository("PRINT_SEND_CREATE_FAILED".to_string()))
+    })?;
+
+    // sent_on は create_new 内で Local::now().date_naive()（フロント非送信）
+    sends.push(PostcardSend::create_new(
+      print_job_id,
+      address_entry_id,
+      sender_entry_id,
+      sender_snapshot,
+      address_snapshot,
+      postcard_type,
+    ));
+  }
+
+  let repo = SqlxPostcardSendRepository::new(pool.clone());
+  match repo.create_batch(&sends).await {
+    Ok(()) => Ok(()),
+    Err(PostcardSendRepositoryError::Conflict) => {
+      // 同一 print_job_id の再試行: 冪等成功
+      Ok(())
+    }
+    Err(e) => {
+      log::error!("create_postcard_sends_batch failed: {:?}", e);
+      Err(String::from(AppError::Repository(
+        "PRINT_SEND_CREATE_FAILED".to_string(),
+      )))
+    }
+  }
 }

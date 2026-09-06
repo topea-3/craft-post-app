@@ -566,3 +566,298 @@
   margin: 0;
   font-size: 1.4rem;
 }
+
+/* ---- Print feature (PRT001–003) ---- */
+.print-page {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.print-page-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem 1rem;
+}
+
+.print-page-title {
+  margin: 0;
+  font-size: 1.4rem;
+}
+
+.print-page-meta {
+  margin: 0;
+  margin-left: auto;
+  font-size: 0.95rem;
+}
+
+.print-page-toolbar {
+  display: flex;
+  gap: 1rem;
+}
+
+.print-search-label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 220px;
+  font-size: 0.9rem;
+}
+
+.print-search-label input {
+  padding: 0.45rem 0.6rem;
+  border-radius: 0.45rem;
+  border: 1px solid rgba(148, 163, 184, 0.7);
+}
+
+.print-alert {
+  padding: 0.75rem 1rem;
+  border-radius: 0.5rem;
+  background: rgba(250, 204, 21, 0.12);
+  border: 1px solid rgba(202, 138, 4, 0.45);
+  font-size: 0.9rem;
+}
+
+.print-alert a {
+  margin-left: 0.5rem;
+}
+
+.print-error {
+  color: #f87171;
+  margin: 0;
+}
+
+.print-status {
+  color: #4ade80;
+  margin: 0;
+}
+
+.print-loading,
+.print-muted {
+  color: rgba(148, 163, 184, 0.95);
+  font-size: 0.9rem;
+}
+
+.print-select-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.print-select-table th,
+.print-select-table td {
+  padding: 0.5rem 0.6rem;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.35);
+  text-align: left;
+  vertical-align: top;
+}
+
+.print-select-row-excluded {
+  opacity: 0.55;
+}
+
+.print-excluded-list {
+  margin: 0;
+  padding-left: 1.25rem;
+  font-size: 0.85rem;
+  color: rgba(148, 163, 184, 0.95);
+}
+
+.print-page-footer {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+}
+
+.print-page-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: flex-end;
+}
+
+.print-primary-button {
+  font-weight: 600;
+}
+
+.print-preview-header {
+  gap: 0.5rem;
+}
+
+.print-type-select {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.9rem;
+}
+
+.print-page-nav {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.print-preview-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 240px;
+  gap: 1rem;
+  align-items: start;
+}
+
+.print-preview-canvas-wrap {
+  overflow: auto;
+  max-width: 100%;
+}
+
+.print-preview-canvas-wrap-capture {
+  position: fixed;
+  left: -10000px;
+  top: 0;
+  pointer-events: none;
+}
+
+.print-preview-canvas {
+  position: relative;
+  width: var(--postcard-w, 100mm);
+  height: var(--postcard-h, 148mm);
+  background: #fff;
+  color: #111;
+  border: 1px solid rgba(100, 116, 139, 0.5);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+  font-family: 'Noto Serif JP', 'Yu Mincho', 'Hiragino Mincho ProN', serif;
+  overflow: hidden;
+}
+
+.print-preview-postcard-guide {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: fill;
+  pointer-events: none;
+  user-select: none;
+  z-index: 0;
+  opacity: 0.92;
+}
+
+.print-preview-layer {
+  position: absolute;
+  z-index: 1;
+  cursor: grab;
+  user-select: none;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.print-preview-layer-selected {
+  outline: 1px dashed #2563eb;
+  outline-offset: 2px;
+}
+
+.print-preview-layer-postal {
+  writing-mode: horizontal-tb;
+  text-orientation: mixed;
+}
+
+.print-preview-layer-vertical {
+  writing-mode: horizontal-tb;
+}
+
+.print-postal-digits {
+  position: relative;
+  display: block;
+}
+
+.print-postal-digit {
+  position: absolute;
+  top: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  box-sizing: border-box;
+}
+
+.print-vertical-glyphs {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.print-vertical-glyph {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  height: 1em;
+  width: 1em;
+  text-align: center;
+}
+
+.print-vertical-glyph-dash {
+  /* slot keeps vertical advance; inner glyph is rotated */
+}
+
+.print-vertical-glyph-dash-inner {
+  display: inline-block;
+  transform: rotate(90deg);
+  transform-origin: center center;
+  line-height: 1;
+}
+
+.print-layer-panel {
+  border: 1px solid rgba(148, 163, 184, 0.4);
+  border-radius: 0.5rem;
+  padding: 0.75rem;
+  max-height: 70vh;
+  overflow: auto;
+}
+
+.print-layer-panel-title {
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+}
+
+.print-layer-panel-list {
+  list-style: none;
+  margin: 0 0 0.75rem;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.print-layer-panel-item {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.85rem;
+  padding: 0.15rem 0.25rem;
+  border-radius: 0.25rem;
+}
+
+.print-layer-panel-item-selected {
+  background: rgba(37, 99, 235, 0.15);
+}
+
+.print-layer-panel-label-btn {
+  background: none;
+  border: none;
+  color: inherit;
+  padding: 0;
+  text-align: left;
+  cursor: pointer;
+}
+
+.print-layer-panel-save {
+  width: 100%;
+}
+
+@media (max-width: 900px) {
+  .print-preview-body {
+    grid-template-columns: 1fr;
+  }
+}
