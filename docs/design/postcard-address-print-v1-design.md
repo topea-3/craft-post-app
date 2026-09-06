@@ -230,9 +230,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_postcard_sends_job_address
 - `print_job_id` + `address_entry_id` の UNIQUE で**同一 PDF ジョブ**の二重 INSERT を防止。`print_job_id` は PDF 生成開始ごとに新規 UUID（PRT001 では発行しない）
 - **`print_job_id` 寿命（唯一の定義）**:
   1. [印刷] 押下 → PDF 生成開始時に新規発行
-  2. INSERT **成功**後に破棄（失敗中は React メモリ保持。任意で `sessionStorage.printJobPendingId` に残しリフレッシュ後の誤再印刷を防ぐ）
-  3. [印刷] と [再試行] は別操作。[再試行] は PDF を再生成せず同一 UUID で `create_postcard_sends_batch` のみ。実行中は両方 disabled（連打で UUID 二重発行しない）
-  4. UNIQUE 衝突は**冪等成功**（既記録済み）
+  2. PDF 生成**失敗**時は UUID を破棄（未使用扱い。送付記録なし）
+  3. PDF 成功後 → INSERT **成功**後に破棄（失敗中は React メモリ保持。任意で `sessionStorage.printJobPendingId` に残しリフレッシュ後の誤再印刷を防ぐ）
+  4. [印刷] と [再試行] は別操作。[再試行] は PDF を再生成せず同一 UUID で `create_postcard_sends_batch` のみ。実行中は両方 disabled（連打で UUID 二重発行しない）
+  5. UNIQUE 衝突は**冪等成功**（既記録済み）
 - 同一セッションでの意図した再印刷（用紙ジャム・位置微調整後の [印刷]）は**別 `print_job_id`** となり、送付行も別レコードになる
 - 誤記録は送付一覧の論理削除（`deleted_at`）で吸収（一覧 UI は別 Issue）
 
@@ -303,7 +304,7 @@ sender.coLast.{n}      // n = 1..4
 sender.coFirst.{n}
 ```
 
-基準座標 = `layout/<type>LayoutSpec.ts`（mm）。実座標（pt）= `toPt(基準) + layoutOffsets`（ジョブ共通）+ セッション調整。HTML/PDF への適用と Y 軸変換は `usePrintJob` 経由。
+基準座標 = `layout/<type>LayoutSpec.ts`（mm）。実座標（pt）= `toPt(基準) + layoutOffsets`（ジョブ全体で 1 組。DB prefs と同一スコープ。ページ別・二重のセッション調整層は持たない）。HTML/PDF への適用と Y 軸変換は `usePrintJob` 経由。
 
 #### 5.3.3 モジュール構成（ハイブリッド）
 
@@ -362,7 +363,7 @@ flowchart TD
   L --> M[PDF 生成]
   M --> N{成功?}
   N -->|Yes| O[create_postcard_sends_batch]
-  N -->|No| K
+  N -->|No| T[printJobId 破棄・エラー停止]
   O --> R{INSERT 成功?}
   R -->|Yes| P[printJobId 破棄]
   R -->|No| S[UUID 保持・再試行 UI]
@@ -388,7 +389,7 @@ flowchart TD
 | 一部のみ紐づきなし | 除外宛名をアラート表示。残りで続行 |
 | 連名上限超過 | Validation エラー。プレビュー入場前にブロック |
 | 印刷直前に archived | all-or-nothing で停止、エラー一覧 |
-| PDF 生成失敗 | エラー表示。送付記録は行わない |
+| PDF 生成失敗 | エラー表示。送付記録は行わない。発行済み `printJobId` は破棄（未使用扱い） |
 | OS 印刷キャンセル | 送付記録は**変更しない**（既に PDF 成功時に記録済み） |
 | 送付 INSERT 失敗 | 「PDF は生成済み。送付記録に失敗しました。[再試行]」。UUID は破棄せず保持。[再試行] は PDF 再生成なし・同一 `print_job_id` で冪等 |
 | 同一 print_job_id 再実行（再試行） | UNIQUE 衝突は冪等成功 |
@@ -473,12 +474,12 @@ flowchart TD
 - [x] 機能矛盾なし（ブロッカー）— FR-02/§5.3.1/一括方針を紐づき差出人に統一
 - [x] 実装済み機能との整合（ブロッカー）— nenga/mochu、Honorific、MAX_CO_RECIPIENTS
 - [x] 方針・要件・アーキテクチャとの整合（ブロッカー）
-- [x] print_job_id 寿命 — PDF 開始発行・INSERT 成功後破棄・[印刷]/[再試行] 分離（PR #8 review 5060982103）
+- [x] print_job_id 寿命 — PDF 開始発行・PDF失敗時破棄・INSERT 成功後破棄・[印刷]/[再試行] 分離（PR #8 review 5060982103）
 - [x] sent_on — Rust `chrono::Local` 固定・フロント非送信・JST 0:30 テスト追記
 - [x] タスク 0 — 0a/0b 二軸スパイク・両方 Fail で TOP-28 停止
 - [x] タスク 10 — html2canvas は 1 ページ逐次・同時保持 1 枚（0a Pass 時スキップ可）
-- [x] クランプ — pt 揃え後の結果座標・Y 軸変換・ジョブ共通 offset
-- [x] PRT001 モック — 除外行チェック不可・選択数から除外・住所録導線
+- [x] クランプ — pt 揃え後の結果座標・Y 軸変換・ジョブ共通 offset（二重セッション層なし）
+- [x] PRT001 モック — 除外行チェック不可・選択数から除外・住所録導線・ADDR001
 - [x] 種別 — デフォルト `nenga`・復元キーは `printPostcardType`（draft と分離）
 - [x] 改善点は対応済み、または未決事項に移した
 ```
