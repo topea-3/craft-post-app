@@ -37,7 +37,7 @@
 | 行チェック | 複数選択（最大 200 件）。**状態「除外」行はチェック不可** |
 | 差出人列 | 読み取り専用。`SenderAddressLink` の有無を表示 |
 | 状態「除外」 | 紐づき無し / 差出人 archived → **チェック不可**（選択カウンタにも含めない） |
-| プレビューへ進む | 有効 1 件以上必須。`resolve_print_job_items` を呼び出し |
+| プレビューへ進む | 有効 1 件以上必須。`resolve_print_job_items` を呼び出し。**AddressEntry archived / not found が混入していればコマンド失敗**（PRT003 へ進まない） |
 | 除外アラート | `resolve_print_job_items` の除外理由に応じ表示（未紐づけ / 差出人 archived）。住所録編集（差出人リンク）への導線 1 行 |
 
 ---
@@ -54,4 +54,5 @@
 ## 4. 遷移
 
 - 有効件数 0 → 進めない
-- 有効件数 ≥ 1 → PRT002（省略可）→ PRT003
+- `resolve` が AddressEntry archived / not found で失敗 → エラー表示。PRT003 へ進まない
+- 有効件数 ≥ 1 かつ resolve 成功 → PRT002（省略可）→ PRT003

@@ -244,11 +244,13 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_postcard_sends_job_address
 
 各 `address_entry_id` について:
 
-1. （**未決・§9**）`AddressEntry` が archived / not found の扱い — 除外続行かコマンド失敗かを決定するまで実装しない
+1. `AddressEntry` が archived / not found → **コマンド全体失敗**（Validation エラー。PRT003 へ進まない）
 2. `get_sender_id_by_address_entry_id` でリンク先を取得
 3. リンク無し → **除外**（アラート一覧に追加）
 4. リンク先 `SenderEntry` が archived → **除外**
 5. 有効 → その差出人で `PrintJobItem` を構成
+
+差出人側の除外（歩 3–4）があっても有効件が 1 件以上なら残りで PRT003 へ進む。宛名側 archived / not found（歩 1）は除外続行せず、`resolve_print_job_items` ごと失敗する。印刷直前の再スナップショットも all-or-nothing（FR-12）。
 
 PRT002（差出人確認）は、除外後の一覧を表示する**読み取り専用確認**（省略可）。SEN005 の手動選択・リンク書き換えは**使用しない**。
 
@@ -256,7 +258,7 @@ PRT002（差出人確認）は、除外後の一覧を表示する**読み取り
 
 | コマンド | 用途 |
 |----------|------|
-| `resolve_print_job_items` | `address_entry_id[]` → 有効 `PrintJobItem[]` + 除外理由一覧 |
+| `resolve_print_job_items` | `address_entry_id[]` → 有効 `PrintJobItem[]` + 除外理由一覧。入力に `AddressEntry` archived / not found が 1 件でもあればコマンド全体失敗 |
 | `build_address_print_snapshot` | 1 件スナップショット（archived / not found は Validation エラー） |
 | `build_sender_print_snapshot` | 1 件スナップショット（archived / not found は Validation エラー） |
 | `list_print_layout_preferences` | `postcard_type` でオフセット一覧 |
@@ -389,7 +391,8 @@ flowchart TD
 | 印刷対象 0 件 | 「1 件以上選択してください」 |
 | 200 件超 | 「最大 200 件まで選択できます」 |
 | 全件紐づき差出人なし | アラートのみ。プレビューへ進めない |
-| 一部のみ紐づきなし | 除外宛名をアラート表示。残りで続行 |
+| 一部のみ差出人未紐づけ / 差出人 archived | 除外宛名をアラート表示。残りで続行 |
+| ドラフト ID に AddressEntry archived / not found | `resolve_print_job_items` **全体失敗**。PRT003 へ進まない |
 | 連名上限超過 | Validation エラー。プレビュー入場前にブロック |
 | 印刷直前に archived | all-or-nothing で停止、エラー一覧 |
 | PDF 生成失敗 | エラー表示。送付記録は行わない。発行済み `printJobId` は破棄（未使用扱い） |
@@ -410,7 +413,7 @@ flowchart TD
 |----|------|
 | domain | スナップショット組み立て、`honorificPrint`（なし→空）、`omitLast`、連名上限 |
 | infrastructure | layout prefs CRUD、`postcard_sends` INSERT、UNIQUE 冪等、Local `sent_on` |
-| command_tests | `resolve_print_job_items` 除外理由（リンク残存 + sender archived）、両 snapshot の archived エラー、batch send 冪等 |
+| command_tests | `resolve_print_job_items`: AddressEntry archived/not found はコマンド全体失敗、リンク無し・sender archived は除外続行。両 snapshot の archived エラー、batch send 冪等 |
 | frontend | Vitest: layoutSpec 座標、pt 揃え後の結果座標クランプ（top-left）、経路別 Y 変換（主経路は反転なし）、visibility マージ |
 | 手動（必須） | 敬称「なし」「御中」「ご家族様」印字、同姓省略 coLast 非表示、HTML vs PDF ±1mm 実寸比較 |
 | 手動 | 一括 3 件、途中 archived の all-or-nothing、prefs 未保存離脱、種別切替 |
@@ -422,6 +425,7 @@ flowchart TD
 | frontend（0b 経路） | 3 ページ一括でもピーク画像バッファが 1 ページ分に収まる |
 | frontend | react-pdf / jsPDF compat で Y 反転しない場合、HTML と PDF の始点が同じ象限 |
 | frontend（0b） | html2canvas 全面キャプチャは `addImage(..., 0, 0)` でレイヤー単位 Y 反転を重ねない |
+| command | ドラフト ID が PRT001 後に AddressEntry archived → `resolve_print_job_items` 全体失敗 |
 
 ---
 
@@ -470,7 +474,6 @@ flowchart TD
 | PDF パスワード保護 | requirements §5 | v1 非対応・§2.2 に明記 |
 | 連名敬称個別レイヤー | 要求仕様の coHonorific n | v1 は全体 honorific を適用 |
 | PRT002 省略可否 | UX 次第 | 実装時に判断可 |
-| `resolve` 時の AddressEntry archived / not found | (A) 除外して残り続行（印刷直前のみ all-or-nothing） / (B) 1 件でもコマンド失敗 | **要ユーザー判断**。決定まで §5.1.4 歩 1 と TOP-28 の resolve 実装は着手しない |
 
 ---
 
@@ -489,5 +492,6 @@ flowchart TD
 - [x] PRT001 モック — 除外行チェック不可・選択数から除外・住所録導線・ADDR001
 - [x] 種別 — デフォルト `nenga`・復元キーは `printPostcardType`（draft と分離）
 - [x] printJobPendingId — v1 は React メモリのみ（sessionStorage 非採用）
+- [x] AddressEntry archived at resolve — コマンド全体失敗（方針 B / review 5124666497）
 - [x] 改善点は対応済み、または未決事項に移した
 ```
