@@ -57,11 +57,11 @@ v1.0.0 では年賀状・喪中はがき等の**宛名面印刷**を、住所録
 | FR-04 | 郵便番号は横書き、その他主要テキストは縦書き（年賀状一般的配置） |
 | FR-05 | 連名は姓省略ルール（`PersonName::join_recipients`）に従う。宛名連名は最大 3 名、差出人連名は最大 4 名（超過時は Validation エラー）。同姓省略時は `coLast.{n}` レイヤーは出力しない |
 | FR-06 | プレビュー画面（HTML キャンバス）でレイヤー単位の位置オフセットをグラフィカルに調整できる |
-| FR-07 | 位置調整は永続化し、次回同種別印刷時にデフォルトとして適用する。**結果座標**（`layoutSpec` 基準原点 + オフセット）が印刷可能範囲（94×142mm）内に収まるようクランプし、「基準に戻す」操作を提供する。v1 は原点クランプ + 手動実寸確認（縦書き氏名の下端は bbox 未考慮） |
-| FR-08 | レイヤーごとの「印刷する / しない」はセッション内のみ有効（永続化しない） |
-| FR-09 | はがき種別（`nenga` / `mochu`）は **PRT003 入場時**にヘッダセレクトで確定する。印刷直前の種別ダイアログは設けない。初回入場のデフォルトは `nenga`（年賀状）。同一セッション内の再入場は直前選択を `sessionStorage` から復元 |
+| FR-07 | 位置調整は永続化し、次回同種別印刷時にデフォルトとして適用する。加算・クランプは **pt に揃えてから**行う（`layoutSpec` mm → pt 換算後に `origin_pt + offset_pt`）。印刷可能範囲（94×142mm 相当の pt）内に結果座標を収め、「基準に戻す」を提供。v1 は原点クランプ + 手動実寸確認（縦書き氏名の下端は bbox 未考慮）。オフセットは**ジョブ全体で 1 組**（ページごとではない） |
+| FR-08 | レイヤーごとの「印刷する / しない」はセッション内のみ有効（永続化しない）。visibility は宛名（ページ）ごとに持てる |
+| FR-09 | はがき種別（`nenga` / `mochu`）は **PRT003 入場時**にヘッダセレクトで確定する。印刷直前の種別ダイアログは設けない。初回入場のデフォルトは `nenga`（年賀状）。同一セッション内の再入場は直前選択を `sessionStorage.printPostcardType` から復元（`printJobDraft` とは別キー） |
 | FR-10 | **PDF 生成成功**を「印刷完了」とし、1 印刷単位（1 宛名 × 紐づき差出人 × 1 種別）ごとに `PostcardSend` を作成する。OS 印刷ダイアログのキャンセルは検知しない |
-| FR-11 | 一括印刷では、有効な選択順に 1 ページ 1 宛名の PDF を生成する（複数ページ 1 ジョブ） |
+| FR-11 | 一括印刷では、有効な選択順に 1 ページ 1 宛名の PDF を生成する（複数ページ 1 ジョブ）。html2canvas 主経路時は **1 ページずつ**キャプチャして同一 PDF に append（同時保持キャンバスは 1 枚）。react-pdf 主経路では本メモリ制約は適用しない |
 | FR-12 | アーカイブ済み `AddressEntry` / `SenderEntry` は印刷対象に選べない。印刷直前の再スナップショットでも archived / not found は Validation エラー |
 
 ### 3.2 非機能要件
@@ -70,7 +70,8 @@ v1.0.0 では年賀状・喪中はがき等の**宛名面印刷**を、住所録
 - **レンダリング（ハイブリッド）**:
   - 調整 UI / 画面プレビュー: HTML/CSS キャンバス
   - 印字結果: タスク 0 の 2 本スパイク（§8）の結果で主経路を決定。react-pdf Pass → `@react-pdf/renderer` / react-pdf Fail かつ html2canvas Pass → html2canvas + jsPDF / **両方 Fail → TOP-28 着手不可**
-  - 座標の正: 共通 `layoutSpec`（`usePrintJob` が HTML → PDF に同一適用。mm ↔ pt 換算もここに集約: 1mm ≈ 2.8346pt）
+  - 座標の正: 共通 `layoutSpec`（`usePrintJob` が HTML → PDF に同一適用）
+  - 単位・軸: mm ↔ pt 換算（1mm ≈ 2.8346pt）、Y 軸の正方向（CSS キャンバスは top-left 増加 / PDF は bottom-left 増加 → 符号変換）も `usePrintJob` に集約。加算・クランプ前に必ず pt へ揃える
   - 許容誤差: ±1mm。実寸 PDF を正とし、手動実寸比較を必須確認とする
 - 用紙: 100mm × 148mm、余白 5mm、印刷可能範囲 94mm × 142mm
 - 文字サイズ: 6pt 以上
@@ -157,18 +158,18 @@ type SenderPrintSnapshot = {
 type PrintJobItem = {
   address: AddressPrintSnapshot;
   sender: SenderPrintSnapshot;
-  layerVisibility: Record<PrintLayerId, boolean>; // セッションのみ
-  layoutOffsets: Record<PrintLayerId, { dx: number; dy: number }>; // pt
+  layerVisibility: Record<PrintLayerId, boolean>; // セッションのみ・ページごと可
 };
 
 type PrintJobDraft = {
-  addressEntryIds: string[]; // PRT001 選択 ID（最大 200）。printJobId は含めない
+  addressEntryIds: string[]; // PRT001 選択 ID（最大 200）。printJobId / postcardType は含めない
   excludedAlerts?: { addressEntryId: string; reason: string }[];
 };
 
 type PrintJob = {
   printJobId: string;       // UUID。**PDF 生成開始時**に新規発行（1 回の PDF = 1 UUID）
   postcardType: PostcardType;
+  layoutOffsets: Record<PrintLayerId, { dx: number; dy: number }>; // pt。ジョブ全体で 1 組（prefs と同スコープ）
   items: PrintJobItem[];    // 有効な宛名のみ（紐づき差出人あり）
 };
 ```
@@ -191,7 +192,8 @@ CREATE TABLE IF NOT EXISTS print_layout_preferences (
 );
 ```
 
-- 保存時・ドラッグ確定時に **結果座標** `layoutSpec[layer].origin + offset` が印刷可能範囲（94×142mm）内に収まるようクランプ（`dx`/`dy` の絶対値制限ではない）。換算は `usePrintJob` に集約（DB は pt、layoutSpec 基準は mm）
+- 保存時・ドラッグ確定時に **結果座標**（`origin_mm` を pt 換算したもの + `offset_pt`）が印刷可能範囲（94×142mm 相当の pt）内に収まるようクランプ（`dx`/`dy` の絶対値制限ではない）。mm のまま pt を足さない
+- 換算・Y 軸変換・クランプは `usePrintJob` に集約（DB / `layoutOffsets` は pt、`layoutSpec` 基準は mm）
 - v1 はレイヤー**原点**のクランプのみ。縦書き氏名はテキスト bbox 高さを考慮せず、下端が 5mm 余白を食い込む可能性があるため手動実寸確認を必須とする
 - UI に「基準に戻す」（当該レイヤーまたは全体の offset を 0 にリセット）を提供
 
@@ -226,8 +228,12 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_postcard_sends_job_address
 
 - `sent_on`: Rust 側 `chrono::Local::now().date_naive()` で設定（フロント非送信）。JST 0:30 相当でも端末ローカル当日になること
 - `print_job_id` + `address_entry_id` の UNIQUE で**同一 PDF ジョブ**の二重 INSERT を防止。`print_job_id` は PDF 生成開始ごとに新規 UUID（PRT001 では発行しない）
-- INSERT 失敗後の再試行のみ、直前 PDF 成功時の UUID をメモリ保持して再利用。UNIQUE 衝突は**冪等成功**（既記録済みとして成功扱い）。PDF 成功後は UUID を破棄し、次回 [印刷] は必ず新 UUID
-- 同一セッションでの再印刷（用紙ジャム・位置微調整後）は**別 `print_job_id`** となり、送付行も別レコードになる（意図した再印刷）
+- **`print_job_id` 寿命（唯一の定義）**:
+  1. [印刷] 押下 → PDF 生成開始時に新規発行
+  2. INSERT **成功**後に破棄（失敗中は React メモリ保持。任意で `sessionStorage.printJobPendingId` に残しリフレッシュ後の誤再印刷を防ぐ）
+  3. [印刷] と [再試行] は別操作。[再試行] は PDF を再生成せず同一 UUID で `create_postcard_sends_batch` のみ。実行中は両方 disabled（連打で UUID 二重発行しない）
+  4. UNIQUE 衝突は**冪等成功**（既記録済み）
+- 同一セッションでの意図した再印刷（用紙ジャム・位置微調整後の [印刷]）は**別 `print_job_id`** となり、送付行も別レコードになる
 - 誤記録は送付一覧の論理削除（`deleted_at`）で吸収（一覧 UI は別 Issue）
 
 #### 5.1.4 紐づき差出人の解決
@@ -250,7 +256,7 @@ PRT002（差出人確認）は、除外後の一覧を表示する**読み取り
 | `build_sender_print_snapshot` | 1 件スナップショット（archived / not found は Validation エラー） |
 | `list_print_layout_preferences` | `postcard_type` でオフセット一覧 |
 | `save_print_layout_preferences` | オフセット一括保存（クランプ済み） |
-| `create_postcard_sends_batch` | PDF 成功後、`print_job_id` + スナップショット JSON で N 件 INSERT（トランザクション）。`sent_on` はコマンド内 `chrono::Local::now().date_naive()`。UNIQUE 衝突は冪等成功 |
+| `create_postcard_sends_batch` | PDF 成功後、`print_job_id` + **PDF 生成に使った同一**スナップショット JSON で N 件 INSERT（トランザクション。INSERT 時に DB を再取得しない）。`sent_on` はコマンド内 `chrono::Local::now().date_naive()`。UNIQUE 衝突は冪等成功 |
 
 PDF 生成は**フロント**。Tauri はデータ解決・永続化・送付記録を担当。
 
@@ -266,7 +272,15 @@ PDF 生成は**フロント**。Tauri はデータ解決・永続化・送付記
 
 モック: [PRT001](../mock-up/postcard-print/postcard-print-select-view-mockup.md) / [PRT002](../mock-up/postcard-print/postcard-print-confirm-view-mockup.md) / [PRT003](../mock-up/postcard-print/postcard-print-preview-view-mockup.md)
 
-**ジョブ状態**: `PrintJobDraft`（選択 ID のみ）を React state + `sessionStorage`（キー: `printJobDraft`）。`printJobId` は sessionStorage に保存しない。PDF 生成開始時に UUID を発行し、成功後は破棄（再印刷は新 UUID）。INSERT 失敗再試行時のみ直前 UUID を React メモリに一時保持。ブラウザリフレッシュ時は PRT001 へ戻す。
+**ジョブ状態 / sessionStorage キー**:
+
+| キー | 内容 | 寿命 |
+|------|------|------|
+| `printJobDraft` | `PrintJobDraft`（選択 ID・除外アラートのみ。`postcardType` / `printJobId` は含めない） | フロー中。リフレッシュ時は PRT001 へ戻す |
+| `printPostcardType` | 直前の `PostcardType`（FR-09 復元用） | セッション。`printJobDraft` と独立 |
+| `printJobPendingId`（任意） | INSERT 未完了時の UUID | INSERT 成功で削除 |
+
+`printJobId` の発行・破棄は §5.1.3 の寿命定義に従う（INSERT **成功**後に破棄）。
 
 #### 5.3.2 レイヤー ID（要求仕様準拠）
 
@@ -289,7 +303,7 @@ sender.coLast.{n}      // n = 1..4
 sender.coFirst.{n}
 ```
 
-基準座標 = `layout/<type>LayoutSpec.ts`。実座標 = 基準 + DB オフセット + セッション調整。
+基準座標 = `layout/<type>LayoutSpec.ts`（mm）。実座標（pt）= `toPt(基準) + layoutOffsets`（ジョブ共通）+ セッション調整。HTML/PDF への適用と Y 軸変換は `usePrintJob` 経由。
 
 #### 5.3.3 モジュール構成（ハイブリッド）
 
@@ -349,13 +363,18 @@ flowchart TD
   M --> N{成功?}
   N -->|Yes| O[create_postcard_sends_batch]
   N -->|No| K
-  O --> P[PDF保存 / OS印刷任意]
-  P --> Q[printJobId 破棄・完了サマリ]
+  O --> R{INSERT 成功?}
+  R -->|Yes| P[printJobId 破棄]
+  R -->|No| S[UUID 保持・再試行 UI]
+  S -->|再試行| O
+  P --> Q[PDF保存 / OS印刷任意・完了サマリ]
 ```
 
 **一括印刷**: all-or-nothing。1 件でも archived / not found なら PDF も送付 INSERT も行わない。
 
-**送付記録タイミング**: PDF 生成成功直後。OS 印刷の成否・キャンセルは問わない。
+**html2canvas 主経路の一括**: 1 ページずつキャプチャ → 同一 PDF に append → キャンバス解放。同時保持は最大 1 ページ分。0a（react-pdf）Pass 時はこのメモリ方針はスキップ可。
+
+**送付記録タイミング**: PDF 生成成功直後。OS 印刷の成否・キャンセルは問わない。`printJobId` 破棄は INSERT **成功**後。
 
 ---
 
@@ -371,9 +390,11 @@ flowchart TD
 | 印刷直前に archived | all-or-nothing で停止、エラー一覧 |
 | PDF 生成失敗 | エラー表示。送付記録は行わない |
 | OS 印刷キャンセル | 送付記録は**変更しない**（既に PDF 成功時に記録済み） |
-| 送付 INSERT 失敗 | 「PDF は生成済み。送付記録に失敗しました。再試行してください」。再試行は同一 `print_job_id`（メモリ保持）で冪等 |
-| 同一 print_job_id 再実行（再試行） | UNIQUE 衝突は冪等成功。意図した再印刷は新 UUID の別ジョブ |
-| プレビュー上の 2 回目印刷 | 新 `print_job_id` → 送付行も新規（用紙ジャム・再調整は通常操作） |
+| 送付 INSERT 失敗 | 「PDF は生成済み。送付記録に失敗しました。[再試行]」。UUID は破棄せず保持。[再試行] は PDF 再生成なし・同一 `print_job_id` で冪等 |
+| 同一 print_job_id 再実行（再試行） | UNIQUE 衝突は冪等成功 |
+| プレビュー上の 2 回目 [印刷] | 新 `print_job_id` → 送付行も新規（用紙ジャム・再調整は通常操作） |
+| 印刷/再試行の連打 | 実行中は両方 disabled。UUID 二重発行しない |
+| html2canvas 一括 200 件 | 逐次 1 ページキャプチャ。全ページ同時ラスタは禁止 |
 | レイアウト prefs 未保存離脱 | 確認ダイアログ |
 | 種別切替（未保存 offset） | 確認ダイアログ |
 
@@ -386,12 +407,14 @@ flowchart TD
 | domain | スナップショット組み立て、`honorificPrint`（なし→空）、`omitLast`、連名上限 |
 | infrastructure | layout prefs CRUD、`postcard_sends` INSERT、UNIQUE 冪等、Local `sent_on` |
 | command_tests | `resolve_print_job_items` 除外理由（リンク残存 + sender archived）、両 snapshot の archived エラー、batch send 冪等 |
-| frontend | Vitest: layoutSpec 座標、結果座標クランプ（origin+offset）、visibility マージ |
+| frontend | Vitest: layoutSpec 座標、pt 揃え後の結果座標クランプ、Y 軸変換、visibility マージ |
 | 手動（必須） | 敬称「なし」「御中」「ご家族様」印字、同姓省略 coLast 非表示、HTML vs PDF ±1mm 実寸比較 |
 | 手動 | 一括 3 件、途中 archived の all-or-nothing、prefs 未保存離脱、種別切替 |
-| 手動 / command | 同一セッション 2 回印刷で `print_job_id` が分かれ送付 2 行になる |
-| command | INSERT 失敗再試行が同一 `print_job_id` で冪等成功 |
+| 手動 / command | 同一セッション 2 回 [印刷] で `print_job_id` が分かれ送付 2 行になる |
+| command | INSERT 失敗 [再試行] が PDF 再生成せず同一 `print_job_id` で冪等成功 |
 | command | `sent_on` が JST 0:30 相当でも端末ローカル当日（`Utc::now().date_naive()` では前日にならない） |
+| frontend | [印刷]/[再試行] 連打で UUID が 2 つ発行されない |
+| frontend（0b 経路） | 3 ページ一括でもピーク画像バッファが 1 ページ分に収まる |
 
 ---
 
@@ -410,7 +433,7 @@ flowchart TD
 | 7 | PRT003 HTML プレビュー + レイヤー調整 | 2, 4 |
 | 8 | PDF 生成 + 送付記録連携 | 7 |
 | 9 | `mochu` テンプレート差分 | 2 |
-| 10 | 一括印刷（多ページ PDF + all-or-nothing） | 8 |
+| 10 | 一括印刷（多ページ PDF + all-or-nothing）。**html2canvas 主経路時は 1 ページ逐次キャプチャ・同時保持 1 枚**（0a Pass ならスキップ可） | 8 |
 
 **タスク 0 共通成否基準**（0a / 0b 同一）:
 
@@ -450,11 +473,12 @@ flowchart TD
 - [x] 機能矛盾なし（ブロッカー）— FR-02/§5.3.1/一括方針を紐づき差出人に統一
 - [x] 実装済み機能との整合（ブロッカー）— nenga/mochu、Honorific、MAX_CO_RECIPIENTS
 - [x] 方針・要件・アーキテクチャとの整合（ブロッカー）
-- [x] print_job_id 寿命 — PDF 生成開始ごと発行・再印刷は新 UUID・INSERT 再試行のみ冪等（PR #8 review 5060955486）
+- [x] print_job_id 寿命 — PDF 開始発行・INSERT 成功後破棄・[印刷]/[再試行] 分離（PR #8 review 5060982103）
 - [x] sent_on — Rust `chrono::Local` 固定・フロント非送信・JST 0:30 テスト追記
 - [x] タスク 0 — 0a/0b 二軸スパイク・両方 Fail で TOP-28 停止
-- [x] クランプ — 結果座標（origin+offset）・mm/pt 換算集約・v1 原点クランプ明記
+- [x] タスク 10 — html2canvas は 1 ページ逐次・同時保持 1 枚（0a Pass 時スキップ可）
+- [x] クランプ — pt 揃え後の結果座標・Y 軸変換・ジョブ共通 offset
 - [x] PRT001 モック — 除外行チェック不可・選択数から除外・住所録導線
-- [x] 種別デフォルト — PRT003 初回 `nenga`・セッション内は直前選択復元
+- [x] 種別 — デフォルト `nenga`・復元キーは `printPostcardType`（draft と分離）
 - [x] 改善点は対応済み、または未決事項に移した
 ```

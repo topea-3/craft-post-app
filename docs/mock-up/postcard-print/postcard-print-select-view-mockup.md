@@ -44,7 +44,8 @@
 
 ## 3. ジョブ状態
 
-- 選択 `addressEntryId[]` のみを `sessionStorage.printJobDraft` に保存（`printJobId` は**保存しない**）
+- 選択 `addressEntryId[]` のみを `sessionStorage.printJobDraft` に保存（`printJobId` / `postcardType` は**含めない**）
+- 種別の復元は別キー `printPostcardType`（PRT003 側。本画面では触らない）
 - ページリフレッシュ時は本画面へ戻す（state 喪失防止）
 - archived `AddressEntry` は一覧に表示しない（既存一覧方針）
 
