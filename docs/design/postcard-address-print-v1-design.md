@@ -244,10 +244,11 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_postcard_sends_job_address
 
 各 `address_entry_id` について:
 
-1. `get_sender_id_by_address_entry_id` でリンク先を取得
-2. リンク無し → **除外**（アラート一覧に追加）
-3. リンク先 `SenderEntry` が archived → **除外**
-4. 有効 → その差出人で `PrintJobItem` を構成
+1. （**未決・§9**）`AddressEntry` が archived / not found の扱い — 除外続行かコマンド失敗かを決定するまで実装しない
+2. `get_sender_id_by_address_entry_id` でリンク先を取得
+3. リンク無し → **除外**（アラート一覧に追加）
+4. リンク先 `SenderEntry` が archived → **除外**
+5. 有効 → その差出人で `PrintJobItem` を構成
 
 PRT002（差出人確認）は、除外後の一覧を表示する**読み取り専用確認**（省略可）。SEN005 の手動選択・リンク書き換えは**使用しない**。
 
@@ -469,6 +470,7 @@ flowchart TD
 | PDF パスワード保護 | requirements §5 | v1 非対応・§2.2 に明記 |
 | 連名敬称個別レイヤー | 要求仕様の coHonorific n | v1 は全体 honorific を適用 |
 | PRT002 省略可否 | UX 次第 | 実装時に判断可 |
+| `resolve` 時の AddressEntry archived / not found | (A) 除外して残り続行（印刷直前のみ all-or-nothing） / (B) 1 件でもコマンド失敗 | **要ユーザー判断**。決定まで §5.1.4 歩 1 と TOP-28 の resolve 実装は着手しない |
 
 ---
 
