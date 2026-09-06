@@ -244,13 +244,13 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_postcard_sends_job_address
 
 各 `address_entry_id` について:
 
-1. `AddressEntry` が archived / not found → **コマンド全体失敗**（Validation エラー。PRT003 へ進まない）
+1. `AddressEntry` が archived / not found → **コマンド全体失敗**（Validation エラー。応答に offending `address_entry_id[]` と reason（`archived` / `not_found`）を含める。PRT003 へ進まない）
 2. `get_sender_id_by_address_entry_id` でリンク先を取得
 3. リンク無し → **除外**（アラート一覧に追加）
 4. リンク先 `SenderEntry` が archived → **除外**
 5. 有効 → その差出人で `PrintJobItem` を構成
 
-差出人側の除外（歩 3–4）があっても有効件が 1 件以上なら残りで PRT003 へ進む。宛名側 archived / not found（歩 1）は除外続行せず、`resolve_print_job_items` ごと失敗する。印刷直前の再スナップショットも all-or-nothing（FR-12）。
+差出人側の除外（歩 3–4）があっても有効件が 1 件以上なら残りで PRT003 へ進む。宛名側 archived / not found（歩 1）は除外続行せず、`resolve_print_job_items` ごと失敗する。失敗時フロントは offending ID を `printJobDraft` から除外し、PRT001 に残留して再試行可能にする。印刷直前の再スナップショットも all-or-nothing（FR-12）。
 
 PRT002（差出人確認）は、除外後の一覧を表示する**読み取り専用確認**（省略可）。SEN005 の手動選択・リンク書き換えは**使用しない**。
 
@@ -258,7 +258,7 @@ PRT002（差出人確認）は、除外後の一覧を表示する**読み取り
 
 | コマンド | 用途 |
 |----------|------|
-| `resolve_print_job_items` | `address_entry_id[]` → 有効 `PrintJobItem[]` + 除外理由一覧。入力に `AddressEntry` archived / not found が 1 件でもあればコマンド全体失敗 |
+| `resolve_print_job_items` | `address_entry_id[]` → 有効 `PrintJobItem[]` + 除外理由一覧。入力に `AddressEntry` archived / not found が 1 件でもあればコマンド全体失敗（offending id[] + reason を返す） |
 | `build_address_print_snapshot` | 1 件スナップショット（archived / not found は Validation エラー） |
 | `build_sender_print_snapshot` | 1 件スナップショット（archived / not found は Validation エラー） |
 | `list_print_layout_preferences` | `postcard_type` でオフセット一覧 |
@@ -283,10 +283,16 @@ PDF 生成は**フロント**。Tauri はデータ解決・永続化・送付記
 
 | キー | 内容 | 寿命 |
 |------|------|------|
-| `printJobDraft` | `PrintJobDraft`（選択 ID・除外アラートのみ。`postcardType` / `printJobId` は含めない） | フロー中。リフレッシュ時は PRT001 へ戻す |
+| `printJobDraft` | `PrintJobDraft`（選択 ID・除外アラートのみ。`postcardType` / `printJobId` は含めない） | フロー中。リフレッシュ時は PRT001 へ戻す。[キャンセル] で破棄 |
 | `printPostcardType` | 直前の `PostcardType`（FR-09 復元用） | セッション。`printJobDraft` と独立 |
 
 `printJobId` の発行・破棄は §5.1.3 の寿命定義に従う（PDF 失敗時破棄 / INSERT 成功後破棄）。INSERT 失敗中の UUID は React メモリのみ（`printJobPendingId` の sessionStorage 永続化は v1 非採用）。
+
+**draft 同期（stale ID 回復）**:
+
+- PRT001 入場時: 有効一覧（非 archived）に無い ID を `printJobDraft` から除外。表示例: 「N 件は削除またはアーカイブ済みのため選択から外しました」。選択カウンタを同期
+- `resolve` 失敗時（方針 B）: エラーの offending ID を draft から除外し PRT001 に残留。残り ID で再実行できる
+- [キャンセル]: `printJobDraft` を破棄 |
 
 #### 5.3.2 レイヤー ID（要求仕様準拠）
 
@@ -353,7 +359,10 @@ Validation: 宛名連名 ≤ 3、差出人連名 ≤ 4（`SenderEntry::MAX_CO_RE
 ```mermaid
 flowchart TD
   A[PRT001 対象選択] --> B[resolve_print_job_items]
-  B --> C{除外あり?}
+  B --> C0{AddressEntry archived / not found?}
+  C0 -->|Yes| Cfail[エラー表示・PRT001 残留・draft から該当 ID 除外]
+  Cfail --> A
+  C0 -->|No| C{除外あり?}
   C -->|Yes| D[アラート表示・有効件のみ続行]
   C -->|No| E[PRT002 確認 省略可]
   D --> E
@@ -392,7 +401,9 @@ flowchart TD
 | 200 件超 | 「最大 200 件まで選択できます」 |
 | 全件紐づき差出人なし | アラートのみ。プレビューへ進めない |
 | 一部のみ差出人未紐づけ / 差出人 archived | 除外宛名をアラート表示。残りで続行 |
-| ドラフト ID に AddressEntry archived / not found | `resolve_print_job_items` **全体失敗**。PRT003 へ進まない |
+| ドラフト ID に AddressEntry archived / not found | `resolve_print_job_items` **全体失敗**。offending ID を draft から除外し PRT001 残留。残りで再実行可 |
+| PRT001 入場時に一覧外 ID が draft に残存 | draft から除外し「N 件は削除またはアーカイブ済みのため選択から外しました」。選択カウンタ同期 |
+| [キャンセル] | `printJobDraft` を破棄 |
 | 連名上限超過 | Validation エラー。プレビュー入場前にブロック |
 | 印刷直前に archived | all-or-nothing で停止、エラー一覧 |
 | PDF 生成失敗 | エラー表示。送付記録は行わない。発行済み `printJobId` は破棄（未使用扱い） |
@@ -425,7 +436,8 @@ flowchart TD
 | frontend（0b 経路） | 3 ページ一括でもピーク画像バッファが 1 ページ分に収まる |
 | frontend | react-pdf / jsPDF compat で Y 反転しない場合、HTML と PDF の始点が同じ象限 |
 | frontend（0b） | html2canvas 全面キャプチャは `addImage(..., 0, 0)` でレイヤー単位 Y 反転を重ねない |
-| command | ドラフト ID が PRT001 後に AddressEntry archived → `resolve_print_job_items` 全体失敗 |
+| command | ドラフト ID が PRT001 後に AddressEntry archived → resolve 全体失敗 → draft から除外 → 残りで再実行できる |
+| frontend | PRT001 入場時に一覧外 ID を draft から落とし、選択カウンタが同期する |
 
 ---
 
@@ -492,6 +504,6 @@ flowchart TD
 - [x] PRT001 モック — 除外行チェック不可・選択数から除外・住所録導線・ADDR001
 - [x] 種別 — デフォルト `nenga`・復元キーは `printPostcardType`（draft と分離）
 - [x] printJobPendingId — v1 は React メモリのみ（sessionStorage 非採用）
-- [x] AddressEntry archived at resolve — コマンド全体失敗（方針 B / review 5124666497）
+- [x] AddressEntry archived at resolve — コマンド全体失敗（方針 B）+ draft から offending ID 除外で再試行可（review 5124703185）
 - [x] 改善点は対応済み、または未決事項に移した
 ```

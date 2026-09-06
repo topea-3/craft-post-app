@@ -39,6 +39,7 @@
 | 状態「除外」 | 紐づき無し / 差出人 archived → **チェック不可**（選択カウンタにも含めない） |
 | プレビューへ進む | 有効 1 件以上必須。`resolve_print_job_items` を呼び出し。**AddressEntry archived / not found が混入していればコマンド失敗**（PRT003 へ進まない） |
 | 除外アラート | `resolve_print_job_items` の除外理由に応じ表示（未紐づけ / 差出人 archived）。住所録編集（差出人リンク）への導線 1 行 |
+| キャンセル | `printJobDraft` を破棄して離脱 |
 
 ---
 
@@ -48,11 +49,13 @@
 - 種別の復元は別キー `printPostcardType`（PRT003 側。本画面では触らない）
 - ページリフレッシュ時は本画面へ戻す（state 喪失防止）
 - archived `AddressEntry` は一覧に表示しない（既存一覧方針）
+- **入場時**: 有効一覧に無い ID を draft から除外。「N 件は削除またはアーカイブ済みのため選択から外しました」。選択カウンタを同期
+- **resolve 失敗時（方針 B）**: エラーの offending ID を draft から除外し本画面に残留。残りで再実行可
 
 ---
 
 ## 4. 遷移
 
 - 有効件数 0 → 進めない
-- `resolve` が AddressEntry archived / not found で失敗 → エラー表示。PRT003 へ進まない
+- `resolve` が AddressEntry archived / not found で失敗 → エラー表示 + draft から該当 ID 除外。PRT001 残留（PRT003 へ進まない）
 - 有効件数 ≥ 1 かつ resolve 成功 → PRT002（省略可）→ PRT003
