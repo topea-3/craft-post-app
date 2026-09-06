@@ -71,7 +71,9 @@ v1.0.0 では年賀状・喪中はがき等の**宛名面印刷**を、住所録
   - 調整 UI / 画面プレビュー: HTML/CSS キャンバス
   - 印字結果: タスク 0 の 2 本スパイク（§8）の結果で主経路を決定。react-pdf Pass → `@react-pdf/renderer` / react-pdf Fail かつ html2canvas Pass → html2canvas + jsPDF / **両方 Fail → TOP-28 着手不可**
   - 座標の正: 共通 `layoutSpec`（`usePrintJob` が HTML → PDF に同一適用）
-  - 単位・軸: mm ↔ pt 換算（1mm ≈ 2.8346pt）、Y 軸の正方向（CSS キャンバスは top-left 増加 / PDF は bottom-left 増加 → 符号変換）も `usePrintJob` に集約。加算・クランプ前に必ず pt へ揃える
+  - 単位・軸: mm ↔ pt 換算（1mm ≈ 2.8346pt）は `usePrintJob` に集約。加算・クランプ前に必ず pt へ揃える
+  - **座標系**: レイアウト空間は **top-left・pt**（HTML キャンバス / `@react-pdf/renderer` の `top`・`left` / jsPDF **compat** の `text`・`addImage` はいずれも上端基準）。Y 反転は描画 API が PDF 仕様の **bottom-left** を露出する経路だけ適用する。html2canvas 全面キャプチャ → `addImage(..., 0, 0)` ではレイヤー単位の Y 反転は行わない
+  - クランプはレイアウト空間（top-left）で先に適用し、その後に経路固有の描画変換を行う
   - 許容誤差: ±1mm。実寸 PDF を正とし、手動実寸比較を必須確認とする
 - 用紙: 100mm × 148mm、余白 5mm、印刷可能範囲 94mm × 142mm
 - 文字サイズ: 6pt 以上
@@ -192,8 +194,8 @@ CREATE TABLE IF NOT EXISTS print_layout_preferences (
 );
 ```
 
-- 保存時・ドラッグ確定時に **結果座標**（`origin_mm` を pt 換算したもの + `offset_pt`）が印刷可能範囲（94×142mm 相当の pt）内に収まるようクランプ（`dx`/`dy` の絶対値制限ではない）。mm のまま pt を足さない
-- 換算・Y 軸変換・クランプは `usePrintJob` に集約（DB / `layoutOffsets` は pt、`layoutSpec` 基準は mm）
+- 保存時・ドラッグ確定時に **結果座標**（`origin_mm` を pt 換算したもの + `offset_pt`、いずれも **top-left レイアウト空間**）が印刷可能範囲（94×142mm 相当の pt）内に収まるようクランプ（`dx`/`dy` の絶対値制限ではない）。mm のまま pt を足さない
+- 換算・クランプは `usePrintJob` に集約（DB / `layoutOffsets` は pt、`layoutSpec` 基準は mm）。Y 反転は §3.2 の経路依存ルールに従い、クランプ後の描画変換でのみ行う
 - v1 はレイヤー**原点**のクランプのみ。縦書き氏名はテキスト bbox 高さを考慮せず、下端が 5mm 余白を食い込む可能性があるため手動実寸確認を必須とする
 - UI に「基準に戻す」（当該レイヤーまたは全体の offset を 0 にリセット）を提供
 
@@ -231,9 +233,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_postcard_sends_job_address
 - **`print_job_id` 寿命（唯一の定義）**:
   1. [印刷] 押下 → PDF 生成開始時に新規発行
   2. PDF 生成**失敗**時は UUID を破棄（未使用扱い。送付記録なし）
-  3. PDF 成功後 → INSERT **成功**後に破棄（失敗中は React メモリ保持。任意で `sessionStorage.printJobPendingId` に残しリフレッシュ後の誤再印刷を防ぐ）
+  3. PDF 成功後 → INSERT **成功**後に破棄（失敗中は **React メモリのみ**保持。`sessionStorage` への pending ID 永続化は v1 非採用）
   4. [印刷] と [再試行] は別操作。[再試行] は PDF を再生成せず同一 UUID で `create_postcard_sends_batch` のみ。実行中は両方 disabled（連打で UUID 二重発行しない）
-  5. UNIQUE 衝突は**冪等成功**（既記録済み）
+  5. リフレッシュ時は PRT001 へ戻し、メモリ上の pending UUID・PDF・スナップショットは破棄。[再試行] は出さない（残存 UUID を次の [印刷] に流用しない）
+  6. UNIQUE 衝突は**冪等成功**（既記録済み）
 - 同一セッションでの意図した再印刷（用紙ジャム・位置微調整後の [印刷]）は**別 `print_job_id`** となり、送付行も別レコードになる
 - 誤記録は送付一覧の論理削除（`deleted_at`）で吸収（一覧 UI は別 Issue）
 
@@ -279,9 +282,8 @@ PDF 生成は**フロント**。Tauri はデータ解決・永続化・送付記
 |------|------|------|
 | `printJobDraft` | `PrintJobDraft`（選択 ID・除外アラートのみ。`postcardType` / `printJobId` は含めない） | フロー中。リフレッシュ時は PRT001 へ戻す |
 | `printPostcardType` | 直前の `PostcardType`（FR-09 復元用） | セッション。`printJobDraft` と独立 |
-| `printJobPendingId`（任意） | INSERT 未完了時の UUID | INSERT 成功で削除 |
 
-`printJobId` の発行・破棄は §5.1.3 の寿命定義に従う（PDF 失敗時破棄 / INSERT 成功後破棄）。
+`printJobId` の発行・破棄は §5.1.3 の寿命定義に従う（PDF 失敗時破棄 / INSERT 成功後破棄）。INSERT 失敗中の UUID は React メモリのみ（`printJobPendingId` の sessionStorage 永続化は v1 非採用）。
 
 #### 5.3.2 レイヤー ID（要求仕様準拠）
 
@@ -304,7 +306,7 @@ sender.coLast.{n}      // n = 1..4
 sender.coFirst.{n}
 ```
 
-基準座標 = `layout/<type>LayoutSpec.ts`（mm）。実座標（pt）= `toPt(基準) + layoutOffsets`（ジョブ全体で 1 組。DB prefs と同一スコープ。ページ別・二重のセッション調整層は持たない）。HTML/PDF への適用と Y 軸変換は `usePrintJob` 経由。
+基準座標 = `layout/<type>LayoutSpec.ts`（mm）。実座標（pt）= `toPt(基準) + layoutOffsets`（ジョブ全体で 1 組。DB prefs と同一スコープ。ページ別・二重のセッション調整層は持たない）。HTML / react-pdf / jsPDF compat への適用は **top-left のまま**（§3.2）。Y 反転は bottom-left 露出経路のみ。
 
 #### 5.3.3 モジュール構成（ハイブリッド）
 
@@ -375,7 +377,7 @@ flowchart TD
 
 **html2canvas 主経路の一括**: 1 ページずつキャプチャ → 同一 PDF に append → キャンバス解放。同時保持は最大 1 ページ分。0a（react-pdf）Pass 時はこのメモリ方針はスキップ可。
 
-**送付記録タイミング**: PDF 生成成功直後。OS 印刷の成否・キャンセルは問わない。`printJobId` 破棄は INSERT **成功**後。
+**送付記録タイミング**: PDF 生成成功直後。OS 印刷の成否・キャンセルは問わない。`printJobId` 破棄は §5.1.3（PDF 失敗時または INSERT 成功後）。
 
 ---
 
@@ -391,7 +393,7 @@ flowchart TD
 | 印刷直前に archived | all-or-nothing で停止、エラー一覧 |
 | PDF 生成失敗 | エラー表示。送付記録は行わない。発行済み `printJobId` は破棄（未使用扱い） |
 | OS 印刷キャンセル | 送付記録は**変更しない**（既に PDF 成功時に記録済み） |
-| 送付 INSERT 失敗 | 「PDF は生成済み。送付記録に失敗しました。[再試行]」。UUID は破棄せず保持。[再試行] は PDF 再生成なし・同一 `print_job_id` で冪等 |
+| 送付 INSERT 失敗 | 「PDF は生成済み。送付記録に失敗しました。[再試行]」。UUID は React メモリ保持。[再試行] は PDF 再生成なし・同一 `print_job_id` で冪等。リフレッシュ後は PRT001 戻り・[再試行] なし |
 | 同一 print_job_id 再実行（再試行） | UNIQUE 衝突は冪等成功 |
 | プレビュー上の 2 回目 [印刷] | 新 `print_job_id` → 送付行も新規（用紙ジャム・再調整は通常操作） |
 | 印刷/再試行の連打 | 実行中は両方 disabled。UUID 二重発行しない |
@@ -408,14 +410,17 @@ flowchart TD
 | domain | スナップショット組み立て、`honorificPrint`（なし→空）、`omitLast`、連名上限 |
 | infrastructure | layout prefs CRUD、`postcard_sends` INSERT、UNIQUE 冪等、Local `sent_on` |
 | command_tests | `resolve_print_job_items` 除外理由（リンク残存 + sender archived）、両 snapshot の archived エラー、batch send 冪等 |
-| frontend | Vitest: layoutSpec 座標、pt 揃え後の結果座標クランプ、Y 軸変換、visibility マージ |
+| frontend | Vitest: layoutSpec 座標、pt 揃え後の結果座標クランプ（top-left）、経路別 Y 変換（主経路は反転なし）、visibility マージ |
 | 手動（必須） | 敬称「なし」「御中」「ご家族様」印字、同姓省略 coLast 非表示、HTML vs PDF ±1mm 実寸比較 |
 | 手動 | 一括 3 件、途中 archived の all-or-nothing、prefs 未保存離脱、種別切替 |
 | 手動 / command | 同一セッション 2 回 [印刷] で `print_job_id` が分かれ送付 2 行になる |
 | command | INSERT 失敗 [再試行] が PDF 再生成せず同一 `print_job_id` で冪等成功 |
 | command | `sent_on` が JST 0:30 相当でも端末ローカル当日（`Utc::now().date_naive()` では前日にならない） |
 | frontend | [印刷]/[再試行] 連打で UUID が 2 つ発行されない |
+| frontend | リフレッシュ後に pending UUID が残っても [再試行] を出さない |
 | frontend（0b 経路） | 3 ページ一括でもピーク画像バッファが 1 ページ分に収まる |
+| frontend | react-pdf / jsPDF compat で Y 反転しない場合、HTML と PDF の始点が同じ象限 |
+| frontend（0b） | html2canvas 全面キャプチャは `addImage(..., 0, 0)` でレイヤー単位 Y 反転を重ねない |
 
 ---
 
@@ -478,8 +483,9 @@ flowchart TD
 - [x] sent_on — Rust `chrono::Local` 固定・フロント非送信・JST 0:30 テスト追記
 - [x] タスク 0 — 0a/0b 二軸スパイク・両方 Fail で TOP-28 停止
 - [x] タスク 10 — html2canvas は 1 ページ逐次・同時保持 1 枚（0a Pass 時スキップ可）
-- [x] クランプ — pt 揃え後の結果座標・Y 軸変換・ジョブ共通 offset（二重セッション層なし）
+- [x] クランプ — pt 揃え後の結果座標（top-left）・Y 反転は経路依存・ジョブ共通 offset
 - [x] PRT001 モック — 除外行チェック不可・選択数から除外・住所録導線・ADDR001
 - [x] 種別 — デフォルト `nenga`・復元キーは `printPostcardType`（draft と分離）
+- [x] printJobPendingId — v1 は React メモリのみ（sessionStorage 非採用）
 - [x] 改善点は対応済み、または未決事項に移した
 ```

@@ -33,7 +33,7 @@
 | 操作 | 挙動 |
 |------|------|
 | 種別セレクト | テンプレート定数切替。未保存 offset は確認。選択値を `printPostcardType` に保存 |
-| キャンバス上ドラッグ | 選択レイヤーの offset 変更。**pt 揃え後**の結果座標（基準原点_pt + offset_pt）が印刷可能範囲内に収まるようクランプ。オフセットはジョブ全体で 1 組 |
+| キャンバス上ドラッグ | 選択レイヤーの offset 変更。**pt 揃え後・top-left** の結果座標（基準原点_pt + offset_pt）が印刷可能範囲内に収まるようクランプ。オフセットはジョブ全体で 1 組 |
 | 基準に戻す | 選択レイヤーまたは全体の offset を 0 に |
 | レイヤー ON/OFF | セッションのみ・ページごと可。PDF 生成時に反映 |
 | 調整を保存 | `print_layout_preferences` に書き込み（クランプ済み） |
@@ -56,5 +56,5 @@
 
 - 調整 UI = HTML キャンバス（操作しやすさ優先）
 - 印字結果 = スパイク結果に応じ react-pdf または html2canvas
-- 座標は共通 `layoutSpec` 経由（mm→pt・Y 軸変換は `usePrintJob`）。実寸 PDF を正とし、±1mm 以内を手動確認する
-- html2canvas 一括時は 1 ページずつキャプチャして同一 PDF に append（同時保持 1 枚）
+- 座標は共通 `layoutSpec` 経由（mm→pt。レイアウト空間は top-left。Y 反転は bottom-left 露出経路のみ）。実寸 PDF を正とし、±1mm 以内を手動確認する
+- html2canvas 一括時は 1 ページずつキャプチャして同一 PDF に append（同時保持 1 枚）。全面キャプチャは `addImage(..., 0, 0)` でレイヤー単位 Y 反転はしない
