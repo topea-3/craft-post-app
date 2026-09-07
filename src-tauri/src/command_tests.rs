@@ -771,6 +771,47 @@ mod tests {
   }
 
   #[tokio::test]
+  async fn resolve_print_job_items_dedupes_duplicate_ids() {
+    let pool = setup_pool().await;
+    let address_id = Uuid::new_v4();
+    insert_address_entry(&pool, address_id, false).await;
+    create_sender_entry_impl(&pool, sample_sender_dto("重複ID差出人"))
+      .await
+      .expect("create sender");
+    let sender_id = fetch_sender_id_by_label(&pool, "重複ID差出人").await;
+    set_sender_for_address_entry_impl(&pool, address_id.to_string(), Some(sender_id))
+      .await
+      .expect("link sender");
+
+    let id = address_id.to_string();
+    let result = resolve_print_job_items_impl(&pool, vec![id.clone(), id])
+      .await
+      .expect("duplicate ids should not fail as not_found");
+
+    assert_eq!(result.items.len(), 1);
+    assert!(result.excluded.is_empty());
+  }
+
+  #[tokio::test]
+  async fn resolve_print_job_items_excluded_includes_display_name() {
+    let pool = setup_pool().await;
+    let unlinked_id = Uuid::new_v4();
+    insert_address_entry(&pool, unlinked_id, false).await;
+
+    let result = resolve_print_job_items_impl(&pool, vec![unlinked_id.to_string()])
+      .await
+      .expect("unlinked should resolve with exclusion");
+
+    assert!(result.items.is_empty());
+    assert_eq!(result.excluded.len(), 1);
+    assert_eq!(result.excluded[0].reason, "no_sender_link");
+    assert_eq!(
+      result.excluded[0].display_name.as_deref(),
+      Some("佐藤 一郎")
+    );
+  }
+
+  #[tokio::test]
   async fn resolve_print_job_items_excludes_unlinked_and_archived_sender() {
     let pool = setup_pool().await;
 

@@ -1531,6 +1531,9 @@ pub struct ExcludedAlertDto {
   pub address_entry_id: String,
   /// `"no_sender_link"` | `"sender_archived"`
   pub reason: String,
+  /// 確認画面表示用（無い場合はフロントが ID にフォールバック）
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub display_name: Option<String>,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
@@ -1639,15 +1642,32 @@ fn sender_print_snapshot_dto_from(snap: SenderPrintSnapshot) -> SenderPrintSnaps
   }
 }
 
-fn truncate_print_ids(mut ids: Vec<String>) -> Vec<String> {
-  if ids.len() > MAX_PRINT_ADDRESS_ENTRY_IDS {
-    ids.truncate(MAX_PRINT_ADDRESS_ENTRY_IDS);
+fn truncate_print_ids(ids: Vec<String>) -> Vec<String> {
+  let mut seen = std::collections::HashSet::new();
+  let mut out = Vec::with_capacity(ids.len().min(MAX_PRINT_ADDRESS_ENTRY_IDS));
+  for id in ids {
+    if seen.insert(id.clone()) {
+      out.push(id);
+      if out.len() >= MAX_PRINT_ADDRESS_ENTRY_IDS {
+        break;
+      }
+    }
   }
-  ids
+  out
 }
 
 fn is_allowed_print_layer_id(layer_id: &str) -> bool {
   PRINT_LAYER_ID_ALLOWLIST.contains(&layer_id)
+}
+
+fn address_entry_display_name(entry: &AddressEntry) -> String {
+  format!(
+    "{} {}",
+    entry.primary_name().last(),
+    entry.primary_name().first()
+  )
+  .trim()
+  .to_string()
 }
 
 #[tauri::command]
@@ -1836,10 +1856,12 @@ async fn resolve_print_job_items_impl(
   let mut excluded = Vec::new();
 
   for (id_str, address_entry) in resolved_entries {
+    let display_name = Some(address_entry_display_name(&address_entry));
     let Some(sender_id_str) = link_by_address.get(&id_str) else {
       excluded.push(ExcludedAlertDto {
         address_entry_id: id_str,
         reason: "no_sender_link".to_string(),
+        display_name,
       });
       continue;
     };
@@ -1848,6 +1870,7 @@ async fn resolve_print_job_items_impl(
       excluded.push(ExcludedAlertDto {
         address_entry_id: id_str,
         reason: "no_sender_link".to_string(),
+        display_name,
       });
       continue;
     };
@@ -1864,6 +1887,7 @@ async fn resolve_print_job_items_impl(
       excluded.push(ExcludedAlertDto {
         address_entry_id: id_str,
         reason: "no_sender_link".to_string(),
+        display_name,
       });
       continue;
     };
@@ -1872,6 +1896,7 @@ async fn resolve_print_job_items_impl(
       excluded.push(ExcludedAlertDto {
         address_entry_id: id_str,
         reason: "sender_archived".to_string(),
+        display_name,
       });
       continue;
     }

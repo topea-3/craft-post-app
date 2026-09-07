@@ -15,6 +15,30 @@ export type RenderPrintPdfParams = {
   fileName?: string
 }
 
+/** Sample pixels; throw if the page looks blank (all near-white). */
+function assertCanvasHasInk(canvas: HTMLCanvasElement): void {
+  const ctx = canvas.getContext('2d')
+  if (!ctx) {
+    throw new Error('プレビューキャンバスの描画に失敗しました')
+  }
+  const { width, height } = canvas
+  if (width === 0 || height === 0) {
+    throw new Error('プレビューキャンバスの描画に失敗しました（空白）')
+  }
+  const { data } = ctx.getImageData(0, 0, width, height)
+  const step = Math.max(4, Math.floor(data.length / 4 / 5000) * 4)
+  for (let i = 0; i < data.length; i += step) {
+    const r = data[i]
+    const g = data[i + 1]
+    const b = data[i + 2]
+    const a = data[i + 3]
+    if (a > 8 && (r < 250 || g < 250 || b < 250)) {
+      return
+    }
+  }
+  throw new Error('プレビューキャンバスの描画に失敗しました（空白）')
+}
+
 /**
  * Sequential 1-page html2canvas capture → append to same jsPDF → release canvas.
  * Peak image buffer stays at one page.
@@ -73,7 +97,17 @@ export async function renderPrintPdf(params: RenderPrintPdfParams): Promise<jsPD
         backgroundColor: '#ffffff',
         useCORS: true,
         logging: false,
+        onclone: (_doc, el) => {
+          let node: HTMLElement | null = el
+          while (node) {
+            node.style.visibility = 'visible'
+            node.style.clipPath = 'none'
+            node = node.parentElement
+          }
+        },
       })
+
+      assertCanvasHasInk(canvas)
 
       const imgData = canvas.toDataURL('image/png')
       if (i > 0) {

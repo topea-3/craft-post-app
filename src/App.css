@@ -716,12 +716,14 @@
   position: fixed;
   left: 0;
   top: 0;
-  visibility: hidden;
   pointer-events: none;
   z-index: -1;
+  /* visibility/opacity は使わない（html2canvas が空描画する）。継承しない隠れ方 */
+  clip-path: inset(100%);
 }
 
 .print-preview-canvas-wrap-capture .print-preview-canvas {
+  visibility: visible;
   border: none;
   box-shadow: none;
   box-sizing: border-box;
@@ -731,9 +733,9 @@
   position: fixed;
   left: 0;
   top: 0;
-  visibility: hidden;
   pointer-events: none;
   z-index: -1;
+  clip-path: inset(100%);
 }
 
 .print-preview-canvas {

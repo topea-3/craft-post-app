@@ -9,6 +9,7 @@ import {
 } from '../messages'
 import type { ExcludedAlert, PrintJobItem } from '../types'
 import {
+  excludedAlertLabel,
   excludedReasonLabel,
   formatRecipientDisplayName,
   formatSenderDisplayNameFromSnapshot,
@@ -135,7 +136,7 @@ export function PrintConfirmPage() {
           <ul>
             {excluded.map((a) => (
               <li key={a.addressEntryId}>
-                {a.addressEntryId} — {excludedReasonLabel(a.reason)}
+                {excludedAlertLabel(a)} — {excludedReasonLabel(a.reason)}
               </li>
             ))}
           </ul>

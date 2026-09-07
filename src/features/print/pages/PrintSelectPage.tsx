@@ -20,6 +20,7 @@ import {
   PRINT_SELECT_MAX_MESSAGE,
 } from '../messages'
 import {
+  excludedAlertLabel,
   excludedReasonLabel,
   MAX_PRINT_SELECTION,
   parseAddressEntriesInvalidError,
@@ -256,7 +257,7 @@ export function PrintSelectPage() {
             const row = items.find((item) => item.id === a.addressEntryId)
             const label = row
               ? formatDisplayName(row.primaryName, row.coRecipients)
-              : a.addressEntryId
+              : excludedAlertLabel(a)
             return (
               <li key={a.addressEntryId}>
                 {label}: {excludedReasonLabel(a.reason)}

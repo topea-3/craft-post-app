@@ -4,6 +4,17 @@ import { MAX_PRINT_SELECTION } from '../types'
 
 const STORAGE_KEY = 'printJobDraft'
 
+function dedupeIdsPreserveOrder(ids: string[]): string[] {
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const id of ids) {
+    if (seen.has(id)) continue
+    seen.add(id)
+    out.push(id)
+  }
+  return out
+}
+
 function readDraft(): PrintJobDraft {
   try {
     const raw = sessionStorage.getItem(STORAGE_KEY)
@@ -13,7 +24,10 @@ function readDraft(): PrintJobDraft {
       return { addressEntryIds: [] }
     }
     return {
-      addressEntryIds: parsed.addressEntryIds.slice(0, MAX_PRINT_SELECTION),
+      addressEntryIds: dedupeIdsPreserveOrder(parsed.addressEntryIds).slice(
+        0,
+        MAX_PRINT_SELECTION,
+      ),
       excludedAlerts: parsed.excludedAlerts,
     }
   } catch {
@@ -40,7 +54,10 @@ export function usePrintJobDraft() {
     setDraftState((prev) => {
       const next = typeof updater === 'function' ? updater(prev) : updater
       return {
-        addressEntryIds: next.addressEntryIds.slice(0, MAX_PRINT_SELECTION),
+        addressEntryIds: dedupeIdsPreserveOrder(next.addressEntryIds).slice(
+          0,
+          MAX_PRINT_SELECTION,
+        ),
         excludedAlerts: next.excludedAlerts,
       }
     })

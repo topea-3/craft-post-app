@@ -43,6 +43,7 @@ export type PrintJobItem = {
 export type ExcludedAlert = {
   addressEntryId: string
   reason: string
+  displayName?: string
 }
 
 export type PrintJobDraft = {
@@ -98,6 +99,7 @@ export type PrintJobItemDto = {
 export type ExcludedAlertDto = {
   address_entry_id: string
   reason: string
+  display_name?: string | null
 }
 
 export type ResolvePrintJobItemsDto = {
@@ -219,10 +221,16 @@ export function fromPrintJobItemDto(dto: PrintJobItemDto): PrintJobItem {
 }
 
 export function fromExcludedAlertDto(dto: ExcludedAlertDto): ExcludedAlert {
+  const displayName = dto.display_name?.trim()
   return {
     addressEntryId: dto.address_entry_id,
     reason: dto.reason,
+    displayName: displayName ? displayName : undefined,
   }
+}
+
+export function excludedAlertLabel(alert: ExcludedAlert): string {
+  return alert.displayName?.trim() || alert.addressEntryId
 }
 
 export function fromResolvePrintJobItemsDto(dto: ResolvePrintJobItemsDto): {

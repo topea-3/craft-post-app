@@ -14,7 +14,9 @@ import {
   PRINT_COMPLETE_MESSAGE,
   PRINT_NO_VALID_ITEMS_MESSAGE,
   PRINT_OPERATION_ERROR_MESSAGE,
+  PRINT_PDF_FAILED_MESSAGE,
   PRINT_PREFS_SAVED_MESSAGE,
+  PRINT_RESNAPSHOT_FAILED_MESSAGE,
   PRINT_RESOLVE_INVALID_MESSAGE,
   PRINT_SEND_FAILED_MESSAGE,
   PRINT_TYPE_CHANGE_UNSAVED_MESSAGE,
@@ -181,22 +183,35 @@ export function PrintPreviewPage() {
     pendingPdfRef.current = null
 
     let printJobId: string | null = null
+    let withVisibility: PrintJobItem[] | null = null
     try {
-      const snapped = await resnapshotPrintJobItems(items)
-      const withVisibility = snapped.map((item, i) => ({
-        ...item,
-        layerVisibility: items[i]?.layerVisibility ?? item.layerVisibility,
-      }))
+      try {
+        const snapped = await resnapshotPrintJobItems(items)
+        withVisibility = snapped.map((item, i) => ({
+          ...item,
+          layerVisibility: items[i]?.layerVisibility ?? item.layerVisibility,
+        }))
+      } catch (e) {
+        console.error('resnapshot failed:', e)
+        setError(PRINT_RESNAPSHOT_FAILED_MESSAGE)
+        return
+      }
 
       printJobId = crypto.randomUUID()
-      const pdf = await (async () => {
+      let pdf
+      try {
         const { renderPrintPdf } = await import('../render/htmlCapture/renderPrintPdf')
-        return renderPrintPdf({
+        pdf = await renderPrintPdf({
           items: withVisibility,
           layoutSpec: job.layoutSpec,
           layoutOffsets: job.layoutOffsets,
         })
-      })()
+      } catch (e) {
+        console.error('PDF render failed:', e)
+        printJobId = null
+        setError(PRINT_PDF_FAILED_MESSAGE)
+        return
+      }
 
       try {
         await createPostcardSendsBatch({

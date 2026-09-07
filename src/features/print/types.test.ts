@@ -81,4 +81,21 @@ describe('fromResolvePrintJobItemsDto', () => {
       { addressEntryId: 'new', reason: 'sender_archived' },
     ])
   })
+
+  it('maps display_name onto excluded alerts', () => {
+    const dto: ResolvePrintJobItemsDto = {
+      items: [],
+      excluded: [
+        {
+          address_entry_id: 'x1',
+          reason: 'no_sender_link',
+          display_name: '山田 花子',
+        },
+      ],
+    }
+    const result = fromResolvePrintJobItemsDto(dto)
+    expect(result.excludedAlerts).toEqual([
+      { addressEntryId: 'x1', reason: 'no_sender_link', displayName: '山田 花子' },
+    ])
+  })
 })
