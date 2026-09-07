@@ -67,58 +67,62 @@ export async function renderPrintPdf(params: RenderPrintPdfParams): Promise<jsPD
       const pageRoot = document.createElement('div')
       host.replaceChildren(pageRoot)
       const root = createRoot(pageRoot)
+      let canvas: HTMLCanvasElement | null = null
 
-      flushSync(() => {
-        root.render(
-          <PostcardPreviewCanvas
-            item={item}
-            layoutSpec={layoutSpec}
-            layoutOffsets={layoutOffsets}
-            selectedLayerId={null}
-            onSelectLayer={() => {}}
-            onOffsetChange={() => {}}
-            captureMode
-          />,
-        )
-      })
+      try {
+        flushSync(() => {
+          root.render(
+            <PostcardPreviewCanvas
+              item={item}
+              layoutSpec={layoutSpec}
+              layoutOffsets={layoutOffsets}
+              selectedLayerId={null}
+              onSelectLayer={() => {}}
+              onOffsetChange={() => {}}
+              captureMode
+            />,
+          )
+        })
 
-      if (document.fonts?.ready) {
-        await document.fonts.ready
-      }
+        if (document.fonts?.ready) {
+          await document.fonts.ready
+        }
 
-      const canvasEl = pageRoot.querySelector('[data-print-canvas="true"]') as HTMLElement | null
-      if (!canvasEl) {
+        const canvasEl = pageRoot.querySelector('[data-print-canvas="true"]') as HTMLElement | null
+        if (!canvasEl) {
+          throw new Error('プレビューキャンバスの取得に失敗しました')
+        }
+
+        canvas = await html2canvas(canvasEl, {
+          scale: CAPTURE_SCALE,
+          backgroundColor: '#ffffff',
+          useCORS: true,
+          logging: false,
+          onclone: (_doc, el) => {
+            let node: HTMLElement | null = el
+            while (node) {
+              node.style.visibility = 'visible'
+              node.style.clipPath = 'none'
+              node = node.parentElement
+            }
+          },
+        })
+
+        assertCanvasHasInk(canvas)
+
+        const imgData = canvas.toDataURL('image/png')
+        if (i > 0) {
+          pdf.addPage([width, height], 'portrait')
+        }
+        pdf.addImage(imgData, 'PNG', 0, 0, width, height)
+      } finally {
+        if (canvas) {
+          canvas.width = 0
+          canvas.height = 0
+        }
         root.unmount()
-        throw new Error('プレビューキャンバスの取得に失敗しました')
+        host.replaceChildren()
       }
-
-      const canvas = await html2canvas(canvasEl, {
-        scale: CAPTURE_SCALE,
-        backgroundColor: '#ffffff',
-        useCORS: true,
-        logging: false,
-        onclone: (_doc, el) => {
-          let node: HTMLElement | null = el
-          while (node) {
-            node.style.visibility = 'visible'
-            node.style.clipPath = 'none'
-            node = node.parentElement
-          }
-        },
-      })
-
-      assertCanvasHasInk(canvas)
-
-      const imgData = canvas.toDataURL('image/png')
-      if (i > 0) {
-        pdf.addPage([width, height], 'portrait')
-      }
-      pdf.addImage(imgData, 'PNG', 0, 0, width, height)
-
-      canvas.width = 0
-      canvas.height = 0
-      root.unmount()
-      host.replaceChildren()
     }
   } finally {
     host.remove()

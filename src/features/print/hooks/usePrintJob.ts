@@ -35,15 +35,19 @@ export function usePrintJob(params: {
   const [savedOffsets, setSavedOffsets] = useState<LayoutOffsets>(() =>
     createDefaultLayoutOffsets(),
   )
-  const [prefsLoading, setPrefsLoading] = useState(false)
+  const [prefsLoading, setPrefsLoading] = useState(true)
+  const [appliedType, setAppliedType] = useState<PostcardType | null>(null)
   const [prefsError, setPrefsError] = useState<string | null>(null)
   const [savingPrefs, setSavingPrefs] = useState(false)
   const [selectedLayerId, setSelectedLayerId] = useState<PrintLayerId | null>(
     'recipient.primaryLast',
   )
   const loadTokenRef = useRef(0)
+  const dirtyRef = useRef(false)
 
   const isDirty = !offsetsEqual(layoutOffsets, savedOffsets)
+  dirtyRef.current = isDirty
+  const prefsReady = appliedType === postcardType && !prefsLoading
 
   useEffect(() => {
     const token = ++loadTokenRef.current
@@ -61,20 +65,26 @@ export function usePrintJob(params: {
             dy: p.offsetYPt,
           }
         }
-        // Clamp loaded prefs against current spec
         for (const id of ALL_PRINT_LAYER_IDS) {
           const origin = layoutSpecFor(postcardType).layers[id].originMm
           next[id] = clampOffset(origin, next[id], layoutSpecFor(postcardType).printable)
         }
-        setLayoutOffsets(next)
+        // ロード中にユーザが編集済みなら上書きしない（通常は prefsReady=false で編集不可）
+        if (!dirtyRef.current) {
+          setLayoutOffsets(next)
+        }
         setSavedOffsets(next)
+        setAppliedType(postcardType)
       } catch (e) {
         console.error('Failed to load print layout preferences:', e)
         if (!cancelled && token === loadTokenRef.current) {
           setPrefsError(PRINT_OPERATION_ERROR_MESSAGE)
           const defaults = createDefaultLayoutOffsets()
-          setLayoutOffsets(defaults)
+          if (!dirtyRef.current) {
+            setLayoutOffsets(defaults)
+          }
           setSavedOffsets(defaults)
+          setAppliedType(postcardType)
         }
       } finally {
         if (!cancelled && token === loadTokenRef.current) {
@@ -89,13 +99,14 @@ export function usePrintJob(params: {
 
   const setOffset = useCallback(
     (layerId: PrintLayerId, dx: number, dy: number) => {
+      if (appliedType !== postcardType) return
       setLayoutOffsets((prev) => {
         const origin = layoutSpec.layers[layerId].originMm
         const clamped = clampOffset(origin, { dx, dy }, layoutSpec.printable)
         return { ...prev, [layerId]: clamped }
       })
     },
-    [layoutSpec],
+    [appliedType, layoutSpec, postcardType],
   )
 
   const resetOffsets = useCallback((layerId?: PrintLayerId) => {
@@ -137,9 +148,9 @@ export function usePrintJob(params: {
   )
 
   const savePrefs = useCallback(async () => {
+    if (appliedType !== postcardType || prefsLoading) return false
     setSavingPrefs(true)
     try {
-      // Clamp all before save
       const clamped = createDefaultLayoutOffsets()
       for (const id of ALL_PRINT_LAYER_IDS) {
         clamped[id] = clampOffset(
@@ -160,7 +171,7 @@ export function usePrintJob(params: {
     } finally {
       setSavingPrefs(false)
     }
-  }, [layoutOffsets, layoutSpec, postcardType])
+  }, [appliedType, layoutOffsets, layoutSpec, postcardType, prefsLoading])
 
   const discardDirtyOffsets = useCallback(() => {
     setLayoutOffsets(savedOffsets)
@@ -171,6 +182,7 @@ export function usePrintJob(params: {
     layoutOffsets,
     isDirty,
     prefsLoading,
+    prefsReady,
     prefsError,
     savingPrefs,
     selectedLayerId,

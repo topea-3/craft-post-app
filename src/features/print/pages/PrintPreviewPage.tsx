@@ -179,7 +179,15 @@ export function PrintPreviewPage() {
 
   const handlePrint = async () => {
     // busy は非同期なので、同期ロックで二重起動を防ぐ。送付再試行待ちは新規ジョブを始めない。
-    if (printingRef.current || busy || items.length === 0 || pendingPrintJobId) return
+    if (
+      printingRef.current ||
+      busy ||
+      items.length === 0 ||
+      pendingPrintJobId ||
+      !job.prefsReady
+    ) {
+      return
+    }
     printingRef.current = true
     setBusy(true)
     setError(null)
@@ -340,7 +348,7 @@ export function PrintPreviewPage() {
         <button
           type="button"
           onClick={() => job.resetOffsets(job.selectedLayerId ?? undefined)}
-          disabled={busy}
+          disabled={busy || !job.prefsReady}
         >
           基準に戻す
         </button>
@@ -348,9 +356,13 @@ export function PrintPreviewPage() {
           type="button"
           className="print-primary-button"
           onClick={handlePrint}
-          disabled={busy || items.length === 0 || !!pendingPrintJobId}
+          disabled={busy || items.length === 0 || !!pendingPrintJobId || !job.prefsReady}
         >
-          {busy && !pendingPrintJobId ? '処理中…' : '印刷'}
+          {busy && !pendingPrintJobId
+            ? '処理中…'
+            : !job.prefsReady
+              ? 'レイアウト読込中…'
+              : '印刷'}
         </button>
         {pendingPrintJobId && (
           <button type="button" onClick={handleRetrySend} disabled={busy}>
@@ -390,6 +402,11 @@ export function PrintPreviewPage() {
       {error && <p className="print-error">{error}</p>}
       {statusMessage && <p className="print-status">{statusMessage}</p>}
       {job.prefsError && <p className="print-error">{job.prefsError}</p>}
+      {!job.prefsReady && (
+        <p className="print-loading" role="status">
+          レイアウト設定を読み込み中…
+        </p>
+      )}
 
       <div className="print-preview-body">
         {currentItem && (
@@ -397,9 +414,9 @@ export function PrintPreviewPage() {
             item={currentItem}
             layoutSpec={job.layoutSpec}
             layoutOffsets={job.layoutOffsets}
-            selectedLayerId={job.selectedLayerId}
-            onSelectLayer={job.setSelectedLayerId}
-            onOffsetChange={job.setOffset}
+            selectedLayerId={job.prefsReady ? job.selectedLayerId : null}
+            onSelectLayer={job.prefsReady ? job.setSelectedLayerId : () => {}}
+            onOffsetChange={job.prefsReady ? job.setOffset : () => {}}
           />
         )}
         {currentItem && (
@@ -412,7 +429,7 @@ export function PrintPreviewPage() {
             }
             onSavePrefs={handleSavePrefs}
             savingPrefs={job.savingPrefs}
-            prefsDisabled={busy}
+            prefsDisabled={busy || !job.prefsReady}
           />
         )}
       </div>
