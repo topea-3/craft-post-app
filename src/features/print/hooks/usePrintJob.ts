@@ -44,9 +44,11 @@ export function usePrintJob(params: {
   )
   const loadTokenRef = useRef(0)
   const dirtyRef = useRef(false)
+  const appliedTypeRef = useRef<PostcardType | null>(null)
 
   const isDirty = !offsetsEqual(layoutOffsets, savedOffsets)
   dirtyRef.current = isDirty
+  appliedTypeRef.current = appliedType
   const prefsReady = appliedType === postcardType && !prefsLoading
 
   useEffect(() => {
@@ -69,8 +71,9 @@ export function usePrintJob(params: {
           const origin = layoutSpecFor(postcardType).layers[id].originMm
           next[id] = clampOffset(origin, next[id], layoutSpecFor(postcardType).printable)
         }
-        // ロード中にユーザが編集済みなら上書きしない（通常は prefsReady=false で編集不可）
-        if (!dirtyRef.current) {
+        // 同一種別のロード中編集だけ守る。種別切替後は新 prefs を必ず適用する。
+        const sameType = appliedTypeRef.current === postcardType
+        if (!dirtyRef.current || !sameType) {
           setLayoutOffsets(next)
         }
         setSavedOffsets(next)
@@ -80,7 +83,8 @@ export function usePrintJob(params: {
         if (!cancelled && token === loadTokenRef.current) {
           setPrefsError(PRINT_OPERATION_ERROR_MESSAGE)
           const defaults = createDefaultLayoutOffsets()
-          if (!dirtyRef.current) {
+          const sameType = appliedTypeRef.current === postcardType
+          if (!dirtyRef.current || !sameType) {
             setLayoutOffsets(defaults)
           }
           setSavedOffsets(defaults)

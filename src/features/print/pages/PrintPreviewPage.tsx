@@ -169,6 +169,7 @@ export function PrintPreviewPage() {
     if (job.isDirty && !window.confirm(PRINT_TYPE_CHANGE_UNSAVED_MESSAGE)) {
       return
     }
+    job.discardDirtyOffsets()
     setPostcardType(next)
   }
 
@@ -184,6 +185,7 @@ export function PrintPreviewPage() {
       busy ||
       items.length === 0 ||
       pendingPrintJobId ||
+      pendingDownloadOnly ||
       !job.prefsReady
     ) {
       return
@@ -336,7 +338,7 @@ export function PrintPreviewPage() {
           <select
             value={postcardType}
             onChange={(e) => handleTypeChange(e.target.value as PostcardType)}
-            disabled={busy || job.prefsLoading || !!pendingPrintJobId}
+            disabled={busy || !job.prefsReady || !!pendingPrintJobId || pendingDownloadOnly}
           >
             {POSTCARD_TYPE_OPTIONS.map((opt) => (
               <option key={opt.value} value={opt.value}>
@@ -356,7 +358,13 @@ export function PrintPreviewPage() {
           type="button"
           className="print-primary-button"
           onClick={handlePrint}
-          disabled={busy || items.length === 0 || !!pendingPrintJobId || !job.prefsReady}
+          disabled={
+            busy ||
+            items.length === 0 ||
+            !!pendingPrintJobId ||
+            pendingDownloadOnly ||
+            !job.prefsReady
+          }
         >
           {busy && !pendingPrintJobId
             ? '処理中…'
