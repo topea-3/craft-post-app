@@ -12,6 +12,8 @@ export const PRINT_RESOLVE_INVALID_MESSAGE =
 export const PRINT_PDF_FAILED_MESSAGE = 'PDF の生成に失敗しました。'
 export const PRINT_SEND_FAILED_MESSAGE =
   'PDF は生成済みですが、送付記録に失敗しました。再試行してください。'
+export const PRINT_PDF_SAVE_FAILED_AFTER_SEND_MESSAGE =
+  '送付記録は完了しました。PDF の保存に失敗したので、再ダウンロードしてください。'
 export const PRINT_RESNAPSHOT_FAILED_MESSAGE =
   '印刷対象に無効な宛名が含まれています。印刷を中止しました。'
 export const PRINT_UNSAVED_LEAVE_MESSAGE =

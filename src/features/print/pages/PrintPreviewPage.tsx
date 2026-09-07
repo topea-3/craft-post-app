@@ -15,6 +15,7 @@ import {
   PRINT_NO_VALID_ITEMS_MESSAGE,
   PRINT_OPERATION_ERROR_MESSAGE,
   PRINT_PDF_FAILED_MESSAGE,
+  PRINT_PDF_SAVE_FAILED_AFTER_SEND_MESSAGE,
   PRINT_PREFS_SAVED_MESSAGE,
   PRINT_RESNAPSHOT_FAILED_MESSAGE,
   PRINT_RESOLVE_INVALID_MESSAGE,
@@ -48,7 +49,10 @@ export function PrintPreviewPage() {
   const [busy, setBusy] = useState(false)
   const [pendingPrintJobId, setPendingPrintJobId] = useState<string | null>(null)
   const [pendingSnapshots, setPendingSnapshots] = useState<PrintJobItem[] | null>(null)
+  const [pendingDownloadOnly, setPendingDownloadOnly] = useState(false)
   const pendingPdfRef = useRef<{ save: (name?: string) => void } | null>(null)
+  const pendingTypeRef = useRef<PostcardType | null>(null)
+  const printingRef = useRef(false)
   const bypassBlockerRef = useRef(false)
 
   const onItemsChange = useCallback((next: PrintJobItem[]) => {
@@ -174,14 +178,14 @@ export function PrintPreviewPage() {
   }
 
   const handlePrint = async () => {
-    if (busy || items.length === 0) return
+    // busy は非同期なので、同期ロックで二重起動を防ぐ。送付再試行待ちは新規ジョブを始めない。
+    if (printingRef.current || busy || items.length === 0 || pendingPrintJobId) return
+    printingRef.current = true
     setBusy(true)
     setError(null)
     setStatusMessage(null)
-    setPendingPrintJobId(null)
-    setPendingSnapshots(null)
-    pendingPdfRef.current = null
 
+    const typeAtStart = postcardType
     let printJobId: string | null = null
     let withVisibility: PrintJobItem[] | null = null
     try {
@@ -216,18 +220,35 @@ export function PrintPreviewPage() {
       try {
         await createPostcardSendsBatch({
           printJobId,
-          postcardType,
+          postcardType: typeAtStart,
           items: withVisibility,
         })
-        printJobId = null
-        pdf.save(`postcard-address-${Date.now()}.pdf`)
-        setStatusMessage(PRINT_COMPLETE_MESSAGE)
       } catch (sendErr) {
         console.error('create_postcard_sends_batch failed:', sendErr)
         setPendingPrintJobId(printJobId)
         setPendingSnapshots(withVisibility)
+        pendingTypeRef.current = typeAtStart
         pendingPdfRef.current = pdf
+        setPendingDownloadOnly(false)
         setError(PRINT_SEND_FAILED_MESSAGE)
+        return
+      }
+
+      // 送付成功後は保留ジョブを解放してから PDF 保存（save 失敗を送付失敗と誤認しない）
+      printJobId = null
+      setPendingPrintJobId(null)
+      setPendingSnapshots(null)
+      pendingTypeRef.current = null
+      try {
+        pdf.save(`postcard-address-${Date.now()}.pdf`)
+        pendingPdfRef.current = null
+        setPendingDownloadOnly(false)
+        setStatusMessage(PRINT_COMPLETE_MESSAGE)
+      } catch (saveErr) {
+        console.error('pdf.save failed after send:', saveErr)
+        pendingPdfRef.current = pdf
+        setPendingDownloadOnly(true)
+        setError(PRINT_PDF_SAVE_FAILED_AFTER_SEND_MESSAGE)
       }
     } catch (e) {
       console.error('print failed:', e)
@@ -235,29 +256,55 @@ export function PrintPreviewPage() {
       setError(PRINT_OPERATION_ERROR_MESSAGE)
     } finally {
       setBusy(false)
+      printingRef.current = false
     }
   }
 
   const handleRetrySend = async () => {
-    if (busy || !pendingPrintJobId || !pendingSnapshots) return
+    if (printingRef.current || busy || !pendingPrintJobId || !pendingSnapshots) return
+    printingRef.current = true
     setBusy(true)
     setError(null)
+    const typeForRetry = pendingTypeRef.current ?? postcardType
     try {
       await createPostcardSendsBatch({
         printJobId: pendingPrintJobId,
-        postcardType,
+        postcardType: typeForRetry,
         items: pendingSnapshots,
       })
       setPendingPrintJobId(null)
       setPendingSnapshots(null)
-      pendingPdfRef.current?.save(`postcard-address-${Date.now()}.pdf`)
-      pendingPdfRef.current = null
-      setStatusMessage(PRINT_COMPLETE_MESSAGE)
+      pendingTypeRef.current = null
+      try {
+        pendingPdfRef.current?.save(`postcard-address-${Date.now()}.pdf`)
+        pendingPdfRef.current = null
+        setPendingDownloadOnly(false)
+        setStatusMessage(PRINT_COMPLETE_MESSAGE)
+      } catch (saveErr) {
+        console.error('pdf.save failed after retry send:', saveErr)
+        setPendingDownloadOnly(true)
+        setError(PRINT_PDF_SAVE_FAILED_AFTER_SEND_MESSAGE)
+      }
     } catch (e) {
       console.error('retry send failed:', e)
       setError(PRINT_SEND_FAILED_MESSAGE)
     } finally {
       setBusy(false)
+      printingRef.current = false
+    }
+  }
+
+  const handleRedownloadPdf = () => {
+    if (!pendingPdfRef.current) return
+    try {
+      pendingPdfRef.current.save(`postcard-address-${Date.now()}.pdf`)
+      pendingPdfRef.current = null
+      setPendingDownloadOnly(false)
+      setError(null)
+      setStatusMessage(PRINT_COMPLETE_MESSAGE)
+    } catch (e) {
+      console.error('pdf redownload failed:', e)
+      setError(PRINT_PDF_SAVE_FAILED_AFTER_SEND_MESSAGE)
     }
   }
 
@@ -281,7 +328,7 @@ export function PrintPreviewPage() {
           <select
             value={postcardType}
             onChange={(e) => handleTypeChange(e.target.value as PostcardType)}
-            disabled={busy || job.prefsLoading}
+            disabled={busy || job.prefsLoading || !!pendingPrintJobId}
           >
             {POSTCARD_TYPE_OPTIONS.map((opt) => (
               <option key={opt.value} value={opt.value}>
@@ -301,13 +348,18 @@ export function PrintPreviewPage() {
           type="button"
           className="print-primary-button"
           onClick={handlePrint}
-          disabled={busy || items.length === 0}
+          disabled={busy || items.length === 0 || !!pendingPrintJobId}
         >
           {busy && !pendingPrintJobId ? '処理中…' : '印刷'}
         </button>
         {pendingPrintJobId && (
           <button type="button" onClick={handleRetrySend} disabled={busy}>
             再試行
+          </button>
+        )}
+        {pendingDownloadOnly && (
+          <button type="button" onClick={handleRedownloadPdf} disabled={busy}>
+            PDFを再ダウンロード
           </button>
         )}
         <button type="button" onClick={handleCancel} disabled={busy}>
