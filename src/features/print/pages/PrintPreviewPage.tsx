@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { useBlocker, useLocation, useNavigate } from 'react-router-dom'
 import { PostcardPreviewCanvas } from '../components/PostcardPreviewCanvas'
 import { PrintLayerPanel } from '../components/PrintLayerPanel'
 import {
@@ -14,20 +14,14 @@ import {
   PRINT_COMPLETE_MESSAGE,
   PRINT_NO_VALID_ITEMS_MESSAGE,
   PRINT_OPERATION_ERROR_MESSAGE,
-  PRINT_PDF_FAILED_MESSAGE,
   PRINT_PREFS_SAVED_MESSAGE,
-  PRINT_RESNAPSHOT_FAILED_MESSAGE,
   PRINT_RESOLVE_INVALID_MESSAGE,
   PRINT_SEND_FAILED_MESSAGE,
   PRINT_TYPE_CHANGE_UNSAVED_MESSAGE,
   PRINT_UNSAVED_LEAVE_MESSAGE,
 } from '../messages'
 import type { ExcludedAlert, PostcardType, PrintJobItem } from '../types'
-import {
-  invokeErrorMessage,
-  parseAddressEntriesInvalidError,
-  POSTCARD_TYPE_OPTIONS,
-} from '../types'
+import { parseAddressEntriesInvalidError, POSTCARD_TYPE_OPTIONS } from '../types'
 
 type LocationState = {
   items?: PrintJobItem[]
@@ -42,6 +36,9 @@ export function PrintPreviewPage() {
   const { postcardType, setPostcardType } = usePrintPostcardType()
 
   const [items, setItems] = useState<PrintJobItem[]>(state.items ?? [])
+  const [pageExcludedAlerts, setPageExcludedAlerts] = useState<ExcludedAlert[]>(
+    state.excludedAlerts ?? [],
+  )
   const [pageIndex, setPageIndex] = useState(0)
   const [loading, setLoading] = useState(!state.items)
   const [error, setError] = useState<string | null>(null)
@@ -50,6 +47,7 @@ export function PrintPreviewPage() {
   const [pendingPrintJobId, setPendingPrintJobId] = useState<string | null>(null)
   const [pendingSnapshots, setPendingSnapshots] = useState<PrintJobItem[] | null>(null)
   const pendingPdfRef = useRef<{ save: (name?: string) => void } | null>(null)
+  const bypassBlockerRef = useRef(false)
 
   const onItemsChange = useCallback((next: PrintJobItem[]) => {
     setItems(next)
@@ -60,6 +58,32 @@ export function PrintPreviewPage() {
     items,
     onItemsChange,
   })
+
+  const blocker = useBlocker(
+    ({ currentLocation, nextLocation }) =>
+      !bypassBlockerRef.current &&
+      job.isDirty &&
+      currentLocation.pathname !== nextLocation.pathname,
+  )
+
+  useEffect(() => {
+    if (blocker.state !== 'blocked') return
+    if (window.confirm(PRINT_UNSAVED_LEAVE_MESSAGE)) {
+      blocker.proceed()
+    } else {
+      blocker.reset()
+    }
+  }, [blocker])
+
+  useEffect(() => {
+    if (!job.isDirty) return
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault()
+      e.returnValue = ''
+    }
+    window.addEventListener('beforeunload', onBeforeUnload)
+    return () => window.removeEventListener('beforeunload', onBeforeUnload)
+  }, [job.isDirty])
 
   // Load items if navigated without state (e.g. refresh → back to select)
   useEffect(() => {
@@ -79,12 +103,14 @@ export function PrintPreviewPage() {
         if (cancelled) return
         if (result.items.length === 0) {
           setExcludedAlerts(result.excludedAlerts)
+          setPageExcludedAlerts(result.excludedAlerts)
           setError(PRINT_NO_VALID_ITEMS_MESSAGE)
           navigate('/print/select')
           return
         }
         setItems(job.ensureItemVisibility(result.items))
         setExcludedAlerts(result.excludedAlerts)
+        setPageExcludedAlerts(result.excludedAlerts)
       } catch (e) {
         if (cancelled) return
         const invalid = parseAddressEntriesInvalidError(e)
@@ -94,7 +120,8 @@ export function PrintPreviewPage() {
           navigate('/print/select')
           return
         }
-        setError(invokeErrorMessage(e) || PRINT_OPERATION_ERROR_MESSAGE)
+        console.error('resolve_print_job_items failed:', e)
+        setError(PRINT_OPERATION_ERROR_MESSAGE)
       } finally {
         if (!cancelled) setLoading(false)
       }
@@ -118,11 +145,15 @@ export function PrintPreviewPage() {
 
   const handleBack = () => {
     if (!confirmLeaveIfDirty()) return
-    navigate('/print/confirm', { state: { items } })
+    bypassBlockerRef.current = true
+    navigate('/print/confirm', {
+      state: { items, excludedAlerts: pageExcludedAlerts },
+    })
   }
 
   const handleCancel = () => {
     if (!confirmLeaveIfDirty()) return
+    bypassBlockerRef.current = true
     clearDraft()
     navigate('/addresses')
   }
@@ -152,7 +183,6 @@ export function PrintPreviewPage() {
     let printJobId: string | null = null
     try {
       const snapped = await resnapshotPrintJobItems(items)
-      // keep visibility from current items
       const withVisibility = snapped.map((item, i) => ({
         ...item,
         layerVisibility: items[i]?.layerVisibility ?? item.layerVisibility,
@@ -186,16 +216,8 @@ export function PrintPreviewPage() {
       }
     } catch (e) {
       console.error('print failed:', e)
-      // PDF failure or resnapshot — discard UUID
       printJobId = null
-      const msg = invokeErrorMessage(e)
-      if (msg.includes('archived') || msg.includes('not found') || msg.includes('見つかり')) {
-        setError(PRINT_RESNAPSHOT_FAILED_MESSAGE)
-      } else if (msg.includes('PDF') || msg.includes('キャンバス') || msg.includes('印刷対象')) {
-        setError(PRINT_PDF_FAILED_MESSAGE)
-      } else {
-        setError(msg || PRINT_OPERATION_ERROR_MESSAGE)
-      }
+      setError(PRINT_OPERATION_ERROR_MESSAGE)
     } finally {
       setBusy(false)
     }

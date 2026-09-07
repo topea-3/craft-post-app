@@ -1,4 +1,5 @@
 use crate::domain::print::postcard_send::PostcardSend;
+use uuid::Uuid;
 
 #[derive(Debug, thiserror::Error)]
 pub enum PostcardSendRepositoryError {
@@ -18,4 +19,10 @@ pub trait PostcardSendRepository {
     &self,
     sends: &[PostcardSend],
   ) -> Result<(), PostcardSendRepositoryError>;
+
+  /// 指定 print_job_id に既に存在する address_entry_id（未削除）を返す。
+  async fn list_address_entry_ids_for_print_job(
+    &self,
+    print_job_id: Uuid,
+  ) -> Result<Vec<Uuid>, PostcardSendRepositoryError>;
 }

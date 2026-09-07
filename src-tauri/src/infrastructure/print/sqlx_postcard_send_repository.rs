@@ -1,4 +1,5 @@
-use sqlx::SqlitePool;
+use sqlx::{Row, SqlitePool};
+use uuid::Uuid;
 
 use crate::domain::print::postcard_send::PostcardSend;
 use crate::domain::print::postcard_send_repository::{
@@ -90,5 +91,32 @@ impl PostcardSendRepository for SqlxPostcardSendRepository {
 
     tx.commit().await?;
     Ok(())
+  }
+
+  async fn list_address_entry_ids_for_print_job(
+    &self,
+    print_job_id: Uuid,
+  ) -> Result<Vec<Uuid>, PostcardSendRepositoryError> {
+    let job = print_job_id.to_string();
+    let rows = sqlx::query(
+      r#"
+        SELECT address_entry_id
+        FROM postcard_sends
+        WHERE print_job_id = ? AND deleted_at IS NULL
+      "#,
+    )
+    .bind(&job)
+    .fetch_all(&self.pool)
+    .await?;
+
+    let mut ids = Vec::with_capacity(rows.len());
+    for row in rows {
+      let id_str: String = row.get("address_entry_id");
+      let uuid = Uuid::parse_str(&id_str).map_err(|e| {
+        PostcardSendRepositoryError::InvalidPersistedData(e.to_string())
+      })?;
+      ids.push(uuid);
+    }
+    Ok(ids)
   }
 }

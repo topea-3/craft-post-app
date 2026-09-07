@@ -52,6 +52,39 @@ use crate::infrastructure::sender::sqlx_sender_entry_repository::SqlxSenderEntry
 const MAX_PAGE_LIMIT: i64 = 200;
 /// 印刷ジョブの宛名選択上限（設計 FR-01）
 const MAX_PRINT_ADDRESS_ENTRY_IDS: usize = 200;
+/// レイアウト prefs の layer_id allowlist（フロント ALL_PRINT_LAYER_IDS と同期）
+const PRINT_LAYER_ID_ALLOWLIST: &[&str] = &[
+  "recipient.postalCode",
+  "recipient.address1",
+  "recipient.address2",
+  "recipient.address3",
+  "recipient.primaryLast",
+  "recipient.primaryFirst",
+  "recipient.honorific",
+  "recipient.coLast.1",
+  "recipient.coFirst.1",
+  "recipient.coHonorific.1",
+  "recipient.coLast.2",
+  "recipient.coFirst.2",
+  "recipient.coHonorific.2",
+  "recipient.coLast.3",
+  "recipient.coFirst.3",
+  "recipient.coHonorific.3",
+  "sender.postalCode",
+  "sender.address1",
+  "sender.address2",
+  "sender.address3",
+  "sender.primaryLast",
+  "sender.primaryFirst",
+  "sender.coLast.1",
+  "sender.coFirst.1",
+  "sender.coLast.2",
+  "sender.coFirst.2",
+  "sender.coLast.3",
+  "sender.coFirst.3",
+  "sender.coLast.4",
+  "sender.coFirst.4",
+];
 /// 連名の上限（UI と同一。API 直叩き対策でサーバー側でも検証する）
 const MAX_CO_RECIPIENTS: usize = 3;
 const MAX_SENDER_CO_RECIPIENTS: usize = 4;
@@ -1613,6 +1646,10 @@ fn truncate_print_ids(mut ids: Vec<String>) -> Vec<String> {
   ids
 }
 
+fn is_allowed_print_layer_id(layer_id: &str) -> bool {
+  PRINT_LAYER_ID_ALLOWLIST.contains(&layer_id)
+}
+
 #[tauri::command]
 async fn filter_active_address_entry_ids(
   pool: State<'_, SqlitePool>,
@@ -1632,25 +1669,48 @@ async fn filter_active_address_entry_ids_impl(
     return Ok(vec![]);
   }
 
-  let repo = SqlxAddressEntryRepository::new(pool.clone());
-  let mut active = Vec::new();
-  for id_str in address_entry_ids {
-    let Ok(uuid) = Uuid::parse_str(&id_str) else {
+  let mut valid_ordered: Vec<String> = Vec::new();
+  let mut uuid_strings: Vec<String> = Vec::new();
+  for id_str in &address_entry_ids {
+    if Uuid::parse_str(id_str).is_err() {
       continue;
-    };
-    let entry = repo
-      .find_by_id(&AddressEntryId::from_uuid(uuid))
-      .await
-      .map_err(|e| {
-        log::error!("filter_active_address_entry_ids failed: {:?}", e);
-        String::from(AppError::Repository("PRINT_FILTER_ACTIVE_FAILED".to_string()))
-      })?;
-    match entry {
-      Some(e) if !e.archived() => active.push(id_str),
-      _ => {}
     }
+    valid_ordered.push(id_str.clone());
+    uuid_strings.push(id_str.clone());
   }
-  Ok(active)
+  if uuid_strings.is_empty() {
+    return Ok(vec![]);
+  }
+
+  let placeholders = uuid_strings
+    .iter()
+    .enumerate()
+    .map(|(i, _)| format!("?{}", i + 1))
+    .collect::<Vec<_>>()
+    .join(", ");
+  let sql = format!(
+    "SELECT id FROM address_entries WHERE archived_at IS NULL AND id IN ({placeholders})"
+  );
+  let mut query = sqlx::query(&sql);
+  for id in &uuid_strings {
+    query = query.bind(id);
+  }
+  let rows = query.fetch_all(pool).await.map_err(|e| {
+    log::error!("filter_active_address_entry_ids failed: {:?}", e);
+    String::from(AppError::Repository("PRINT_FILTER_ACTIVE_FAILED".to_string()))
+  })?;
+
+  let active: std::collections::HashSet<String> = rows
+    .into_iter()
+    .map(|row| row.get::<String, _>("id"))
+    .collect();
+
+  Ok(
+    valid_ordered
+      .into_iter()
+      .filter(|id| active.contains(id))
+      .collect(),
+  )
 }
 
 #[tauri::command]
@@ -1665,26 +1725,65 @@ async fn resolve_print_job_items_impl(
   pool: &SqlitePool,
   address_entry_ids: Vec<String>,
 ) -> Result<ResolvePrintJobItemsResult, String> {
+  use crate::infrastructure::address::sqlx_address_entry_repository::build_entries_with_co_recipients;
+
   let address_entry_ids = truncate_print_ids(address_entry_ids);
-  let address_repo = SqlxAddressEntryRepository::new(pool.clone());
   let sender_repo = SqlxSenderEntryRepository::new(pool.clone());
 
   let mut offending: Vec<(String, &'static str)> = Vec::new();
-  let mut resolved_entries: Vec<(String, AddressEntry)> = Vec::new();
-
+  let mut ordered_valid: Vec<String> = Vec::new();
   for id_str in &address_entry_ids {
-    let Ok(uuid) = Uuid::parse_str(id_str) else {
+    if Uuid::parse_str(id_str).is_err() {
       offending.push((id_str.clone(), "not_found"));
       continue;
-    };
-    let entry = address_repo
-      .find_by_id(&AddressEntryId::from_uuid(uuid))
-      .await
-      .map_err(|e| {
+    }
+    ordered_valid.push(id_str.clone());
+  }
+
+  let mut entry_by_id: std::collections::HashMap<String, AddressEntry> =
+    std::collections::HashMap::new();
+  if !ordered_valid.is_empty() {
+    const IN_CHUNK_SIZE: usize = 100;
+    for chunk in ordered_valid.chunks(IN_CHUNK_SIZE) {
+      let placeholders = chunk
+        .iter()
+        .enumerate()
+        .map(|(i, _)| format!("?{}", i + 1))
+        .collect::<Vec<_>>()
+        .join(",");
+      let sql = format!(
+        r#"
+          SELECT
+            id, primary_last, primary_first, primary_kana_last, primary_kana_first,
+            honorific, postal_code, prefecture, city, street, building, memo,
+            archived_at, created_at, updated_at
+          FROM address_entries
+          WHERE id IN ({placeholders})
+        "#
+      );
+      let mut q = sqlx::query(&sql);
+      for id in chunk {
+        q = q.bind(id);
+      }
+      let rows = q.fetch_all(pool).await.map_err(|e| {
         log::error!("resolve_print_job_items address lookup failed: {:?}", e);
         String::from(AppError::Repository("PRINT_RESOLVE_FAILED".to_string()))
       })?;
-    match entry {
+      let entries = build_entries_with_co_recipients(rows, pool)
+        .await
+        .map_err(|e| {
+          log::error!("resolve_print_job_items address assemble failed: {:?}", e);
+          String::from(AppError::Repository("PRINT_RESOLVE_FAILED".to_string()))
+        })?;
+      for entry in entries {
+        entry_by_id.insert(entry.id().as_uuid().to_string(), entry);
+      }
+    }
+  }
+
+  let mut resolved_entries: Vec<(String, AddressEntry)> = Vec::new();
+  for id_str in &ordered_valid {
+    match entry_by_id.remove(id_str) {
       None => offending.push((id_str.clone(), "not_found")),
       Some(e) if e.archived() => offending.push((id_str.clone(), "archived")),
       Some(e) => resolved_entries.push((id_str.clone(), e)),
@@ -1695,20 +1794,57 @@ async fn resolve_print_job_items_impl(
     return Err(address_entries_invalid_error(&offending));
   }
 
+  // 差出人リンクをバッチ取得
+  let mut link_by_address: std::collections::HashMap<String, String> =
+    std::collections::HashMap::new();
+  if !resolved_entries.is_empty() {
+    let addr_ids: Vec<String> = resolved_entries.iter().map(|(id, _)| id.clone()).collect();
+    const IN_CHUNK_SIZE: usize = 100;
+    for chunk in addr_ids.chunks(IN_CHUNK_SIZE) {
+      let placeholders = chunk
+        .iter()
+        .enumerate()
+        .map(|(i, _)| format!("?{}", i + 1))
+        .collect::<Vec<_>>()
+        .join(",");
+      let sql = format!(
+        r#"
+          SELECT address_entry_id, sender_entry_id, updated_at
+          FROM sender_address_links
+          WHERE address_entry_id IN ({placeholders})
+          ORDER BY updated_at DESC
+        "#
+      );
+      let mut q = sqlx::query(&sql);
+      for id in chunk {
+        q = q.bind(id);
+      }
+      let rows = q.fetch_all(pool).await.map_err(|e| {
+        log::error!("resolve_print_job_items sender link lookup failed: {:?}", e);
+        String::from(AppError::Repository("PRINT_RESOLVE_FAILED".to_string()))
+      })?;
+      for row in rows {
+        let address_id: String = row.get("address_entry_id");
+        let sender_id: String = row.get("sender_entry_id");
+        // ORDER BY updated_at DESC なので初出が最新
+        link_by_address.entry(address_id).or_insert(sender_id);
+      }
+    }
+  }
+
   let mut items = Vec::new();
   let mut excluded = Vec::new();
 
   for (id_str, address_entry) in resolved_entries {
-    let address_uuid = address_entry.id().as_uuid();
-    let sender_id = sender_repo
-      .find_sender_id_by_address_entry_id(address_uuid)
-      .await
-      .map_err(|e| {
-        log::error!("resolve_print_job_items sender link lookup failed: {:?}", e);
-        String::from(AppError::Repository("PRINT_RESOLVE_FAILED".to_string()))
-      })?;
+    let Some(sender_id_str) = link_by_address.get(&id_str) else {
+      excluded.push(ExcludedAlertDto {
+        address_entry_id: id_str,
+        reason: "no_sender_link".to_string(),
+      });
+      continue;
+    };
 
-    let Some(sender_id) = sender_id else {
+    let Ok(sender_uuid) = Uuid::parse_str(sender_id_str) else {
       excluded.push(ExcludedAlertDto {
         address_entry_id: id_str,
         reason: "no_sender_link".to_string(),
@@ -1717,7 +1853,7 @@ async fn resolve_print_job_items_impl(
     };
 
     let sender_entry = sender_repo
-      .find_by_id(&sender_id)
+      .find_by_id(&SenderEntryId::from_uuid(sender_uuid))
       .await
       .map_err(|e| {
         log::error!("resolve_print_job_items sender lookup failed: {:?}", e);
@@ -1725,7 +1861,6 @@ async fn resolve_print_job_items_impl(
       })?;
 
     let Some(sender_entry) = sender_entry else {
-      // リンク先が消えている場合は未紐づけと同様に除外
       excluded.push(ExcludedAlertDto {
         address_entry_id: id_str,
         reason: "no_sender_link".to_string(),
@@ -1871,12 +2006,41 @@ async fn save_print_layout_preferences_impl(
 ) -> Result<(), String> {
   let postcard_type = PostcardType::from_str(&postcard_type)
     .map_err(|e| String::from(AppError::Validation(e.to_string())))?;
-  let prefs: Vec<PrintLayoutPreference> = offsets
-    .into_iter()
-    .map(|o| {
-      PrintLayoutPreference::create_new(postcard_type, o.layer_id, o.offset_x_pt, o.offset_y_pt)
-    })
-    .collect();
+  if offsets.len() > PRINT_LAYER_ID_ALLOWLIST.len() {
+    return Err(String::from(AppError::Validation(format!(
+      "layout offsets exceed max {}",
+      PRINT_LAYER_ID_ALLOWLIST.len()
+    ))));
+  }
+
+  let mut prefs = Vec::with_capacity(offsets.len());
+  let mut seen_layers = std::collections::HashSet::new();
+  for o in offsets {
+    if !is_allowed_print_layer_id(&o.layer_id) {
+      return Err(String::from(AppError::Validation(format!(
+        "unknown layer_id: {}",
+        o.layer_id
+      ))));
+    }
+    if !o.offset_x_pt.is_finite() || !o.offset_y_pt.is_finite() {
+      return Err(String::from(AppError::Validation(
+        "offset must be a finite number".to_string(),
+      )));
+    }
+    if !seen_layers.insert(o.layer_id.clone()) {
+      return Err(String::from(AppError::Validation(format!(
+        "duplicate layer_id: {}",
+        o.layer_id
+      ))));
+    }
+    prefs.push(PrintLayoutPreference::create_new(
+      postcard_type,
+      o.layer_id,
+      o.offset_x_pt,
+      o.offset_y_pt,
+    ));
+  }
+
   let repo = SqlxPrintLayoutPreferenceRepository::new(pool.clone());
   repo.save_all(postcard_type, &prefs).await.map_err(|e| {
     log::error!("save_print_layout_preferences failed: {:?}", e);
@@ -1902,8 +2066,24 @@ async fn create_postcard_sends_batch_impl(
   let postcard_type = PostcardType::from_str(&input.postcard_type)
     .map_err(|e| String::from(AppError::Validation(e.to_string())))?;
 
-  let mut sends = Vec::with_capacity(input.items.len());
+  if input.items.len() > MAX_PRINT_ADDRESS_ENTRY_IDS {
+    return Err(String::from(AppError::Validation(format!(
+      "print batch exceeds max {} items",
+      MAX_PRINT_ADDRESS_ENTRY_IDS
+    ))));
+  }
+
+  // address_entry_id 重複を除去（同一バッチ内 UNIQUE 衝突の誤冪等を防ぐ）
+  let mut seen_address = std::collections::HashSet::new();
+  let mut unique_items = Vec::with_capacity(input.items.len());
   for item in input.items {
+    if seen_address.insert(item.address_entry_id.clone()) {
+      unique_items.push(item);
+    }
+  }
+
+  let mut sends = Vec::with_capacity(unique_items.len());
+  for item in unique_items {
     let address_entry_id = Uuid::parse_str(&item.address_entry_id)
       .map_err(|e| String::from(AppError::Validation(e.to_string())))?;
     let sender_entry_id = Uuid::parse_str(&item.sender_entry_id)
@@ -1929,12 +2109,36 @@ async fn create_postcard_sends_batch_impl(
     ));
   }
 
+  let requested_address_ids: std::collections::HashSet<Uuid> =
+    sends.iter().map(|s| s.address_entry_id()).collect();
+
   let repo = SqlxPostcardSendRepository::new(pool.clone());
   match repo.create_batch(&sends).await {
     Ok(()) => Ok(()),
     Err(PostcardSendRepositoryError::Conflict) => {
-      // 同一 print_job_id の再試行: 冪等成功
-      Ok(())
+      // 正しい再試行のみ冪等成功: 要求 ID がすべて既存であること
+      let existing = repo
+        .list_address_entry_ids_for_print_job(print_job_id)
+        .await
+        .map_err(|e| {
+          log::error!(
+            "create_postcard_sends_batch conflict verify failed: {:?}",
+            e
+          );
+          String::from(AppError::Repository("PRINT_SEND_CREATE_FAILED".to_string()))
+        })?;
+      let existing_set: std::collections::HashSet<Uuid> = existing.into_iter().collect();
+      if !requested_address_ids.is_empty()
+        && requested_address_ids
+          .iter()
+          .all(|id| existing_set.contains(id))
+      {
+        Ok(())
+      } else {
+        Err(String::from(AppError::Repository(
+          "PRINT_SEND_CREATE_FAILED".to_string(),
+        )))
+      }
     }
     Err(e) => {
       log::error!("create_postcard_sends_batch failed: {:?}", e);

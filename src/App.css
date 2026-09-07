@@ -714,9 +714,26 @@
 
 .print-preview-canvas-wrap-capture {
   position: fixed;
-  left: -10000px;
+  left: 0;
   top: 0;
+  visibility: hidden;
   pointer-events: none;
+  z-index: -1;
+}
+
+.print-preview-canvas-wrap-capture .print-preview-canvas {
+  border: none;
+  box-shadow: none;
+  box-sizing: border-box;
+}
+
+.print-pdf-capture-host {
+  position: fixed;
+  left: 0;
+  top: 0;
+  visibility: hidden;
+  pointer-events: none;
+  z-index: -1;
 }
 
 .print-preview-canvas {
@@ -729,6 +746,7 @@
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
   font-family: 'Noto Serif JP', 'Yu Mincho', 'Hiragino Mincho ProN', serif;
   overflow: hidden;
+  box-sizing: border-box;
 }
 
 .print-preview-postcard-guide {

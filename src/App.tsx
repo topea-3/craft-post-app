@@ -1,5 +1,5 @@
 import './App.css'
-import { BrowserRouter, NavLink, Route, Routes } from 'react-router-dom'
+import { createBrowserRouter, NavLink, Outlet, RouterProvider } from 'react-router-dom'
 import { AddressEntryCreatePage } from './features/address/AddressEntryCreatePage'
 import { AddressEntryListPage } from './features/address/AddressEntryListPage'
 import { AddressEntryDetailPage } from './features/address/AddressEntryDetailPage'
@@ -16,7 +16,7 @@ import { PrintSelectPage } from './features/print/pages/PrintSelectPage'
 import { PrintConfirmPage } from './features/print/pages/PrintConfirmPage'
 import { PrintPreviewPage } from './features/print/pages/PrintPreviewPage'
 
-function App() {
+function AppLayout() {
   const navigationItems = [
     { to: '/addresses', label: '住所録一覧' },
     { to: '/addresses/new', label: '住所録新規作成' },
@@ -28,62 +28,57 @@ function App() {
   ]
 
   return (
-    <BrowserRouter>
-      <div className="app-layout">
-        <aside className="app-sidebar" aria-label="サイドメニュー">
-          <h1 className="app-sidebar-title">メニュー</h1>
-          <nav className="app-nav">
-            {navigationItems.map((item) => (
-              <NavLink
-                key={item.to}
-                to={item.to}
-                className={({ isActive }) =>
-                  `app-nav-link${isActive ? ' app-nav-link-active' : ''}`
-                }
-              >
-                {item.label}
-              </NavLink>
-            ))}
-          </nav>
-        </aside>
-        <main className="app-main">
-          <Routes>
-            <Route
-              path="/"
-              element={<AddressEntryListPage />}
-            />
-            <Route
-              path="/addresses"
-              element={<AddressEntryListPage />}
-            />
-            <Route
-              path="/addresses/new"
-              element={<AddressEntryCreatePage />}
-            />
-            <Route
-              path="/addresses/:id"
-              element={<AddressEntryDetailPage />}
-            />
-            <Route
-              path="/addresses/:id/edit"
-              element={<AddressEntryEditPage />}
-            />
-            <Route path="/senders" element={<SenderEntryListPage />} />
-            <Route path="/senders/new" element={<SenderEntryCreatePage />} />
-            <Route path="/senders/:id" element={<SenderEntryDetailPage />} />
-            <Route path="/senders/:id/edit" element={<SenderEntryEditPage />} />
-            <Route path="/receipts" element={<PostcardReceiptListPage />} />
-            <Route path="/receipts/new" element={<PostcardReceiptCreatePage />} />
-            <Route path="/receipts/:id" element={<PostcardReceiptDetailPage />} />
-            <Route path="/receipts/:id/edit" element={<PostcardReceiptEditPage />} />
-            <Route path="/print/select" element={<PrintSelectPage />} />
-            <Route path="/print/confirm" element={<PrintConfirmPage />} />
-            <Route path="/print/preview" element={<PrintPreviewPage />} />
-          </Routes>
-        </main>
-      </div>
-    </BrowserRouter>
+    <div className="app-layout">
+      <aside className="app-sidebar" aria-label="サイドメニュー">
+        <h1 className="app-sidebar-title">メニュー</h1>
+        <nav className="app-nav">
+          {navigationItems.map((item) => (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              className={({ isActive }) =>
+                `app-nav-link${isActive ? ' app-nav-link-active' : ''}`
+              }
+            >
+              {item.label}
+            </NavLink>
+          ))}
+        </nav>
+      </aside>
+      <main className="app-main">
+        <Outlet />
+      </main>
+    </div>
   )
+}
+
+const router = createBrowserRouter([
+  {
+    path: '/',
+    element: <AppLayout />,
+    children: [
+      { index: true, element: <AddressEntryListPage /> },
+      { path: 'addresses', element: <AddressEntryListPage /> },
+      { path: 'addresses/new', element: <AddressEntryCreatePage /> },
+      { path: 'addresses/:id', element: <AddressEntryDetailPage /> },
+      { path: 'addresses/:id/edit', element: <AddressEntryEditPage /> },
+      { path: 'senders', element: <SenderEntryListPage /> },
+      { path: 'senders/new', element: <SenderEntryCreatePage /> },
+      { path: 'senders/:id', element: <SenderEntryDetailPage /> },
+      { path: 'senders/:id/edit', element: <SenderEntryEditPage /> },
+      { path: 'receipts', element: <PostcardReceiptListPage /> },
+      { path: 'receipts/new', element: <PostcardReceiptCreatePage /> },
+      { path: 'receipts/:id', element: <PostcardReceiptDetailPage /> },
+      { path: 'receipts/:id/edit', element: <PostcardReceiptEditPage /> },
+      { path: 'print/select', element: <PrintSelectPage /> },
+      { path: 'print/confirm', element: <PrintConfirmPage /> },
+      { path: 'print/preview', element: <PrintPreviewPage /> },
+    ],
+  },
+])
+
+function App() {
+  return <RouterProvider router={router} />
 }
 
 export default App

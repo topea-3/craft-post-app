@@ -1,4 +1,5 @@
 import { createRoot } from 'react-dom/client'
+import { flushSync } from 'react-dom'
 import html2canvas from 'html2canvas'
 import { jsPDF } from 'jspdf'
 import { PostcardPreviewCanvas } from '../../components/PostcardPreviewCanvas'
@@ -43,28 +44,23 @@ export async function renderPrintPdf(params: RenderPrintPdfParams): Promise<jsPD
       host.replaceChildren(pageRoot)
       const root = createRoot(pageRoot)
 
-      await new Promise<void>((resolve, reject) => {
-        try {
-          root.render(
-            <PostcardPreviewCanvas
-              item={item}
-              layoutSpec={layoutSpec}
-              layoutOffsets={layoutOffsets}
-              selectedLayerId={null}
-              onSelectLayer={() => {}}
-              onOffsetChange={() => {}}
-              captureMode
-            />,
-          )
-          requestAnimationFrame(() => {
-            requestAnimationFrame(() => resolve())
-          })
-        } catch (e) {
-          reject(e)
-        }
+      flushSync(() => {
+        root.render(
+          <PostcardPreviewCanvas
+            item={item}
+            layoutSpec={layoutSpec}
+            layoutOffsets={layoutOffsets}
+            selectedLayerId={null}
+            onSelectLayer={() => {}}
+            onOffsetChange={() => {}}
+            captureMode
+          />,
+        )
       })
 
-      await new Promise((r) => setTimeout(r, 50))
+      if (document.fonts?.ready) {
+        await document.fonts.ready
+      }
 
       const canvasEl = pageRoot.querySelector('[data-print-canvas="true"]') as HTMLElement | null
       if (!canvasEl) {
@@ -79,11 +75,11 @@ export async function renderPrintPdf(params: RenderPrintPdfParams): Promise<jsPD
         logging: false,
       })
 
-      const imgData = canvas.toDataURL('image/jpeg', 0.95)
+      const imgData = canvas.toDataURL('image/png')
       if (i > 0) {
         pdf.addPage([width, height], 'portrait')
       }
-      pdf.addImage(imgData, 'JPEG', 0, 0, width, height)
+      pdf.addImage(imgData, 'PNG', 0, 0, width, height)
 
       canvas.width = 0
       canvas.height = 0

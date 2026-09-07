@@ -12,7 +12,6 @@ import {
   excludedReasonLabel,
   formatRecipientDisplayName,
   formatSenderDisplayNameFromSnapshot,
-  invokeErrorMessage,
   parseAddressEntriesInvalidError,
 } from '../types'
 
@@ -68,7 +67,7 @@ export function PrintConfirmPage() {
           return
         }
         console.error('resolve on confirm failed:', e)
-        setError(invokeErrorMessage(e) || PRINT_OPERATION_ERROR_MESSAGE)
+        setError(PRINT_OPERATION_ERROR_MESSAGE)
       } finally {
         if (!cancelled) setLoading(false)
       }

@@ -21,7 +21,6 @@ import {
 } from '../messages'
 import {
   excludedReasonLabel,
-  invokeErrorMessage,
   MAX_PRINT_SELECTION,
   parseAddressEntriesInvalidError,
 } from '../types'
@@ -122,8 +121,10 @@ export function PrintSelectPage() {
   }, [items])
 
   const handleToggle = (id: string, excluded: boolean) => {
-    if (excluded) return
-    if (!selectedIds.includes(id) && selectedIds.length >= MAX_PRINT_SELECTION) {
+    const checked = selectedIds.includes(id)
+    // 除外行でも既選択なら解除を許可（ラベル遅延到着でロックされるのを防ぐ）
+    if (excluded && !checked) return
+    if (!checked && selectedIds.length >= MAX_PRINT_SELECTION) {
       setBannerError(PRINT_SELECT_MAX_MESSAGE)
       return
     }
@@ -160,7 +161,7 @@ export function PrintSelectPage() {
         return
       }
       console.error('resolve_print_job_items failed:', e)
-      setBannerError(invokeErrorMessage(e) || PRINT_OPERATION_ERROR_MESSAGE)
+      setBannerError(PRINT_OPERATION_ERROR_MESSAGE)
     } finally {
       setResolving(false)
     }
@@ -229,7 +230,7 @@ export function PrintSelectPage() {
                     <input
                       type="checkbox"
                       checked={checked}
-                      disabled={excluded || (!checked && selectedCount >= MAX_PRINT_SELECTION)}
+                      disabled={!checked && (excluded || selectedCount >= MAX_PRINT_SELECTION)}
                       onChange={() => handleToggle(item.id, excluded)}
                       aria-label={`${formatDisplayName(item.primaryName, item.coRecipients)} を選択`}
                     />
@@ -251,11 +252,17 @@ export function PrintSelectPage() {
 
       {excludedAlerts.length > 0 && (
         <ul className="print-excluded-list">
-          {excludedAlerts.map((a) => (
-            <li key={a.addressEntryId}>
-              {a.addressEntryId}: {excludedReasonLabel(a.reason)}
-            </li>
-          ))}
+          {excludedAlerts.map((a) => {
+            const row = items.find((item) => item.id === a.addressEntryId)
+            const label = row
+              ? formatDisplayName(row.primaryName, row.coRecipients)
+              : a.addressEntryId
+            return (
+              <li key={a.addressEntryId}>
+                {label}: {excludedReasonLabel(a.reason)}
+              </li>
+            )
+          })}
         </ul>
       )}
 

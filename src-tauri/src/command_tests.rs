@@ -981,5 +981,70 @@ mod tests {
     let today = chrono::Local::now().date_naive().format("%Y-%m-%d").to_string();
     assert_eq!(sent_on, today);
   }
+
+  #[tokio::test]
+  async fn create_postcard_sends_batch_dedupes_duplicate_address_in_same_batch() {
+    let pool = setup_pool().await;
+    let address_id = Uuid::new_v4();
+    insert_address_entry(&pool, address_id, false).await;
+    create_sender_entry_impl(&pool, sample_sender_dto("送付重複差出人"))
+      .await
+      .expect("create sender");
+    let sender_id = fetch_sender_id_by_label(&pool, "送付重複差出人").await;
+
+    let print_job_id = Uuid::new_v4().to_string();
+    let item = CreatePostcardSendItemDto {
+      address_entry_id: address_id.to_string(),
+      sender_entry_id: sender_id.clone(),
+      address_snapshot: sample_address_snapshot(&address_id.to_string()),
+      sender_snapshot: sample_sender_snapshot(&sender_id),
+    };
+    let input = CreatePostcardSendsBatchInput {
+      print_job_id: print_job_id.clone(),
+      postcard_type: "nenga".to_string(),
+      items: vec![item.clone(), item],
+    };
+
+    create_postcard_sends_batch_impl(&pool, input)
+      .await
+      .expect("duplicate address in batch should succeed after dedupe");
+
+    let count: i64 = sqlx::query_scalar(
+      "SELECT COUNT(*) FROM postcard_sends WHERE print_job_id = ? AND deleted_at IS NULL",
+    )
+    .bind(&print_job_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(count, 1);
+  }
+
+  #[tokio::test]
+  async fn save_print_layout_preferences_rejects_unknown_layer() {
+    let pool = setup_pool().await;
+    let offsets = vec![PrintLayoutPreferenceDto {
+      layer_id: "not.a.real.layer".to_string(),
+      offset_x_pt: 1.0,
+      offset_y_pt: 2.0,
+    }];
+    let err = save_print_layout_preferences_impl(&pool, "nenga".to_string(), offsets)
+      .await
+      .expect_err("unknown layer should fail");
+    assert!(err.contains("unknown layer_id") || err.contains("not.a.real.layer"));
+  }
+
+  #[tokio::test]
+  async fn save_print_layout_preferences_rejects_non_finite_offset() {
+    let pool = setup_pool().await;
+    let offsets = vec![PrintLayoutPreferenceDto {
+      layer_id: "recipient.postalCode".to_string(),
+      offset_x_pt: f64::NAN,
+      offset_y_pt: 0.0,
+    }];
+    let err = save_print_layout_preferences_impl(&pool, "nenga".to_string(), offsets)
+      .await
+      .expect_err("NaN offset should fail");
+    assert!(err.contains("finite"));
+  }
 }
 
