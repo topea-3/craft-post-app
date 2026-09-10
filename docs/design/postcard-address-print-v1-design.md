@@ -90,7 +90,7 @@ v1.0.0 では年賀状・喪中はがき等の**宛名面印刷**を、住所録
 | `mochu` | 喪中はがき | ○ | `mochu`（同一値） |
 | `other` | その他 | ×（印刷対象外） | `other` |
 
-「受取履歴に基づく送付候補抽出」（[postcard-send-v1-design.md](./postcard-send-v1-design.md) / 受取 §5.1.4）では `category` / `postcard_type` を共通キーとして参照できる。
+「受取履歴に基づく送付候補抽出」（[postcard-send-v1-design.md](./postcard-send-v1-design.md) / 受取 §5.1.4）では、値の語彙（`nenga` / `mochu`）は揃っているが、送付状況の受取限定は**年のみ**で `category` では絞らない（送付設計 §5.1.4 / §9）。
 
 ---
 

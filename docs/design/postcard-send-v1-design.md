@@ -374,6 +374,9 @@ ALTER TABLE postcard_sends ADD COLUMN memo TEXT;
 #### 5.4.2 履歴タブ（SND001）要点
 
 - フィルタ: 送付年、種別、登録経路（任意）
+- **送付年 option**: `{ 全期間 } ∪ { 今年 } ∪ list_postcard_send_years`（受取一覧 `buildYearOptions` と同型）。デフォルトは**全期間**（`year` 未送信）
+- 選択中の年が `list_postcard_send_years` から消えても option に残す（受取一覧の years 失敗時と同じ）
+- **フィルタ state はタブごとに独立**（status の対象年・受取年・sent/unsent・受取限定を履歴に持ち越さない。URL の `year` もタブ共有しない）
 - 検索: 宛名・差出人・メモ
 - カラム: 送付日 / 種別 / 宛名 / 差出人 / 経路 / メモ抜粋（**先頭 30 コードポイント**。UTF-16 `slice` 禁止） / 操作
 - 行クリック → SND004
@@ -402,14 +405,16 @@ ALTER TABLE postcard_sends ADD COLUMN memo TEXT;
 
 | セレクト | option 集合 | デフォルト | 備考 |
 |----------|-------------|------------|------|
-| 対象年 | `{ 今年, 今年-1 } ∪ list_postcard_send_years` | 今年 | **全期間なし**（必須セレクト） |
-| 受取年 | `{ 対象年, 対象年-1 } ∪ list_postcard_receipt_years` | `対象年 - 1` | チェック ON 時のデフォルト年は**必ず option に含める** |
+| 対象年（status） | `{ 今年, 今年-1 } ∪ list_postcard_send_years` | 今年 | **全期間なし**（必須セレクト）。履歴タブの年 option とは別（§5.4.2） |
+| 受取年（status） | `{ 対象年, 対象年-1 } ∪ list_postcard_receipt_years ∪ { 現在の receiptYear }` | `対象年 - 1` | チェック ON 時のデフォルト年および**現在選択値**は必ず option に含める |
 
-**受取年と API**
+**受取年と API・追従（方針 A）**
 
-- チェック OFF → `search_send_status` に `receiptYear` を送らない（null）。UI に残っていても API には出さない
+- チェック OFF → `search_send_status` に `receiptYear` を送らない（null）。UI の hidden 値は残してよいが API には出さない
 - チェック ON → `receiptYear` **必須**
-- 対象年変更時: 受取年をユーザーがまだ手動変更していなければ `対象年 - 1` に追従。手動変更済みなら維持
+- **未手動**の定義: ユーザーが受取年セレクトを一度も変えていない（初期値または追従のみ）
+- 対象年変更時（チェック ON/OFF 問わず）: **未手動なら** hidden / 表示の受取年を `対象年 - 1` に追従。**手動変更済みなら維持**（OFF→ON でもリセットしない）
+- option から外れないよう、常に現在の `receiptYear` を union する
 
 **行選択（ページ跨ぎ）**
 
@@ -484,7 +489,7 @@ sequenceDiagram
 | repository | CRUD、年/種別/keyword（ESCAPE・**snake_case json_extract**）、印刷 batch 作成行を住所録アーカイブ後に氏名検索できる、`search_send_status` の sent/unsent、**`receiptYear != year`**、archived 住所録が status から消える、items/total 同一 TX、種別変更後の sent/unsent 移動、`lastSentOn` が年フィルタ外、**kana ソート** |
 | command | 手動 batch の差出人解決失敗、**重複 addressEntryId Validation**、**UNIQUE Conflict を冪等成功にしない**、200 超、印刷 batch 後に手動追加しても同一年 status が sent、**migration 0007 後も既存 `create_postcard_sends_batch` が `source=print`・`memo IS NULL` で通る** |
 | 結合 | migration 0007 適用後の command_tests |
-| フロント | 対象年/受取年 option 母集合（今年・昨年が必ず入る）、チェック OFF で `receiptYear` 未送信、SND005 選択のページ跨ぎ保持とフィルタ変更クリア、201 件目追加不可、draft 置換キャンセルで非遷移、種別同期、保存連打 disabled、メモ抜粋 30 CP、作成成功 → SND004 |
+| フロント | 履歴年 option（全期間含む）と status 年 option を分離・タブ独立、対象年/受取年 option 母集合（現在値 union・今年・昨年必須）、チェック OFF でも未手動は hidden 追従、`receiptYear` 未送信、SND005 選択のページ跨ぎ保持とフィルタ変更クリア、201 件目追加不可、draft 置換キャンセルで非遷移、種別同期、保存連打 disabled、メモ抜粋 30 CP、作成成功 → SND004、編集の `expectedUpdatedAt` |
 
 ---
 
@@ -518,6 +523,7 @@ sequenceDiagram
 - SND005 → 印刷: PRT001 固定、draft 置換+確認、種別同期、200 clamp
 - `lastSentOn` / `sendCount` の集約窓、status kana ソート、検索 snake_case フォールバック、memo 1000 CP
 - 年 option 母集合、選択のページ跨ぎ保持、json_extract キー修正
+- 履歴タブ年 option（全期間）と status の分離、受取年現在値 union・OFF 中追従（方針 A）、印刷設計の category 非連動文言、SND003 楽観ロック断定
 
 ---
 
@@ -529,3 +535,4 @@ sequenceDiagram
 | 2026-09-10 | 自己レビュー: 履歴/送付状況を同一シェルのタブに整理、update に楽観ロックを明記 |
 | 2026-09-10 | PR #10 レビュー反映: 受取年独立、手動 batch 契約、draft/status/検索/ナビ等を固定 |
 | 2026-09-10 | PR #10 再レビュー反映: 年 option 母集合、snake_case json_extract、選択ページ跨ぎ、kana ソート |
+| 2026-09-10 | PR #10 承認レビュー Low 反映: 履歴年 option・受取年追従 A・印刷 category 文言・SND003 楽観ロック |
