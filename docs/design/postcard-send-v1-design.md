@@ -387,11 +387,11 @@ ALTER TABLE postcard_sends ADD COLUMN memo TEXT;
 | 画面 | 要点 |
 |------|------|
 | SND002 | 宛名選択 → 差出人（リンクデフォルト、手動変更可）→ 送付日・種別・メモ。成功時は **作成 1 件の SND004** へ。保存中はボタン disabled |
-| SND006 | 住所録複数選択（最大 200）→ 共通の送付日・種別・メモ → 差出人は原則リンク自動。**未紐付け・archived は事前チェックでブロック**（除外して続行しない。登録ボタン disabled）。成功時は SND001。保存中 disabled |
+| SND006 | 住所録複数選択（最大 200）→ 共通の送付日・種別・メモ → 差出人は原則リンク自動。**未紐付け・archived は事前チェックでブロック**（除外して続行しない。登録ボタン disabled）。成功時は SND001。保存中 disabled。**キャンセルは referrer 固定**（SND005 起点なら SND005、それ以外は SND001） |
 
 印刷フローとの分担: **これから印刷して送る** → PRT001 起点。**既に送った事実を記録** → SND002 / SND006。
 
-**SND005 → SND006 引き継ぎ**: 選択中の `addressEntryId[]` を初期チェック。種別フィルタが「すべて」以外なら `postcardType` も初期値に引き継ぐ。送付日はデフォルト今日（SND005 に送付日はない）。
+**SND005 → SND006 引き継ぎ**: 選択中の `addressEntryId[]` と（種別が「すべて」以外なら）`postcardType` を **router location state**（または同等の一時手渡し）で渡す。送付日はデフォルト今日。**`printJobDraft` は使わない**（印刷途中ジョブを壊さない）。
 
 #### 5.4.4 送付状況タブ（SND005）
 
@@ -405,7 +405,7 @@ ALTER TABLE postcard_sends ADD COLUMN memo TEXT;
 
 | セレクト | option 集合 | デフォルト | 備考 |
 |----------|-------------|------------|------|
-| 対象年（status） | `{ 今年, 今年-1 } ∪ list_postcard_send_years` | 今年 | **全期間なし**（必須セレクト）。履歴タブの年 option とは別（§5.4.2） |
+| 対象年（status） | `{ 今年, 今年-1 } ∪ list_postcard_send_years ∪ { 現在の対象年 }` | 今年 | **全期間なし**（必須セレクト）。履歴タブの年 option とは別（§5.4.2）。years 失敗時も選択値を残す |
 | 受取年（status） | `{ 対象年, 対象年-1 } ∪ list_postcard_receipt_years ∪ { 現在の receiptYear }` | `対象年 - 1` | チェック ON 時のデフォルト年および**現在選択値**は必ず option に含める |
 
 **受取年と API・追従（方針 A）**
@@ -416,16 +416,17 @@ ALTER TABLE postcard_sends ADD COLUMN memo TEXT;
 - 対象年変更時（チェック ON/OFF 問わず）: **未手動なら** hidden / 表示の受取年を `対象年 - 1` に追従。**手動変更済みなら維持**（OFF→ON でもリセットしない）
 - option から外れないよう、常に現在の `receiptYear` を union する
 
-**行選択（ページ跨ぎ）**
+**行選択（ページ跨ぎ）— `printJobDraft` と分離**
 
-- 選択 ID は **ページ・検索を跨いで保持**（PRT001 の `selectedIds` / `printJobDraft` と同じ契約）
-- **対象年 / 種別 / 受取限定（チェック・受取年） / sent·unsent 切替** で選択をクリア（別母集合の ID を残さない）
-- 201 件目は **追加不可**（黙って clamp しない。印刷への引渡し時の 200 clamp はセーフティネットとして残してよい）
+- 選択 ID の**挙動**（ページ・検索跨ぎ保持、フィルタ変更でクリア、201 件目追加不可）は PRT001 の `selectedIds` に**似せる**が、**ストレージは共有しない**
+- 保持先: 送付状況タブ専用の **React state**（または `sendStatusSelectedIds` など**別キー**）。作業中のチェック／クリアで `printJobDraft` を読まない・書かない
+- **対象年 / 種別 / 受取限定（チェック・受取年） / sent·unsent 切替** で専用選択だけクリア（印刷 draft は触らない）
+- 201 件目は **追加不可**（黙って clamp しない）
 
 **「選択して印刷」契約（PRT001 固定）**
 
 1. 遷移先は常に **PRT001**（`/print/select`）。PRT002 直跳びはしない（入場時 `filter_active` prune を必ず通す）
-2. `printJobDraft.addressEntryIds` は **置換**。既存 draft が空でないときは確認ダイアログ。**キャンセル時は draft 非変更・非遷移**
+2. **確認 OK 時だけ** `printJobDraft.addressEntryIds` を **置換**。既存 draft が空でないときは確認ダイアログ。**キャンセル時は draft 非変更・非遷移**。確認前の作業選択では `printJobDraft` を更新しない
 3. 選択 ID は最大 200 で clamp（超過分は切る。印刷設計と同じ）
 4. 種別フィルタが年賀状/喪中のとき、`sessionStorage.printPostcardType` も同期してから遷移。「すべて」のときは種別キーを変更しない
 
@@ -489,7 +490,7 @@ sequenceDiagram
 | repository | CRUD、年/種別/keyword（ESCAPE・**snake_case json_extract**）、印刷 batch 作成行を住所録アーカイブ後に氏名検索できる、`search_send_status` の sent/unsent、**`receiptYear != year`**、archived 住所録が status から消える、items/total 同一 TX、種別変更後の sent/unsent 移動、`lastSentOn` が年フィルタ外、**kana ソート** |
 | command | 手動 batch の差出人解決失敗、**重複 addressEntryId Validation**、**UNIQUE Conflict を冪等成功にしない**、200 超、印刷 batch 後に手動追加しても同一年 status が sent、**migration 0007 後も既存 `create_postcard_sends_batch` が `source=print`・`memo IS NULL` で通る** |
 | 結合 | migration 0007 適用後の command_tests |
-| フロント | 履歴年 option（全期間含む）と status 年 option を分離・タブ独立、対象年/受取年 option 母集合（現在値 union・今年・昨年必須）、チェック OFF でも未手動は hidden 追従、`receiptYear` 未送信、SND005 選択のページ跨ぎ保持とフィルタ変更クリア、201 件目追加不可、draft 置換キャンセルで非遷移、種別同期、保存連打 disabled、メモ抜粋 30 CP、作成成功 → SND004、編集の `expectedUpdatedAt` |
+| フロント | 履歴年 option（全期間含む）と status 年 option を分離・タブ独立、対象年/受取年 option 母集合（**現在の対象年・receiptYear union**・今年・昨年必須）、チェック OFF でも未手動は hidden 追従、`receiptYear` 未送信、**SND005 選択は printJobDraft 非共有**、一括引き継ぎは router state、201 件目追加不可、draft 置換は印刷確認 OK 時のみ、キャンセル非遷移、種別同期、保存連打 disabled、メモ抜粋 30 CP、作成成功 → SND004、編集の `expectedUpdatedAt`、status の keyword 0 件と空状態の区別 |
 
 ---
 
@@ -524,6 +525,7 @@ sequenceDiagram
 - `lastSentOn` / `sendCount` の集約窓、status kana ソート、検索 snake_case フォールバック、memo 1000 CP
 - 年 option 母集合、選択のページ跨ぎ保持、json_extract キー修正
 - 履歴タブ年 option（全期間）と status の分離、受取年現在値 union・OFF 中追従（方針 A）、印刷設計の category 非連動文言、SND003 楽観ロック断定
+- SND005 選択 / SND006 引き継ぎを `printJobDraft` と分離、対象年現在値 union、status 検索 0 件コピー
 
 ---
 
@@ -536,3 +538,4 @@ sequenceDiagram
 | 2026-09-10 | PR #10 レビュー反映: 受取年独立、手動 batch 契約、draft/status/検索/ナビ等を固定 |
 | 2026-09-10 | PR #10 再レビュー反映: 年 option 母集合、snake_case json_extract、選択ページ跨ぎ、kana ソート |
 | 2026-09-10 | PR #10 承認レビュー Low 反映: 履歴年 option・受取年追従 A・印刷 category 文言・SND003 楽観ロック |
+| 2026-09-10 | PR #10 再レビュー: SND005 選択と printJobDraft 分離、対象年現在値 union、空状態区別 |
