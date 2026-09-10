@@ -90,7 +90,7 @@ v1.0.0 では年賀状・喪中はがき等の**宛名面印刷**を、住所録
 | `mochu` | 喪中はがき | ○ | `mochu`（同一値） |
 | `other` | その他 | ×（印刷対象外） | `other` |
 
-将来の「受取履歴に基づく送付候補抽出」（`postcard-receipt-v1-design.md` §5.1.4）では `category` / `postcard_type` を共通キーとして参照できる。
+「受取履歴に基づく送付候補抽出」（[postcard-send-v1-design.md](./postcard-send-v1-design.md) / 受取 §5.1.4）では、値の語彙（`nenga` / `mochu`）は揃っているが、送付状況の受取限定は**年のみ**で `category` では絞らない（送付設計 §5.1.4 / §9）。
 
 ---
 
@@ -489,7 +489,7 @@ flowchart TD
 |------|------|------|
 | CSV 印刷経路 | v1.1 CSV と合わせて設計 | 非スコープ |
 | OS 印刷の具体 API | PDF 保存後シェル open 等 | TOP-28 で Windows 優先 |
-| PostcardSend 一覧 UI | CRUD・受取連携 | 送付 Issue |
+| PostcardSend 一覧 UI | CRUD・受取連携 | [postcard-send-v1-design.md](./postcard-send-v1-design.md)（TOP-18 / TOP-27） |
 | PDF パスワード保護 | requirements §5 | v1 非対応・§2.2 に明記 |
 | 連名敬称個別レイヤー | 要求仕様の coHonorific n | v1 は全体 honorific を適用 |
 | PRT002 省略可否 | UX 次第 | 実装時に判断可 |
