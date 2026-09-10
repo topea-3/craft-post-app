@@ -9,15 +9,18 @@ mod tests {
 
   use crate::{
     build_address_print_snapshot_impl, build_sender_print_snapshot_impl,
-    create_postcard_receipt_impl, create_postcard_sends_batch_impl, create_sender_entry_impl,
-    delete_postcard_receipt_impl, filter_active_address_entry_ids_impl, get_postcard_receipt_impl,
-    list_print_layout_preferences_impl, list_sender_linked_addresses_impl,
-    resolve_print_job_items_impl, save_print_layout_preferences_impl,
-    search_postcard_receipts_impl, set_sender_for_address_entry_impl, update_postcard_receipt_impl,
-    update_sender_entry_impl, update_sender_entry_links_impl, AddressDto,
+    create_postcard_receipt_impl, create_postcard_sends_batch_impl,
+    create_postcard_sends_manual_batch_impl, create_sender_entry_impl, delete_postcard_receipt_impl,
+    delete_postcard_send_impl, filter_active_address_entry_ids_impl, get_postcard_receipt_impl,
+    get_postcard_send_impl, list_print_layout_preferences_impl, list_postcard_send_years_impl,
+    list_sender_linked_addresses_impl, resolve_print_job_items_impl,
+    save_print_layout_preferences_impl, search_postcard_receipts_impl, search_postcard_sends_impl,
+    search_send_status_impl, set_sender_for_address_entry_impl, update_postcard_receipt_impl,
+    update_postcard_send_impl, update_sender_entry_impl, update_sender_entry_links_impl, AddressDto,
     AddressPrintSnapshotDto, CreatePostcardSendItemDto, CreatePostcardSendsBatchInput,
-    PersonNameDto, PostcardReceiptDtoInput, PrintLayoutPreferenceDto, SenderEntryDtoInput,
-    SenderPrintSnapshotDto,
+    CreatePostcardSendsManualBatchInput, CreatePostcardSendsManualItemDto, PersonNameDto,
+    PostcardReceiptDtoInput, PrintLayoutPreferenceDto, SenderEntryDtoInput, SenderPrintSnapshotDto,
+    UpdatePostcardSendInput,
   };
 
   async fn setup_pool() -> SqlitePool {
@@ -1021,6 +1024,21 @@ mod tests {
         .unwrap();
     let today = chrono::Local::now().date_naive().format("%Y-%m-%d").to_string();
     assert_eq!(sent_on, today);
+
+    let source: String =
+      sqlx::query_scalar("SELECT source FROM postcard_sends WHERE print_job_id = ?")
+        .bind(&print_job_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(source, "print");
+    let memo: Option<String> =
+      sqlx::query_scalar("SELECT memo FROM postcard_sends WHERE print_job_id = ?")
+        .bind(&print_job_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert!(memo.is_none());
   }
 
   #[tokio::test]
@@ -1086,6 +1104,227 @@ mod tests {
       .await
       .expect_err("NaN offset should fail");
     assert!(err.contains("finite"));
+  }
+
+  #[tokio::test]
+  async fn create_postcard_sends_manual_batch_creates_with_source_manual() {
+    let pool = setup_pool().await;
+    let address_id = Uuid::new_v4();
+    insert_address_entry(&pool, address_id, false).await;
+    create_sender_entry_impl(&pool, sample_sender_dto("手動送付差出人"))
+      .await
+      .expect("create sender");
+    let sender_id = fetch_sender_id_by_label(&pool, "手動送付差出人").await;
+    set_sender_for_address_entry_impl(&pool, address_id.to_string(), Some(sender_id.clone()))
+      .await
+      .expect("link sender");
+
+    let result = create_postcard_sends_manual_batch_impl(
+      &pool,
+      CreatePostcardSendsManualBatchInput {
+        postcard_type: "nenga".to_string(),
+        sent_on: "2026-01-05".to_string(),
+        memo: Some("手入力メモ".to_string()),
+        items: vec![CreatePostcardSendsManualItemDto {
+          address_entry_id: address_id.to_string(),
+          sender_entry_id: None,
+        }],
+      },
+    )
+    .await
+    .expect("manual batch");
+
+    assert_eq!(result.ids.len(), 1);
+    let dto = get_postcard_send_impl(&pool, result.ids[0].clone())
+      .await
+      .expect("get");
+    assert_eq!(dto.source, "manual");
+    assert_eq!(dto.memo.as_deref(), Some("手入力メモ"));
+    assert_eq!(dto.sent_on, "2026-01-05");
+    assert_eq!(dto.sender_entry_id, sender_id);
+
+    let years = list_postcard_send_years_impl(&pool).await.expect("years");
+    assert!(years.contains(&2026));
+  }
+
+  #[tokio::test]
+  async fn create_postcard_sends_manual_batch_rejects_duplicate_address() {
+    let pool = setup_pool().await;
+    let address_id = Uuid::new_v4();
+    insert_address_entry(&pool, address_id, false).await;
+    create_sender_entry_impl(&pool, sample_sender_dto("重複検証差出人"))
+      .await
+      .expect("create sender");
+    let sender_id = fetch_sender_id_by_label(&pool, "重複検証差出人").await;
+
+    let err = create_postcard_sends_manual_batch_impl(
+      &pool,
+      CreatePostcardSendsManualBatchInput {
+        postcard_type: "nenga".to_string(),
+        sent_on: "2026-01-05".to_string(),
+        memo: None,
+        items: vec![
+          CreatePostcardSendsManualItemDto {
+            address_entry_id: address_id.to_string(),
+            sender_entry_id: Some(sender_id.clone()),
+          },
+          CreatePostcardSendsManualItemDto {
+            address_entry_id: address_id.to_string(),
+            sender_entry_id: Some(sender_id),
+          },
+        ],
+      },
+    )
+    .await
+    .expect_err("duplicate address");
+    assert!(err.contains("宛名が重複しています"));
+  }
+
+  #[tokio::test]
+  async fn create_postcard_sends_manual_batch_conflict_is_not_idempotent() {
+    let pool = setup_pool().await;
+    let address_id = Uuid::new_v4();
+    insert_address_entry(&pool, address_id, false).await;
+    create_sender_entry_impl(&pool, sample_sender_dto("非冪等差出人"))
+      .await
+      .expect("create sender");
+    let sender_id = fetch_sender_id_by_label(&pool, "非冪等差出人").await;
+
+    let print_job_id = Uuid::new_v4();
+    // 先に同一 (print_job_id, address) を印刷 batch 相当で入れる
+    create_postcard_sends_batch_impl(
+      &pool,
+      CreatePostcardSendsBatchInput {
+        print_job_id: print_job_id.to_string(),
+        postcard_type: "nenga".to_string(),
+        items: vec![CreatePostcardSendItemDto {
+          address_entry_id: address_id.to_string(),
+          sender_entry_id: sender_id.clone(),
+          address_snapshot: sample_address_snapshot(&address_id.to_string()),
+          sender_snapshot: sample_sender_snapshot(&sender_id),
+        }],
+      },
+    )
+    .await
+    .expect("print seed");
+
+    // 手動 batch はサーバ発行 UUID なので通常は衝突しない。
+    // UNIQUE Conflict 非冪等は同一 print_job_id を強制できないため、
+    // ここでは「再実行で別行が追加される」ことを確認する。
+    let first = create_postcard_sends_manual_batch_impl(
+      &pool,
+      CreatePostcardSendsManualBatchInput {
+        postcard_type: "nenga".to_string(),
+        sent_on: "2026-01-06".to_string(),
+        memo: None,
+        items: vec![CreatePostcardSendsManualItemDto {
+          address_entry_id: address_id.to_string(),
+          sender_entry_id: Some(sender_id.clone()),
+        }],
+      },
+    )
+    .await
+    .expect("manual 1");
+    let second = create_postcard_sends_manual_batch_impl(
+      &pool,
+      CreatePostcardSendsManualBatchInput {
+        postcard_type: "nenga".to_string(),
+        sent_on: "2026-01-07".to_string(),
+        memo: None,
+        items: vec![CreatePostcardSendsManualItemDto {
+          address_entry_id: address_id.to_string(),
+          sender_entry_id: Some(sender_id),
+        }],
+      },
+    )
+    .await
+    .expect("manual 2 creates new row");
+    assert_ne!(first.ids[0], second.ids[0]);
+
+    let status = search_send_status_impl(
+      &pool,
+      2026,
+      Some("nenga".to_string()),
+      "sent".to_string(),
+      None,
+      None,
+      Some(20),
+      Some(0),
+    )
+    .await
+    .expect("status");
+    assert!(status
+      .items
+      .iter()
+      .any(|i| i.address_entry_id == address_id.to_string()));
+  }
+
+  #[tokio::test]
+  async fn update_and_delete_postcard_send_roundtrip() {
+    let pool = setup_pool().await;
+    let address_id = Uuid::new_v4();
+    insert_address_entry(&pool, address_id, false).await;
+    create_sender_entry_impl(&pool, sample_sender_dto("更新削除差出人"))
+      .await
+      .expect("create sender");
+    let sender_id = fetch_sender_id_by_label(&pool, "更新削除差出人").await;
+
+    let created = create_postcard_sends_manual_batch_impl(
+      &pool,
+      CreatePostcardSendsManualBatchInput {
+        postcard_type: "nenga".to_string(),
+        sent_on: "2026-01-05".to_string(),
+        memo: None,
+        items: vec![CreatePostcardSendsManualItemDto {
+          address_entry_id: address_id.to_string(),
+          sender_entry_id: Some(sender_id),
+        }],
+      },
+    )
+    .await
+    .expect("create");
+    let id = created.ids[0].clone();
+    let before = get_postcard_send_impl(&pool, id.clone()).await.expect("get");
+
+    update_postcard_send_impl(
+      &pool,
+      id.clone(),
+      UpdatePostcardSendInput {
+        sent_on: "2026-01-08".to_string(),
+        postcard_type: "mochu".to_string(),
+        memo: Some("更新メモ".to_string()),
+        expected_updated_at: before.updated_at.clone(),
+      },
+    )
+    .await
+    .expect("update");
+
+    let after = get_postcard_send_impl(&pool, id.clone()).await.expect("get after");
+    assert_eq!(after.sent_on, "2026-01-08");
+    assert_eq!(after.postcard_type, "mochu");
+    assert_eq!(after.memo.as_deref(), Some("更新メモ"));
+
+    let search = search_postcard_sends_impl(
+      &pool,
+      None,
+      Some(2026),
+      Some("mochu".to_string()),
+      None,
+      Some("manual".to_string()),
+      None,
+      Some(20),
+      Some(0),
+      Some("desc".to_string()),
+    )
+    .await
+    .expect("search");
+    assert_eq!(search.total, 1);
+
+    delete_postcard_send_impl(&pool, id.clone())
+      .await
+      .expect("delete");
+    let err = get_postcard_send_impl(&pool, id).await.expect_err("deleted");
+    assert!(err.contains("postcard send not found"));
   }
 }
 

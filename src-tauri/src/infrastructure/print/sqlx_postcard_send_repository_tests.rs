@@ -7,6 +7,7 @@ mod tests {
   use crate::domain::print::postcard_send_repository::{
     PostcardSendRepository, PostcardSendRepositoryError,
   };
+  use crate::domain::print::postcard_send_source::PostcardSendSource;
   use crate::domain::print::postcard_type::PostcardType;
   use crate::infrastructure::print::sqlx_postcard_send_repository::SqlxPostcardSendRepository;
 
@@ -71,7 +72,10 @@ mod tests {
       r#"{"sender_entry_id":"x"}"#.to_string(),
       r#"{"address_entry_id":"y"}"#.to_string(),
       PostcardType::Nenga,
+      PostcardSendSource::Print,
+      None,
     )
+    .expect("create_new")
   }
 
   #[tokio::test]
@@ -89,14 +93,18 @@ mod tests {
       .await
       .expect("create_batch");
 
-    let count: i64 = sqlx::query_scalar(
-      "SELECT COUNT(*) FROM postcard_sends WHERE print_job_id = ? AND deleted_at IS NULL",
+    let row = sqlx::query(
+      "SELECT source, memo FROM postcard_sends WHERE print_job_id = ? AND deleted_at IS NULL",
     )
     .bind(print_job_id.to_string())
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!(count, 1);
+    use sqlx::Row;
+    let source: String = row.get("source");
+    let memo: Option<String> = row.get("memo");
+    assert_eq!(source, "print");
+    assert!(memo.is_none());
   }
 
   #[tokio::test]
