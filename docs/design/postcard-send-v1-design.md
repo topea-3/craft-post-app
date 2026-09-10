@@ -48,9 +48,9 @@ v1.0.0 では、年賀状等の**送付事実**を記録し、「今年送った
 | FR-04 | 複数宛先を選び、同一種別・送付日で一括登録できる（上限 200。印刷と同じ） |
 | FR-05 | 一覧で年度・種別でフィルタし、フリーテキスト検索（宛名・差出人ラベル相当）ができる |
 | FR-06 | 指定年・種別について「送った住所録」「送っていない住所録」を一覧できる |
-| FR-07 | 受取履歴（**対象年と独立した受取年**）に紐づく住所録を送付候補として参照できる（任意フィルタ。デフォルトは昨年） |
+| FR-07 | 受取履歴（**対象年と独立した受取年**）に紐づく住所録を送付候補として参照できる。受取限定チェックの**初期値は ON**、受取年デフォルトは昨年 |
 | FR-08 | 詳細表示・送付日/種別/メモの編集・論理削除ができる。宛先・差出人の差し替えは v1 非対応（削除＋再登録） |
-| FR-09 | デフォルトソートは送付日降順（履歴タブ）。送付状況タブは表示名昇順 |
+| FR-09 | デフォルトソートは送付日降順（履歴タブ）。送付状況タブは **`name_kana` 昇順**（住所録 / PRT001 と同じ）+ `address_entry_id ASC` |
 | FR-10 | 使用テンプレートは v1 では `postcard_type`（`nenga` / `mochu`）と同一視する |
 
 ### 3.2 非機能要件
@@ -175,12 +175,13 @@ AddressEntry 1 ──< N PostcardReceipt                     （送付候補の�
   where `deleted_at IS NULL` AND `address_entry_id IS NOT NULL` AND 受取日がその年  
   AND 参照先 AddressEntry が active）に限定  
   （`postcard-receipt-v1-design.md` §5.1.4 の実現。archived 宛の受取行は落とす）
+- **受取限定は `receiptYear`（年）のみ**。送付種別フィルタと受取 `category` は**連動しない**（その年の `nenga` / `mochu` / `other` 受取をすべて含む）
 - 「送った」: 母集団のうち、active な `PostcardSend` が  
   `sent_on ∈ [year-01-01, year-12-31]` かつ（`postcardType` 指定時）`postcard_type = ?` を **1 件以上**持つ
 - 「送っていない」: 母集団のうち、上記を満たす送付が **0 件**
 - **種別 = すべて（`postcardType` null）**: その年の**任意種別** 1 件以上 = 送った。例: 喪中だけ送った相手は「年賀状・未送付」には出るが、「すべて・未送付」には出ない
 - 「今年」UI デフォルト: `PostcardSend::local_today().year()`（端末ローカル）
-- 受取限定 UI デフォルト: `receiptYear = year - 1`（昨年もらった相手に今年送る）
+- 受取限定 UI: チェック**初期 ON**。受取年デフォルト `receiptYear = year - 1`（昨年もらった相手に今年送る）
 
 **重複送付**: 同一年・同一種別に複数 `PostcardSend` があっても「送った」は 1 回とみなす（status 集約）。履歴一覧では複数行をそのまま出す。
 
@@ -228,7 +229,7 @@ ALTER TABLE postcard_sends ADD COLUMN memo TEXT;
 | 種別 | `postcard_type = ?` |
 | 検索（履歴） | 下記「検索の正」 |
 | ソート（履歴） | `sent_on DESC, id ASC` |
-| ソート（送付状況） | 表示名昇順 + `address_entry_id ASC`（安定タイブレイク）。v1 は追加 sort 入力なし |
+| ソート（送付状況） | **`name_kana` 昇順**: `COALESCE(primary_kana_last, primary_last), COALESCE(primary_kana_first, primary_first), address_entry_id ASC`（住所録一覧 / PRT001 / `search_address_entries` と同じ）。v1 は追加 sort 入力なし |
 | ページング | `LIMIT` / `OFFSET`（`MAX_PAGE_LIMIT = 200`） |
 | items + total | **同一スナップショット（1 TX）** で取得 |
 | 送付済 ID | `SELECT DISTINCT address_entry_id FROM postcard_sends WHERE ... year/type ...` |
@@ -237,8 +238,9 @@ ALTER TABLE postcard_sends ADD COLUMN memo TEXT;
 **検索の正（履歴）**
 
 1. live: 受取一覧と同じ表示名式（`AddressEntry` / `SenderEntry`）+ `memo`。LIKE は **ESCAPE 付き束縛パラメータ**（`%` を含む表示名も安全）
-2. フォールバック（live JOIN 不可時）: `json_extract` でスナップショットの氏名フィールドのみ（`primaryLast` / `primaryFirst` 等）。**生 JSON 全文 LIKE は禁止**
+2. フォールバック（live JOIN 不可時）: DB 上のスナップショット JSON は印刷 DTO の **snake_case**（`serde` に `rename_all = "camelCase"` 無し）。`json_extract(address_snapshot, '$.primary_last')` / `$.primary_first`、差出人も `sender_snapshot` の同系キー。**camelCase キーは使わない**。v1 フォールバックは**主氏名のみ**（`co_recipients` は対象外）
 3. キーワード最大長: 受取 search と同上限（実装時に受取の定数を共有）。超過は Validation
+4. **生 JSON 全文 LIKE は禁止**
 
 ### 5.3 API / Tauri コマンド
 
@@ -391,14 +393,34 @@ ALTER TABLE postcard_sends ADD COLUMN memo TEXT;
 #### 5.4.4 送付状況タブ（SND005）
 
 - 必須: 対象年（送付判定）、種別（「すべて」可）、表示: 送った / 送っていない
-- 任意: 「受取履歴のある相手に限定」チェック + **受取年セレクト（独立）**。チェック ON 時のデフォルト受取年は `対象年 - 1`。`receiptYear === 対象年` も選択可
+- 受取限定チェック: **初期 ON**。「受取履歴のある相手に限定」+ **受取年セレクト（独立）**
 - 検索: 住所録表示名
 - カラム: 宛名 / 住所抜粋 / 最終送付日 / 送付件数（両タブで表示。窓は §5.1.4）
+- ページサイズ: 既存 `PaginationControls` どおり **20 件/ページ**
+
+**年 option 母集合**
+
+| セレクト | option 集合 | デフォルト | 備考 |
+|----------|-------------|------------|------|
+| 対象年 | `{ 今年, 今年-1 } ∪ list_postcard_send_years` | 今年 | **全期間なし**（必須セレクト） |
+| 受取年 | `{ 対象年, 対象年-1 } ∪ list_postcard_receipt_years` | `対象年 - 1` | チェック ON 時のデフォルト年は**必ず option に含める** |
+
+**受取年と API**
+
+- チェック OFF → `search_send_status` に `receiptYear` を送らない（null）。UI に残っていても API には出さない
+- チェック ON → `receiptYear` **必須**
+- 対象年変更時: 受取年をユーザーがまだ手動変更していなければ `対象年 - 1` に追従。手動変更済みなら維持
+
+**行選択（ページ跨ぎ）**
+
+- 選択 ID は **ページ・検索を跨いで保持**（PRT001 の `selectedIds` / `printJobDraft` と同じ契約）
+- **対象年 / 種別 / 受取限定（チェック・受取年） / sent·unsent 切替** で選択をクリア（別母集合の ID を残さない）
+- 201 件目は **追加不可**（黙って clamp しない。印刷への引渡し時の 200 clamp はセーフティネットとして残してよい）
 
 **「選択して印刷」契約（PRT001 固定）**
 
 1. 遷移先は常に **PRT001**（`/print/select`）。PRT002 直跳びはしない（入場時 `filter_active` prune を必ず通す）
-2. `printJobDraft.addressEntryIds` は **置換**。既存 draft が空でないときは確認ダイアログ後に置換
+2. `printJobDraft.addressEntryIds` は **置換**。既存 draft が空でないときは確認ダイアログ。**キャンセル時は draft 非変更・非遷移**
 3. 選択 ID は最大 200 で clamp（超過分は切る。印刷設計と同じ）
 4. 種別フィルタが年賀状/喪中のとき、`sessionStorage.printPostcardType` も同期してから遷移。「すべて」のときは種別キーを変更しない
 
@@ -459,10 +481,10 @@ sequenceDiagram
 | 層 | 内容 |
 |----|------|
 | domain | 未来日 NG、`PostcardSendSource`、memo 1000 CP、更新で不変フィールドを変えないこと |
-| repository | CRUD、年/種別/keyword（ESCAPE・json_extract フォールバック）、`search_send_status` の sent/unsent、**`receiptYear != year`**、archived 住所録が status から消える、items/total 同一 TX、種別変更後の sent/unsent 移動、`lastSentOn` が年フィルタ外 |
+| repository | CRUD、年/種別/keyword（ESCAPE・**snake_case json_extract**）、印刷 batch 作成行を住所録アーカイブ後に氏名検索できる、`search_send_status` の sent/unsent、**`receiptYear != year`**、archived 住所録が status から消える、items/total 同一 TX、種別変更後の sent/unsent 移動、`lastSentOn` が年フィルタ外、**kana ソート** |
 | command | 手動 batch の差出人解決失敗、**重複 addressEntryId Validation**、**UNIQUE Conflict を冪等成功にしない**、200 超、印刷 batch 後に手動追加しても同一年 status が sent、**migration 0007 後も既存 `create_postcard_sends_batch` が `source=print`・`memo IS NULL` で通る** |
 | 結合 | migration 0007 適用後の command_tests |
-| フロント | SND005 → PRT001 が draft を**置換**する、種別フィルタ時に `printPostcardType` が同期される、保存中の連打 disabled、メモ抜粋 30 コードポイント、作成成功 → SND004 |
+| フロント | 対象年/受取年 option 母集合（今年・昨年が必ず入る）、チェック OFF で `receiptYear` 未送信、SND005 選択のページ跨ぎ保持とフィルタ変更クリア、201 件目追加不可、draft 置換キャンセルで非遷移、種別同期、保存連打 disabled、メモ抜粋 30 CP、作成成功 → SND004 |
 
 ---
 
@@ -473,8 +495,8 @@ sequenceDiagram
 - [ ] repository: get / search / update / soft_delete / years / send_status（ソート・集約窓・同一 TX）
 - [ ] 既存 `create_batch` / 印刷コマンドが `source=print` を明示（または DEFAULT 依存をテストで固定）
 - [ ] Tauri: `create_postcard_sends_manual_batch`（重複 Validation・Conflict 非冪等・`ids` 応答）ほか CRUD・`search_send_status`
-- [ ] frontend: `features/postcard-send/`、SND001–006、ナビ（宛名印刷を残す）
-- [ ] SND005 → PRT001 / SND006 引き継ぎ契約
+- [ ] frontend: `features/postcard-send/`、SND001–006、ナビ（宛名印刷を残す）、年 option 母集合・選択ページ跨ぎ
+- [ ] SND005 → PRT001 / SND006 引き継ぎ契約（draft キャンセル非遷移含む）
 - [ ] AddressEntry 複数選択 UI の再利用（印刷 PRT001 / 受取ダイアログ）
 - [x] mock-up（設計フェーズで作成）
 
@@ -486,14 +508,16 @@ sequenceDiagram
 |------|------|------|
 | 暑中・寒中プリセット | v1 非採用 | 必要なら v1.1 で `PostcardType` 拡張＋印刷テンプレ有無を再設計 |
 | 一括登録のメモを行ごとに変える | v1 非対応 | 全件共通メモのみ |
-| 送付状況タブの sort 切替（lastSentOn DESC 等） | v1 非対応 | デフォルト表示名昇順のみ |
+| 送付状況タブの sort 切替（lastSentOn DESC 等） | v1 非対応 | デフォルトは kana 昇順のみ |
+| 受取限定と送付種別の category 連動 | v1 非対応 | 受取は年のみ（§5.1.4） |
 
 **解決済み（PR #10 レビュー反映）**
 
-- 受取年は対象年と独立（デフォルト昨年）
+- 受取年は対象年と独立（デフォルト昨年、チェック初期 ON）
 - 手動 batch: 重複 ID は Validation、連打は新規行許可、Conflict 非冪等
 - SND005 → 印刷: PRT001 固定、draft 置換+確認、種別同期、200 clamp
-- `lastSentOn` / `sendCount` の集約窓、status ソート、検索フォールバック、memo 1000 CP
+- `lastSentOn` / `sendCount` の集約窓、status kana ソート、検索 snake_case フォールバック、memo 1000 CP
+- 年 option 母集合、選択のページ跨ぎ保持、json_extract キー修正
 
 ---
 
@@ -504,3 +528,4 @@ sequenceDiagram
 | 2026-09-10 | 初版（TOP-18 設計） |
 | 2026-09-10 | 自己レビュー: 履歴/送付状況を同一シェルのタブに整理、update に楽観ロックを明記 |
 | 2026-09-10 | PR #10 レビュー反映: 受取年独立、手動 batch 契約、draft/status/検索/ナビ等を固定 |
+| 2026-09-10 | PR #10 再レビュー反映: 年 option 母集合、snake_case json_extract、選択ページ跨ぎ、kana ソート |
