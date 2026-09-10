@@ -48,9 +48,9 @@ v1.0.0 では、年賀状等の**送付事実**を記録し、「今年送った
 | FR-04 | 複数宛先を選び、同一種別・送付日で一括登録できる（上限 200。印刷と同じ） |
 | FR-05 | 一覧で年度・種別でフィルタし、フリーテキスト検索（宛名・差出人ラベル相当）ができる |
 | FR-06 | 指定年・種別について「送った住所録」「送っていない住所録」を一覧できる |
-| FR-07 | 受取履歴（指定年）に紐づく住所録を送付候補として参照できる（任意フィルタ） |
+| FR-07 | 受取履歴（**対象年と独立した受取年**）に紐づく住所録を送付候補として参照できる（任意フィルタ。デフォルトは昨年） |
 | FR-08 | 詳細表示・送付日/種別/メモの編集・論理削除ができる。宛先・差出人の差し替えは v1 非対応（削除＋再登録） |
-| FR-09 | デフォルトソートは送付日降順 |
+| FR-09 | デフォルトソートは送付日降順（履歴タブ）。送付状況タブは表示名昇順 |
 | FR-10 | 使用テンプレートは v1 では `postcard_type`（`nenga` / `mochu`）と同一視する |
 
 ### 3.2 非機能要件
@@ -117,7 +117,7 @@ v1.0.0 では、年賀状等の**送付事実**を記録し、「今年送った
 | `postcardType` | `PostcardType` | ○ | `nenga` \| `mochu`（＝使用テンプレート識別） |
 | `sentOn` | date | ○ | 送付日（暦日） |
 | `source` | `PostcardSendSource` | ○ | `print` \| `manual` |
-| `memo` | string \| null | — | 自由記述（最大 1000 文字想定） |
+| `memo` | string \| null | — | 自由記述。**最大 1000 コードポイント**（受取 `memo` と同上限。アプリ Validation のみ） |
 | `deletedAt` | datetime \| null | — | null = 有効 |
 | `createdAt` / `updatedAt` | datetime | ○ | 監査用 |
 
@@ -128,6 +128,7 @@ v1.0.0 では、年賀状等の**送付事実**を記録し、「今年送った
 - 削除は `deletedAt` 論理削除。v1 に復元 UI なし
 - 更新で変更可能なのは `sentOn` / `postcardType` / `memo` のみ。スナップショット・宛先・差出人・`printJobId`・`source` は不変
 - 同一 `(printJobId, addressEntryId)` の active 行は UNIQUE（既存）。意図した再送付は別バッチ UUID で別レコード
+- `memo` が非 null のとき、Unicode コードポイント数が 1000 を超えてはならない
 
 #### 5.1.2 値オブジェクト
 
@@ -167,26 +168,37 @@ AddressEntry 1 ──< N PostcardReceipt                     （送付候補の�
 
 **定義（パラメータ化）**
 
-- 入力: `year`（必須）、`postcardType`（任意。null = 種別不問）、`receiptYear`（任意・候補絞り込み）
-- 「送った」: active な `AddressEntry` のうち、active な `PostcardSend` が  
-  `sent_on ∈ [year-01-01, year-12-31]` かつ（指定時）`postcard_type = ?` を **1 件以上**持つ
-- 「送っていない」: active な `AddressEntry` のうち、上記を満たす送付が **0 件**
+- 入力: `year`（必須）、`postcardType`（任意。null = 種別不問）、`receiptYear`（任意・候補絞り込み。**`year` と独立**）
+- 母集団: 常に **active な `AddressEntry`**（`archived_at IS NULL`）
+- `receiptYear` 指定時: 母集団を  
+  `active AddressEntry` ∩ distinct(`postcard_receipts.address_entry_id`  
+  where `deleted_at IS NULL` AND `address_entry_id IS NOT NULL` AND 受取日がその年  
+  AND 参照先 AddressEntry が active）に限定  
+  （`postcard-receipt-v1-design.md` §5.1.4 の実現。archived 宛の受取行は落とす）
+- 「送った」: 母集団のうち、active な `PostcardSend` が  
+  `sent_on ∈ [year-01-01, year-12-31]` かつ（`postcardType` 指定時）`postcard_type = ?` を **1 件以上**持つ
+- 「送っていない」: 母集団のうち、上記を満たす送付が **0 件**
+- **種別 = すべて（`postcardType` null）**: その年の**任意種別** 1 件以上 = 送った。例: 喪中だけ送った相手は「年賀状・未送付」には出るが、「すべて・未送付」には出ない
 - 「今年」UI デフォルト: `PostcardSend::local_today().year()`（端末ローカル）
+- 受取限定 UI デフォルト: `receiptYear = year - 1`（昨年もらった相手に今年送る）
 
 **重複送付**: 同一年・同一種別に複数 `PostcardSend` があっても「送った」は 1 回とみなす（status 集約）。履歴一覧では複数行をそのまま出す。
 
-**受取連携（任意）**
+**補足フィールド（`search_send_status` 応答）**
 
-- `receiptYear` 指定時: 候補母集団を  
-  `postcard_receipts`（`deleted_at IS NULL` AND `address_entry_id IS NOT NULL` AND 受取日がその年）の distinct `address_entry_id` に限定  
-  （`postcard-receipt-v1-design.md` §5.1.4 の実現）
+| フィールド | 集約窓 | 説明 |
+|------------|--------|------|
+| `lastSentOn` | **年フィルタ外**。種別フィルタがあればその種別、なければ全種別の active 送付の `MAX(sent_on)` | 未送付タブでも過去送付が見える |
+| `sendCount` | 同上の窓での件数 | 未送付でも 0 以外になり得る |
+
+未送付・送った両タブで最終送付日・送付件数列を表示する（モック準拠）。
 
 ```mermaid
 flowchart LR
   A[active AddressEntry] --> B{指定年・種別に<br/>active PostcardSend あり?}
   B -->|Yes| C[sent]
   B -->|No| D[unsent]
-  E[任意: 指定年の受取あり] -.->|母集団を絞る| A
+  E[任意: receiptYear の受取あり] -.->|母集団を絞る| A
 ```
 
 ### 5.2 データモデル / DB
@@ -205,7 +217,7 @@ ALTER TABLE postcard_sends ADD COLUMN memo TEXT;
 ```
 
 - 既存行は `source = 'print'`（DEFAULT）
-- `memo` は NULL 可。アプリ Validation で最大長
+- `memo` は NULL 可。上限 **1000 コードポイント**はアプリ Validation のみ（SQLite ALTER での CHECK 追加は行わない）
 
 #### 5.2.3 一覧・送付状況クエリ方針
 
@@ -214,13 +226,19 @@ ALTER TABLE postcard_sends ADD COLUMN memo TEXT;
 | 履歴 active | `deleted_at IS NULL` |
 | 年度 | `sent_on` が `YYYY-01-01`〜`YYYY-12-31` |
 | 種別 | `postcard_type = ?` |
-| 検索 | スナップショット JSON 内氏名、または JOIN `address_entries` / `sender_entries` の表示名 LIKE |
-| ソート | `sent_on DESC, id ASC` |
+| 検索（履歴） | 下記「検索の正」 |
+| ソート（履歴） | `sent_on DESC, id ASC` |
+| ソート（送付状況） | 表示名昇順 + `address_entry_id ASC`（安定タイブレイク）。v1 は追加 sort 入力なし |
 | ページング | `LIMIT` / `OFFSET`（`MAX_PAGE_LIMIT = 200`） |
+| items + total | **同一スナップショット（1 TX）** で取得 |
 | 送付済 ID | `SELECT DISTINCT address_entry_id FROM postcard_sends WHERE ... year/type ...` |
-| 未送付 | active address LEFT ANTI JOIN 上記、または `NOT IN` / `NOT EXISTS` |
+| 未送付 | active address LEFT ANTI JOIN 上記、または `NOT EXISTS` |
 
-検索の正: v1 は **live の AddressEntry / SenderEntry 表示名 + memo** を優先し、アーカイブ済みで JOIN できない場合はスナップショットの氏名にフォールバック（受取一覧と同系統）。
+**検索の正（履歴）**
+
+1. live: 受取一覧と同じ表示名式（`AddressEntry` / `SenderEntry`）+ `memo`。LIKE は **ESCAPE 付き束縛パラメータ**（`%` を含む表示名も安全）
+2. フォールバック（live JOIN 不可時）: `json_extract` でスナップショットの氏名フィールドのみ（`primaryLast` / `primaryFirst` 等）。**生 JSON 全文 LIKE は禁止**
+3. キーワード最大長: 受取 search と同上限（実装時に受取の定数を共有）。超過は Validation
 
 ### 5.3 API / Tauri コマンド
 
@@ -228,36 +246,60 @@ ALTER TABLE postcard_sends ADD COLUMN memo TEXT;
 
 | コマンド | 概要 |
 |----------|------|
-| `create_postcard_sends_batch` | **既存**。印刷専用。`source=print`、`sent_on=Local::today`、メモなし |
-| `create_postcard_sends_manual_batch` | 手動単件/一括。入力の `sent_on` / `postcard_type` / 任意 `memo`。各宛先について差出人解決→スナップショット生成→INSERT。バッチ UUID をサーバ発行 |
-| `get_postcard_send` | 詳細 1 件（スナップショット + live 補完表示用フィールド） |
+| `create_postcard_sends_batch` | **既存**。印刷専用。`source=print`、`sent_on=Local::today`、メモなし。Conflict = 冪等成功（印刷契約） |
+| `create_postcard_sends_manual_batch` | 手動単件/一括。サーバ発行バッチ UUID。**Conflict を冪等成功にしない**（印刷と分離） |
+| `get_postcard_send` | 詳細 1 件。論理削除済み / 不存在は not found |
 | `search_postcard_sends` | 履歴一覧（`items` + `total`） |
 | `list_postcard_send_years` | フィルタ用の年一覧（受取の `list_postcard_receipt_years` と同様） |
-| `update_postcard_send` | `sent_on` / `postcard_type` / `memo` のみ。`expected_updated_at` による楽観ロック（受取更新に準拠） |
-| `delete_postcard_send` | 論理削除 |
+| `update_postcard_send` | `sent_on` / `postcard_type` / `memo` のみ。`expectedUpdatedAt` 楽観ロック |
+| `delete_postcard_send` | 論理削除。**楽観ロックなし**（受取 `delete_postcard_receipt` と同方針） |
 | `search_send_status` | 送付状況（住所録ベース、`sent` \| `unsent`） |
 
-#### `create_postcard_sends_manual_batch` 入力（案）
+#### `create_postcard_sends_manual_batch`
+
+**入力**
 
 ```typescript
 {
   postcardType: 'nenga' | 'mochu';
   sentOn: string;                 // 'YYYY-MM-DD'
-  memo?: string | null;           // 全件共通メモ（v1）
+  memo?: string | null;           // 全件共通メモ（v1）。最大 1000 コードポイント
   items: {
     addressEntryId: string;
     senderEntryId?: string | null; // 省略時は SenderAddressLink から解決。無ければ Validation
-  }[];                            // 1〜200
+  }[];                            // 1〜200。addressEntryId の重複は Validation エラー（黙って dedupe しない）
 }
 ```
+
+**出力**: `{ ids: string[] }`（作成順。単件 UI は `ids[0]` で SND004 へ）
 
 **差出人解決順（各 item）**
 
 1. `senderEntryId` 指定 → active 検証
 2. 未指定 → `get_sender_id_by_address_entry_id` → リンク無し/archived は当該 item をエラー理由付きで失敗（**all-or-nothing**）
-3. スナップショットは印刷と同じ `build_*_print_snapshot` 経路を再利用（INSERT 時に再取得しない／取得結果をそのまま保存）
+3. スナップショットは印刷と同じ `build_*_print_snapshot` 経路を再利用
 
-バッチ UUID: コマンド内で 1 つ発行し、全行の `print_job_id` に設定。`source = manual`。UNIQUE 衝突は通常発生しない（新規 UUID）。
+**バッチ・二重送信契約（印刷と分離）**
+
+- バッチ UUID: コマンド内で 1 つ発行し、全行の `print_job_id` に設定。`source = manual`
+- `items` 内の重複 `addressEntryId`: **Validation エラー**（順序保持 dedupe はしない）
+- 保存連打: UI は `isSaving` + ボタン disabled。再試行・再実行は**新規行を許可**（印刷の再印刷＝別レコードと同趣旨）。クライアント冪等キーは持たない
+- UNIQUE Conflict: **冪等成功にマップしない**（エラーとして返す。印刷コマンドの Conflict 契約を流用しない）
+
+#### `get_postcard_send` / `update_postcard_send` / `delete_postcard_send`
+
+```typescript
+// get → PostcardSendDto（スナップショット + live 補完フィールド）
+// update 入力
+{
+  id: string;
+  sentOn: string;
+  postcardType: 'nenga' | 'mochu';
+  memo?: string | null;
+  expectedUpdatedAt: string;      // ISO。不一致は Conflict
+}
+// delete 入力: id のみ（楽観ロックなし）。論理削除済みは not found
+```
 
 #### `search_postcard_sends` 入力（案）
 
@@ -279,17 +321,18 @@ ALTER TABLE postcard_sends ADD COLUMN memo TEXT;
 
 ```typescript
 {
-  year: number;                   // 必須
-  postcardType?: string | null;   // null = 種別不問
+  year: number;                   // 必須（送付判定の年）
+  postcardType?: string | null;   // null = 種別不問（その年の任意種別）
   status: 'sent' | 'unsent';
-  receiptYear?: number | null;    // 指定時は受取ありの住所録に限定
-  keyword?: string | null;        // 住所録表示名検索
+  receiptYear?: number | null;    // 指定時は受取ありの住所録に限定（year と独立可）
+  keyword?: string | null;        // 住所録表示名検索（ESCAPE 付き）
   limit: number;
   offset: number;
 }
 ```
 
-応答: `items: { addressEntryId, displayName, addressSummary, lastSentOn?, sendCount }[]` + `total`。
+応答: `items: { addressEntryId, displayName, addressSummary, lastSentOn: string | null, sendCount: number }[]` + `total`。  
+`lastSentOn` / `sendCount` の窓は §5.1.4 のとおり（年フィルタ外・種別フィルタ連動）。
 
 #### Validation エラー例
 
@@ -300,21 +343,24 @@ ALTER TABLE postcard_sends ADD COLUMN memo TEXT;
 | 差出人解決不可 | 「差出人が紐づいていない宛名があります。」（ID 一覧付き可） |
 | 不正な種別 | 種別の Validation エラー |
 | 件数 0 または 200 超 | 件数 Validation |
+| `items` 内 `addressEntryId` 重複 | 「宛名が重複しています。」 |
+| memo が 1000 コードポイント超 | 「メモは 1000 文字以内で入力してください。」 |
+| keyword 長超過 | キーワード長の Validation エラー |
 
 ### 5.4 フロントエンド
 
 #### 5.4.1 画面一覧
 
-| 画面 ID | 名称 | パス（案） | モック |
-|---------|------|-----------|--------|
-| SND001 | 送付管理（履歴タブ） | `/sends` | `docs/mock-up/postcard-send/postcard-send-list-view-mockup.md` |
+| 画面 ID | 名称 | パス | モック |
+|---------|------|------|--------|
+| SND001 | 送付管理（履歴タブ） | `/sends`（`tab` なし or `tab=history`） | `docs/mock-up/postcard-send/postcard-send-list-view-mockup.md` |
 | SND002 | 送付履歴作成（単件） | `/sends/new` | create |
 | SND003 | 送付履歴編集 | `/sends/:id/edit` | edit |
 | SND004 | 送付履歴詳細 | `/sends/:id` | detail |
-| SND005 | 送付管理（送付状況タブ） | `/sends?tab=status` または `/sends/status` | status |
+| SND005 | 送付管理（送付状況タブ） | `/sends?tab=status`（**このパスに一本化**） | status |
 | SND006 | 一括登録 | `/sends/bulk` | bulk |
 
-ナビゲーション: 共通ヘッダーに「送付履歴」を追加（受取・住所録・差出人と並列）。
+ナビゲーション: 共通ヘッダーに「送付履歴」（`/sends`）を追加する。既存の「宛名印刷」（`/print/select`）・住所録・差出人・受取履歴は**残す**（置換しない）。
 
 **SND001 / SND005 は同一シェルのタブ**とする（Issue の「一覧で年度・種別・送付有無・検索」を 1 画面族で満たす）。
 
@@ -327,7 +373,7 @@ ALTER TABLE postcard_sends ADD COLUMN memo TEXT;
 
 - フィルタ: 送付年、種別、登録経路（任意）
 - 検索: 宛名・差出人・メモ
-- カラム: 送付日 / 種別 / 宛名 / 差出人 / 経路 / メモ抜粋 / 操作
+- カラム: 送付日 / 種別 / 宛名 / 差出人 / 経路 / メモ抜粋（**先頭 30 コードポイント**。UTF-16 `slice` 禁止） / 操作
 - 行クリック → SND004
 - ヘッダ: 「新規作成」「一括登録」+ タブ切替
 
@@ -335,17 +381,26 @@ ALTER TABLE postcard_sends ADD COLUMN memo TEXT;
 
 | 画面 | 要点 |
 |------|------|
-| SND002 | 宛名選択 → 差出人（リンクデフォルト、手動変更可）→ 送付日・種別・メモ |
-| SND006 | 住所録複数選択（最大 200）→ 共通の送付日・種別・メモ → 差出人は原則リンク自動。未紐付けは事前チェックでブロックまたは除外確認 |
+| SND002 | 宛名選択 → 差出人（リンクデフォルト、手動変更可）→ 送付日・種別・メモ。成功時は **作成 1 件の SND004** へ。保存中はボタン disabled |
+| SND006 | 住所録複数選択（最大 200）→ 共通の送付日・種別・メモ → 差出人は原則リンク自動。**未紐付け・archived は事前チェックでブロック**（除外して続行しない。登録ボタン disabled）。成功時は SND001。保存中 disabled |
 
 印刷フローとの分担: **これから印刷して送る** → PRT001 起点。**既に送った事実を記録** → SND002 / SND006。
 
+**SND005 → SND006 引き継ぎ**: 選択中の `addressEntryId[]` を初期チェック。種別フィルタが「すべて」以外なら `postcardType` も初期値に引き継ぐ。送付日はデフォルト今日（SND005 に送付日はない）。
+
 #### 5.4.4 送付状況タブ（SND005）
 
-- 必須: 対象年、種別（「すべて」可）、表示: 送った / 送っていない（＝送付有無フィルタ）
-- 任意: 「この年に受取ありの相手に限定」チェック（`receiptYear`、デフォルトは対象年と同じ）
+- 必須: 対象年（送付判定）、種別（「すべて」可）、表示: 送った / 送っていない
+- 任意: 「受取履歴のある相手に限定」チェック + **受取年セレクト（独立）**。チェック ON 時のデフォルト受取年は `対象年 - 1`。`receiptYear === 対象年` も選択可
 - 検索: 住所録表示名
-- 未送付行から「印刷へ」（選択 ID を `printJobDraft` へ）または「一括登録へ」の導線
+- カラム: 宛名 / 住所抜粋 / 最終送付日 / 送付件数（両タブで表示。窓は §5.1.4）
+
+**「選択して印刷」契約（PRT001 固定）**
+
+1. 遷移先は常に **PRT001**（`/print/select`）。PRT002 直跳びはしない（入場時 `filter_active` prune を必ず通す）
+2. `printJobDraft.addressEntryIds` は **置換**。既存 draft が空でないときは確認ダイアログ後に置換
+3. 選択 ID は最大 200 で clamp（超過分は切る。印刷設計と同じ）
+4. 種別フィルタが年賀状/喪中のとき、`sessionStorage.printPostcardType` も同期してから遷移。「すべて」のときは種別キーを変更しない
 
 ### 5.5 主要ユースケース
 
@@ -360,7 +415,7 @@ flowchart TD
   E --> G
   F --> G
   G --> H[SND005 で未送付を確認]
-  H --> I[受取フィルタで候補絞り込み]
+  H --> I[昨年受取などで候補絞り込み]
   I --> J[印刷 or 一括登録へ]
 ```
 
@@ -373,13 +428,13 @@ sequenceDiagram
   participant DB as postcard_sends
 
   UI->>Cmd: type, sentOn, items[]
-  Cmd->>Cmd: batch UUID 発行
+  Cmd->>Cmd: 重複 ID Validation / batch UUID 発行
   loop each item
     Cmd->>Link: sender 解決
     Cmd->>Snap: address/sender snapshot
   end
   Cmd->>DB: INSERT source=manual（1 TX）
-  Cmd-->>UI: ok
+  Cmd-->>UI: ids[]
 ```
 
 ---
@@ -388,13 +443,14 @@ sequenceDiagram
 
 | ケース | 方針 |
 |--------|------|
-| 宛先/差出人を後からアーカイブ | 履歴は残る。一覧はスナップショット表示。live リンクは「（アーカイブ済み）」 |
-| 同一年・同一相手・同一種別の複数送付 | 許可（再送・誤記録修正前など）。status は「送った」 |
+| 宛先/差出人を後からアーカイブ | 履歴タブはスナップショットで残る。**送付状況の母集団からも除外**（sent/unsent 両方に出ない）。「今年送ったか」は履歴タブで確認。再送付したい場合は住所録を復活してから status / 印刷へ |
+| 同一年・同一相手・同一種別の複数送付 | 許可（再送・誤記録修正前・手動連打再実行など）。status は「送った」 |
 | 印刷の誤記録 | SND001 から論理削除（印刷設計の方針どおり） |
-| 手動一括で 1 件でも差出人なし | all-or-nothing。失敗理由に addressEntryId を含める |
+| 手動一括で 1 件でも差出人なし | **事前 UI ブロック + コマンド all-or-nothing**。印刷の `resolve_print_job_items`（差出人側は除外して継続）とは意図的に異なる |
 | タイムゾーンと年度 | `sent_on` は日付文字列のみ。年フィルタは文字列範囲比較 |
 | 空の送付状況 | 空状態 + 印刷/登録導線 |
-| `update` で種別変更 | スナップショットは印刷レイアウトと一致しなくなる可能性あり。許容（履歴の事実修正）。再印刷は別レコード |
+| `update` で種別変更 | スナップショットは印刷レイアウトと一致しなくなる可能性あり。許容（履歴の事実修正）。再印刷は別レコード。status の sent/unsent は新種別で再判定 |
+| 手動 batch の UNIQUE Conflict | エラー（印刷の冪等成功契約を流用しない） |
 
 ---
 
@@ -402,23 +458,23 @@ sequenceDiagram
 
 | 層 | 内容 |
 |----|------|
-| domain | 未来日 NG、`PostcardSendSource`、更新で不変フィールドを変えないこと |
-| repository | CRUD、年/種別/keyword、`search_send_status` の sent/unsent、receiptYear 絞り込み、`deleted_at` |
-| command | 手動 batch の差出人解決失敗、200 超、印刷 batch との共存（source） |
+| domain | 未来日 NG、`PostcardSendSource`、memo 1000 CP、更新で不変フィールドを変えないこと |
+| repository | CRUD、年/種別/keyword（ESCAPE・json_extract フォールバック）、`search_send_status` の sent/unsent、**`receiptYear != year`**、archived 住所録が status から消える、items/total 同一 TX、種別変更後の sent/unsent 移動、`lastSentOn` が年フィルタ外 |
+| command | 手動 batch の差出人解決失敗、**重複 addressEntryId Validation**、**UNIQUE Conflict を冪等成功にしない**、200 超、印刷 batch 後に手動追加しても同一年 status が sent、**migration 0007 後も既存 `create_postcard_sends_batch` が `source=print`・`memo IS NULL` で通る** |
 | 結合 | migration 0007 適用後の command_tests |
-| フロント | 一覧フィルタ、SND005 ↔ 印刷/一括導線（モック準拠の結合テスト） |
+| フロント | SND005 → PRT001 が draft を**置換**する、種別フィルタ時に `printPostcardType` が同期される、保存中の連打 disabled、メモ抜粋 30 コードポイント、作成成功 → SND004 |
 
 ---
 
 ## 8. 実装タスク（TOP-27 向け）
 
 - [ ] migration `0007_alter_postcard_sends_for_manage.sql`（`source` / `memo`）
-- [ ] domain: `PostcardSend` 拡張、`PostcardSendSource`、update 用ファクトリ
-- [ ] repository: get / search / update / soft_delete / years / send_status
-- [ ] 既存 `create_batch` が `source=print` を明示するよう調整
-- [ ] Tauri: `create_postcard_sends_manual_batch` ほか CRUD・`search_send_status`
-- [ ] frontend: `features/postcard-send/`、SND001–006
-- [ ] ルーティング・ナビゲーション
+- [ ] domain: `PostcardSend` 拡張、`PostcardSendSource`、update 用ファクトリ、memo 1000 CP
+- [ ] repository: get / search / update / soft_delete / years / send_status（ソート・集約窓・同一 TX）
+- [ ] 既存 `create_batch` / 印刷コマンドが `source=print` を明示（または DEFAULT 依存をテストで固定）
+- [ ] Tauri: `create_postcard_sends_manual_batch`（重複 Validation・Conflict 非冪等・`ids` 応答）ほか CRUD・`search_send_status`
+- [ ] frontend: `features/postcard-send/`、SND001–006、ナビ（宛名印刷を残す）
+- [ ] SND005 → PRT001 / SND006 引き継ぎ契約
 - [ ] AddressEntry 複数選択 UI の再利用（印刷 PRT001 / 受取ダイアログ）
 - [x] mock-up（設計フェーズで作成）
 
@@ -430,8 +486,14 @@ sequenceDiagram
 |------|------|------|
 | 暑中・寒中プリセット | v1 非採用 | 必要なら v1.1 で `PostcardType` 拡張＋印刷テンプレ有無を再設計 |
 | 一括登録のメモを行ごとに変える | v1 非対応 | 全件共通メモのみ |
-| 送付状況から印刷へ渡す draft の詳細キー | 実装時 | 既存 `printJobDraft` 形式に合わせる |
-| 検索をスナップショット JSON 直叩きにするか | 実装判断 | 設計は live JOIN 優先を推奨 |
+| 送付状況タブの sort 切替（lastSentOn DESC 等） | v1 非対応 | デフォルト表示名昇順のみ |
+
+**解決済み（PR #10 レビュー反映）**
+
+- 受取年は対象年と独立（デフォルト昨年）
+- 手動 batch: 重複 ID は Validation、連打は新規行許可、Conflict 非冪等
+- SND005 → 印刷: PRT001 固定、draft 置換+確認、種別同期、200 clamp
+- `lastSentOn` / `sendCount` の集約窓、status ソート、検索フォールバック、memo 1000 CP
 
 ---
 
@@ -441,3 +503,4 @@ sequenceDiagram
 |------|------|
 | 2026-09-10 | 初版（TOP-18 設計） |
 | 2026-09-10 | 自己レビュー: 履歴/送付状況を同一シェルのタブに整理、update に楽観ロックを明記 |
+| 2026-09-10 | PR #10 レビュー反映: 受取年独立、手動 batch 契約、draft/status/検索/ナビ等を固定 |

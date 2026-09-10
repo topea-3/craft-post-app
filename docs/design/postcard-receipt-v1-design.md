@@ -134,9 +134,9 @@ AddressEntry 1 ──< N PostcardReceipt
 
 **採用理由**: 年賀状運用では同一相手から毎年受取するため 1:N が自然。未登録の相手から届いた場合も記録できるよう匿名を許容する。
 
-#### 5.1.4 送付情報管理との連携インターフェース（将来）
+#### 5.1.4 送付情報管理との連携インターフェース
 
-受取側が提供する参照情報（送付機能設計時に利用）:
+受取側が提供する参照情報（送付機能で利用）:
 
 | 用途 | 参照方法 |
 |------|----------|
@@ -144,7 +144,7 @@ AddressEntry 1 ──< N PostcardReceipt
 | 相手ごとの最新受取日 | `address_entry_id` ごとに `MAX(received_at)` |
 | 匿名受取の除外 | `address_entry_id IS NOT NULL` 条件 |
 
-送付側 `PostcardSend`（仮称）は将来 `address_entry_id` を共有キーとし、**「受取履歴に基づく送付候補抽出」は repository 層のクエリ**として実装する（v1 受取スコープでは API のみ予約し、実装は送付 Issue へ）。
+送付側の実現: [postcard-send-v1-design.md](./postcard-send-v1-design.md) の `search_send_status.receiptYear`（対象年と独立。UI デフォルトは昨年）。`address_entry_id` を共有キーとし、候補抽出は repository 層クエリ。
 
 ### 5.2 データモデル / DB
 
@@ -318,7 +318,7 @@ flowchart TD
 |------|------|------|
 | 種別プリセットの追加・編集 | v1 固定 | ユーザー定義種別は v1.1 以降 |
 | 受取履歴からの住所録新規作成 | v1 非スコープ | 編集画面から住所録詳細へ誘導のみ |
-| 送付側 API の具体コマンド名 | 送付設計 Issue で決定 | 本設計 §5.1.4 のクエリ要件を引き渡し |
+| 送付側 API の具体コマンド名 | 決定済 | [postcard-send-v1-design.md](./postcard-send-v1-design.md) の `search_send_status` |
 
 ---
 
@@ -328,3 +328,4 @@ flowchart TD
 |------|------|
 | 2026-05-30 | 初版（TOP-17 設計） |
 | 2026-05-31 | 論理削除（`deleted_at`）へ変更、種別を 3 種に整理 |
+| 2026-09-10 | §5.1.4 を送付設計（TOP-18）へのリンクに更新 |
