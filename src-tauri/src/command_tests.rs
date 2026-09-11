@@ -1326,5 +1326,73 @@ mod tests {
     let err = get_postcard_send_impl(&pool, id).await.expect_err("deleted");
     assert!(err.contains("postcard send not found"));
   }
+
+  #[tokio::test]
+  async fn create_postcard_sends_manual_batch_rejects_missing_sender_link() {
+    let pool = setup_pool().await;
+    let address_id = Uuid::new_v4();
+    insert_address_entry(&pool, address_id, false).await;
+
+    let err = create_postcard_sends_manual_batch_impl(
+      &pool,
+      CreatePostcardSendsManualBatchInput {
+        postcard_type: "nenga".to_string(),
+        sent_on: "2026-01-05".to_string(),
+        memo: None,
+        items: vec![CreatePostcardSendsManualItemDto {
+          address_entry_id: address_id.to_string(),
+          sender_entry_id: None,
+        }],
+      },
+    )
+    .await
+    .expect_err("no sender link");
+    assert!(err.contains("差出人が紐づいていない宛名があります"));
+  }
+
+  #[tokio::test]
+  async fn create_postcard_sends_manual_batch_rejects_over_200() {
+    let pool = setup_pool().await;
+    let items: Vec<_> = (0..201)
+      .map(|_| CreatePostcardSendsManualItemDto {
+        address_entry_id: Uuid::new_v4().to_string(),
+        sender_entry_id: Some(Uuid::new_v4().to_string()),
+      })
+      .collect();
+
+    let err = create_postcard_sends_manual_batch_impl(
+      &pool,
+      CreatePostcardSendsManualBatchInput {
+        postcard_type: "nenga".to_string(),
+        sent_on: "2026-01-05".to_string(),
+        memo: None,
+        items,
+      },
+    )
+    .await
+    .expect_err("too many");
+    assert!(err.contains("items must not exceed 200"));
+  }
+
+  #[tokio::test]
+  async fn search_postcard_sends_rejects_long_keyword() {
+    let pool = setup_pool().await;
+    let long = "あ".repeat(101);
+    let err = search_postcard_sends_impl(
+      &pool,
+      Some(long),
+      None,
+      None,
+      None,
+      None,
+      None,
+      Some(20),
+      Some(0),
+      None,
+    )
+    .await
+    .expect_err("keyword too long");
+    assert!(err.contains("検索キーワードが長すぎます"));
+  }
 }
 

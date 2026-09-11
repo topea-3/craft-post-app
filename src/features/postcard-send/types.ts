@@ -4,6 +4,19 @@ import {
   formatLocalDate,
   formatUtcToLocalDateTime,
 } from '../../lib/date'
+import {
+  formatRecipientDisplayName,
+  formatSenderDisplayNameFromSnapshot,
+  fromAddressPrintSnapshotDto,
+  fromSenderPrintSnapshotDto,
+  type AddressPrintSnapshot,
+  type AddressPrintSnapshotDto,
+  type SenderPrintSnapshot,
+  type SenderPrintSnapshotDto,
+} from '../print/types'
+
+/** 検索キーワード上限（Unicode scalar）。受取 search と揃える想定 */
+export const MAX_SEARCH_KEYWORD_LENGTH = 100
 
 export type PostcardType = 'nenga' | 'mochu'
 export type PostcardSendSource = 'print' | 'manual'
@@ -55,12 +68,76 @@ export type PostcardSendListItem = {
   senderEntryLabel: string | null
   senderEntryDisplayName: string | null
   senderEntryArchived: boolean | null
+  addressSnapshot: AddressPrintSnapshot | null
+  senderSnapshot: SenderPrintSnapshot | null
 }
 
 export type PostcardSendDetail = PostcardSendListItem & {
   createdAt: string
   updatedAt: string
   addressEntryAddressLine: string | null
+}
+
+function parseAddressSnapshot(raw: string | undefined | null): AddressPrintSnapshot | null {
+  if (!raw?.trim()) return null
+  try {
+    const parsed = JSON.parse(raw) as AddressPrintSnapshotDto
+    if (!parsed || typeof parsed !== 'object') return null
+    if (typeof parsed.primary_last !== 'string' || typeof parsed.primary_first !== 'string') {
+      return null
+    }
+    return fromAddressPrintSnapshotDto({
+      address_entry_id: parsed.address_entry_id ?? '',
+      postal_code: parsed.postal_code ?? '',
+      address_line1: parsed.address_line1 ?? '',
+      address_line2: parsed.address_line2 ?? '',
+      address_line3: parsed.address_line3 ?? '',
+      primary_last: parsed.primary_last,
+      primary_first: parsed.primary_first,
+      co_recipients: Array.isArray(parsed.co_recipients) ? parsed.co_recipients : [],
+      honorific_print: parsed.honorific_print ?? '',
+    })
+  } catch {
+    return null
+  }
+}
+
+function parseSenderSnapshot(raw: string | undefined | null): SenderPrintSnapshot | null {
+  if (!raw?.trim()) return null
+  try {
+    const parsed = JSON.parse(raw) as SenderPrintSnapshotDto
+    if (!parsed || typeof parsed !== 'object') return null
+    if (typeof parsed.primary_last !== 'string' || typeof parsed.primary_first !== 'string') {
+      return null
+    }
+    return fromSenderPrintSnapshotDto({
+      sender_entry_id: parsed.sender_entry_id ?? '',
+      postal_code: parsed.postal_code ?? '',
+      address_line1: parsed.address_line1 ?? '',
+      address_line2: parsed.address_line2 ?? '',
+      address_line3: parsed.address_line3 ?? '',
+      primary_last: parsed.primary_last,
+      primary_first: parsed.primary_first,
+      co_recipients: Array.isArray(parsed.co_recipients) ? parsed.co_recipients : [],
+    })
+  } catch {
+    return null
+  }
+}
+
+function formatSnapshotAddressLine(snapshot: AddressPrintSnapshot | SenderPrintSnapshot): string {
+  return [snapshot.addressLine1, snapshot.addressLine2, snapshot.addressLine3]
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .join('')
+}
+
+function formatPostalCode(code: string): string {
+  const digits = code.replace(/\D/g, '')
+  if (digits.length === 7) {
+    return `〒${digits.slice(0, 3)}-${digits.slice(3)}`
+  }
+  return code.trim() ? `〒${code.trim()}` : ''
 }
 
 export type PostcardSendFormValues = {
@@ -125,12 +202,17 @@ export function formatMemoSnippet(
 export function resolveAddressDisplayName(item: {
   addressEntryDisplayName: string | null
   addressEntryArchived?: boolean | null
+  addressSnapshot?: AddressPrintSnapshot | null
 }): string {
-  if (item.addressEntryDisplayName) {
+  const snapshotName = item.addressSnapshot
+    ? formatRecipientDisplayName(item.addressSnapshot).trim()
+    : ''
+  const name = snapshotName || item.addressEntryDisplayName?.trim() || ''
+  if (name) {
     if (item.addressEntryArchived) {
-      return `（アーカイブ済みの宛名）${item.addressEntryDisplayName}`
+      return `（アーカイブ済みの宛名）${name}`
     }
-    return item.addressEntryDisplayName
+    return name
   }
   return '（削除済みの宛名）'
 }
@@ -139,8 +221,16 @@ export function resolveSenderDisplayName(item: {
   senderEntryLabel: string | null
   senderEntryDisplayName: string | null
   senderEntryArchived?: boolean | null
+  senderSnapshot?: SenderPrintSnapshot | null
 }): string {
-  const label = item.senderEntryLabel?.trim() || item.senderEntryDisplayName?.trim()
+  const snapshotName = item.senderSnapshot
+    ? formatSenderDisplayNameFromSnapshot(item.senderSnapshot).trim()
+    : ''
+  const label =
+    snapshotName ||
+    item.senderEntryLabel?.trim() ||
+    item.senderEntryDisplayName?.trim() ||
+    ''
   if (label) {
     if (item.senderEntryArchived) {
       return `（アーカイブ済み）${label}`
@@ -148,6 +238,34 @@ export function resolveSenderDisplayName(item: {
     return label
   }
   return '（削除済みの差出人）'
+}
+
+export function resolveAddressPostalAndLine(item: {
+  addressEntryAddressLine: string | null
+  addressSnapshot?: AddressPrintSnapshot | null
+}): { postalCode: string; addressLine: string } {
+  if (item.addressSnapshot) {
+    return {
+      postalCode: formatPostalCode(item.addressSnapshot.postalCode),
+      addressLine: formatSnapshotAddressLine(item.addressSnapshot) || '—',
+    }
+  }
+  return {
+    postalCode: '',
+    addressLine: item.addressEntryAddressLine?.trim() || '—',
+  }
+}
+
+export function resolveSenderPostalAndLine(item: {
+  senderSnapshot?: SenderPrintSnapshot | null
+}): { postalCode: string; addressLine: string } {
+  if (item.senderSnapshot) {
+    return {
+      postalCode: formatPostalCode(item.senderSnapshot.postalCode),
+      addressLine: formatSnapshotAddressLine(item.senderSnapshot) || '—',
+    }
+  }
+  return { postalCode: '', addressLine: '—' }
 }
 
 export function fromPostcardSendDto(dto: PostcardSendDto): PostcardSendListItem {
@@ -165,15 +283,21 @@ export function fromPostcardSendDto(dto: PostcardSendDto): PostcardSendListItem 
     senderEntryLabel: dto.sender_entry_label,
     senderEntryDisplayName: dto.sender_entry_display_name,
     senderEntryArchived: dto.sender_entry_archived,
+    addressSnapshot: parseAddressSnapshot(dto.address_snapshot),
+    senderSnapshot: parseSenderSnapshot(dto.sender_snapshot),
   }
 }
 
 export function fromPostcardSendDtoToDetail(dto: PostcardSendDto): PostcardSendDetail {
+  const base = fromPostcardSendDto(dto)
+  const fromSnapshot = base.addressSnapshot
+    ? formatSnapshotAddressLine(base.addressSnapshot)
+    : ''
   return {
-    ...fromPostcardSendDto(dto),
+    ...base,
     createdAt: dto.created_at,
     updatedAt: dto.updated_at,
-    addressEntryAddressLine: dto.address_entry_address_line,
+    addressEntryAddressLine: fromSnapshot || dto.address_entry_address_line,
   }
 }
 
@@ -200,14 +324,25 @@ export function createInitialPostcardSendFormValues(): PostcardSendFormValues {
 }
 
 export function formValuesFromDetail(detail: PostcardSendDetail): PostcardSendFormValues {
+  const addressName = detail.addressSnapshot
+    ? formatRecipientDisplayName(detail.addressSnapshot).trim()
+    : ''
+  const senderName = detail.senderSnapshot
+    ? formatSenderDisplayNameFromSnapshot(detail.senderSnapshot).trim()
+    : ''
   return {
     sentOn: detail.sentOn,
     postcardType: detail.postcardType,
     memo: detail.memo ?? '',
     addressEntryId: detail.addressEntryId,
-    addressEntryDisplayName: detail.addressEntryDisplayName,
+    addressEntryDisplayName:
+      addressName || detail.addressEntryDisplayName || detail.addressEntryId,
     senderEntryId: detail.senderEntryId,
-    senderEntryLabel: detail.senderEntryLabel ?? detail.senderEntryDisplayName,
+    senderEntryLabel:
+      detail.senderEntryLabel?.trim() ||
+      senderName ||
+      detail.senderEntryDisplayName ||
+      detail.senderEntryId,
   }
 }
 

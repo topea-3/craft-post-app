@@ -9,7 +9,9 @@ import {
   fromPostcardSendDtoToDetail,
   postcardTypeLabel,
   resolveAddressDisplayName,
+  resolveAddressPostalAndLine,
   resolveSenderDisplayName,
+  resolveSenderPostalAndLine,
   sourceLabel,
 } from './types'
 
@@ -73,6 +75,13 @@ export function PostcardSendDetailPage() {
     )
   }
 
+  const addressPostal = resolveAddressPostalAndLine(detail)
+  const senderPostal = resolveSenderPostalAndLine(detail)
+  const addressActive = detail.addressEntryArchived === false
+  const addressArchived = detail.addressEntryArchived === true
+  const senderActive = detail.senderEntryArchived === false
+  const senderArchived = detail.senderEntryArchived === true
+
   return (
     <div className="address-form-container">
       <header className="address-form-header">
@@ -105,18 +114,6 @@ export function PostcardSendDetailPage() {
           <dd>{postcardTypeLabel(detail.postcardType)}</dd>
         </div>
         <div>
-          <dt>宛名</dt>
-          <dd>{resolveAddressDisplayName(detail)}</dd>
-        </div>
-        <div>
-          <dt>住所</dt>
-          <dd>{detail.addressEntryAddressLine ?? '—'}</dd>
-        </div>
-        <div>
-          <dt>差出人</dt>
-          <dd>{resolveSenderDisplayName(detail)}</dd>
-        </div>
-        <div>
           <dt>登録経路</dt>
           <dd>{sourceLabel(detail.source)}</dd>
         </div>
@@ -124,6 +121,37 @@ export function PostcardSendDetailPage() {
           <dt>メモ</dt>
           <dd style={{ whiteSpace: 'pre-wrap' }}>{detail.memo?.trim() || '—'}</dd>
         </div>
+
+        <div>
+          <dt>宛名（送付時）</dt>
+          <dd>
+            <div>{resolveAddressDisplayName(detail)}</div>
+            {addressPostal.postalCode ? <div>{addressPostal.postalCode}</div> : null}
+            <div>{addressPostal.addressLine}</div>
+            {addressActive ? (
+              <div>
+                <Link to={`/addresses/${detail.addressEntryId}`}>住所録を開く</Link>
+              </div>
+            ) : null}
+            {addressArchived ? <div className="address-form-help">アーカイブ済み</div> : null}
+          </dd>
+        </div>
+
+        <div>
+          <dt>差出人（送付時）</dt>
+          <dd>
+            <div>{resolveSenderDisplayName(detail)}</div>
+            {senderPostal.postalCode ? <div>{senderPostal.postalCode}</div> : null}
+            <div>{senderPostal.addressLine}</div>
+            {senderActive ? (
+              <div>
+                <Link to={`/senders/${detail.senderEntryId}`}>差出人を開く</Link>
+              </div>
+            ) : null}
+            {senderArchived ? <div className="address-form-help">アーカイブ済み</div> : null}
+          </dd>
+        </div>
+
         <div>
           <dt>作成日時</dt>
           <dd>{formatDateTime(detail.createdAt)}</dd>

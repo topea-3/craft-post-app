@@ -6,6 +6,7 @@ import {
   buildStatusYearOptions,
   formatMemoSnippet,
   fromPostcardSendDto,
+  resolveAddressDisplayName,
 } from './types'
 
 describe('buildHistoryYearOptions', () => {
@@ -56,13 +57,23 @@ describe('fromPostcardSendDto', () => {
       print_job_id: 'job',
       address_entry_id: 'a',
       sender_entry_id: 's',
+      address_snapshot: JSON.stringify({
+        address_entry_id: 'a',
+        postal_code: '1000001',
+        address_line1: '東京都',
+        address_line2: '千代田区',
+        primary_last: 'スナップ',
+        primary_first: '太郎',
+        co_recipients: [],
+        honorific_print: '様',
+      }),
       postcard_type: 'mochu',
       sent_on: '2026-01-01',
       source: 'manual',
       memo: 'm',
       created_at: 'c',
       updated_at: 'u',
-      address_entry_display_name: '宛名',
+      address_entry_display_name: 'ライブ名',
       address_entry_address_line: '住所',
       address_entry_archived: false,
       sender_entry_label: '差出人',
@@ -71,7 +82,30 @@ describe('fromPostcardSendDto', () => {
     })
     expect(item.postcardType).toBe('mochu')
     expect(item.source).toBe('manual')
-    expect(item.addressEntryDisplayName).toBe('宛名')
+    expect(item.addressEntryDisplayName).toBe('ライブ名')
+    expect(item.addressSnapshot?.primaryLast).toBe('スナップ')
+  })
+})
+
+describe('resolveAddressDisplayName', () => {
+  it('prefers snapshot over live display name', () => {
+    expect(
+      resolveAddressDisplayName({
+        addressEntryDisplayName: 'ライブ',
+        addressEntryArchived: false,
+        addressSnapshot: {
+          addressEntryId: 'a',
+          postalCode: '',
+          addressLine1: '',
+          addressLine2: '',
+          addressLine3: '',
+          primaryLast: 'スナップ',
+          primaryFirst: '花子',
+          coRecipients: [],
+          honorificPrint: '様',
+        },
+      }),
+    ).toBe('スナップ 花子 様')
   })
 })
 

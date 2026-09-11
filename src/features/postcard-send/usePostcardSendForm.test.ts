@@ -86,4 +86,39 @@ describe('usePostcardSendForm', () => {
     })
     expect(result.current.values.memo).toBe('編集メモ')
   })
+
+  it('does not update address when overwrite confirm is cancelled', async () => {
+    const { invoke } = await import('@tauri-apps/api/core')
+    vi.mocked(invoke).mockResolvedValue(null)
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
+
+    const { result } = renderHook(() =>
+      usePostcardSendForm({
+        mode: 'create',
+        onSuccess: vi.fn(),
+      }),
+    )
+
+    await act(async () => {
+      result.current.setAddressEntry('addr-1', '最初の宛名')
+    })
+    await waitFor(() => {
+      expect(result.current.values.addressEntryId).toBe('addr-1')
+    })
+
+    await act(async () => {
+      result.current.setSenderEntry('sender-1', '手動差出人')
+    })
+    expect(result.current.values.senderEntryId).toBe('sender-1')
+
+    await act(async () => {
+      result.current.setAddressEntry('addr-2', '変更先の宛名')
+    })
+
+    expect(confirmSpy).toHaveBeenCalled()
+    expect(result.current.values.addressEntryId).toBe('addr-1')
+    expect(result.current.values.addressEntryDisplayName).toBe('最初の宛名')
+    expect(result.current.values.senderEntryId).toBe('sender-1')
+    confirmSpy.mockRestore()
+  })
 })

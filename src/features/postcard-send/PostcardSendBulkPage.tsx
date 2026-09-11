@@ -39,6 +39,8 @@ export function PostcardSendBulkPage() {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
   const [isSubmitting, setSubmitting] = useState(false)
+  const [isSeeding, setSeeding] = useState(false)
+  const [seedNotice, setSeedNotice] = useState<string | null>(null)
   const submittingRef = useRef(false)
   const seededRef = useRef(false)
 
@@ -47,47 +49,60 @@ export function PostcardSendBulkPage() {
     const ids = state?.addressEntryIds ?? []
     if (ids.length === 0) return
     seededRef.current = true
+    setSeeding(true)
     ;(async () => {
-      const next: SelectedRow[] = []
-      for (const id of ids.slice(0, MAX_SELECTION)) {
-        try {
-          const dto = await invoke<AddressEntryDto>('get_address_entry', { id })
-          if (dto.archived) continue
-          const entry = fromAddressEntryDto(dto)
-          const displayName = formatDisplayName(entry.primaryName, entry.coRecipients)
-          const senderId = await invoke<string | null>('get_sender_id_by_address_entry_id', {
-            addressEntryId: id,
-          })
-          let senderLabel: string | null = null
-          if (senderId) {
-            try {
-              const sender = await invoke<{ label: string; archived: boolean }>('get_sender_entry', {
-                id: senderId,
-              })
-              if (!sender.archived) {
-                senderLabel = sender.label
+      const targetIds = ids.slice(0, MAX_SELECTION)
+      const results = await Promise.all(
+        targetIds.map(async (id) => {
+          try {
+            const dto = await invoke<AddressEntryDto>('get_address_entry', { id })
+            if (dto.archived) return { kind: 'skipped' as const }
+            const entry = fromAddressEntryDto(dto)
+            const displayName = formatDisplayName(entry.primaryName, entry.coRecipients)
+            const senderId = await invoke<string | null>('get_sender_id_by_address_entry_id', {
+              addressEntryId: id,
+            })
+            let senderLabel: string | null = null
+            if (senderId) {
+              try {
+                const sender = await invoke<{ label: string; archived: boolean }>(
+                  'get_sender_entry',
+                  { id: senderId },
+                )
+                if (!sender.archived) {
+                  senderLabel = sender.label
+                }
+              } catch {
+                /* ignore */
               }
-            } catch {
-              /* ignore */
             }
+            return {
+              kind: 'ok' as const,
+              row: {
+                id,
+                displayName,
+                senderEntryId: senderLabel ? senderId : null,
+                senderLabel,
+                linkOk: Boolean(senderLabel),
+              },
+            }
+          } catch {
+            return { kind: 'skipped' as const }
           }
-          next.push({
-            id,
-            displayName,
-            senderEntryId: senderLabel ? senderId : null,
-            senderLabel,
-            linkOk: Boolean(senderLabel),
-          })
-        } catch {
-          /* skip missing */
-        }
-      }
+        }),
+      )
+      const next = results.flatMap((r) => (r.kind === 'ok' ? [r.row] : []))
+      const skipped = targetIds.length - next.length
       setRows(next)
+      if (skipped > 0) {
+        setSeedNotice(`${skipped} 件は参照できないため除外しました。`)
+      }
+      setSeeding(false)
     })()
   }, [state])
 
   const hasUnlinked = useMemo(() => rows.some((r) => !r.linkOk), [rows])
-  const canSubmit = rows.length > 0 && !hasUnlinked && !isSubmitting
+  const canSubmit = rows.length > 0 && !hasUnlinked && !isSubmitting && !isSeeding
 
   const addAddress = async (item: AddressEntryListItem) => {
     setDialogOpen(false)
@@ -192,19 +207,21 @@ export function PostcardSendBulkPage() {
     <div className="address-form-container">
       <header className="address-form-header">
         <h1>送付履歴一括登録</h1>
-        <button type="button" className="link-button" onClick={handleCancel} disabled={isSubmitting}>
+        <button type="button" className="link-button" onClick={handleCancel} disabled={isSubmitting || isSeeding}>
           キャンセル
         </button>
       </header>
 
       {formError ? <p className="address-form-error">{formError}</p> : null}
+      {seedNotice ? <p className="address-form-help">{seedNotice}</p> : null}
+      {isSeeding ? <p>宛名を読み込み中…</p> : null}
       {hasUnlinked ? (
         <p className="address-form-error">
           差出人が未紐付けの宛名があります。登録ボタンは無効です。
         </p>
       ) : null}
 
-      <fieldset className="address-form-section" disabled={isSubmitting}>
+      <fieldset className="address-form-section" disabled={isSubmitting || isSeeding}>
         <legend>共通設定</legend>
         <label className="address-form-label">
           送付日
@@ -229,9 +246,14 @@ export function PostcardSendBulkPage() {
         </label>
       </fieldset>
 
-      <fieldset className="address-form-section" disabled={isSubmitting}>
+      <fieldset className="address-form-section" disabled={isSubmitting || isSeeding}>
         <legend>宛名（{rows.length}/{MAX_SELECTION}）</legend>
-        <button type="button" className="address-list-filter-toggle" onClick={() => setDialogOpen(true)}>
+        <button
+          type="button"
+          className="address-list-filter-toggle"
+          onClick={() => setDialogOpen(true)}
+          disabled={isSeeding}
+        >
           宛名を追加
         </button>
         {rows.length === 0 ? (
@@ -263,7 +285,7 @@ export function PostcardSendBulkPage() {
       </fieldset>
 
       <div className="address-form-actions">
-        <button type="button" className="link-button" onClick={handleCancel} disabled={isSubmitting}>
+        <button type="button" className="link-button" onClick={handleCancel} disabled={isSubmitting || isSeeding}>
           キャンセル
         </button>
         <button
@@ -272,7 +294,7 @@ export function PostcardSendBulkPage() {
           disabled={!canSubmit}
           onClick={() => void handleSubmit()}
         >
-          {isSubmitting ? '登録中…' : '一括登録'}
+          {isSubmitting ? '登録中…' : isSeeding ? '読み込み中…' : '一括登録'}
         </button>
       </div>
 

@@ -128,6 +128,7 @@ export function usePostcardSendForm(args: CreateArgs | EditArgs): UsePostcardSen
   const cancelledRef = useRef(false)
   const isSubmittingRef = useRef(false)
   const senderManuallySetRef = useRef(false)
+  const addressResolveGenerationRef = useRef(0)
   const lastEditSyncKeyRef = useRef<string | null>(editSyncKey)
   const argsRef = useRef(args)
   argsRef.current = args
@@ -180,18 +181,19 @@ export function usePostcardSendForm(args: CreateArgs | EditArgs): UsePostcardSen
   const setAddressEntry = useCallback(
     (id: string, displayName: string) => {
       if (isSubmittingRef.current || !allowIdentityEdit) return
+      if (senderManuallySetRef.current && valuesRef.current.senderEntryId) {
+        const confirmed = window.confirm(
+          '宛名を変更すると差出人がリンク結果で上書きされます。よろしいですか？',
+        )
+        if (!confirmed) {
+          return
+        }
+      }
+      const generation = ++addressResolveGenerationRef.current
       const apply = async () => {
         const linked = await resolveLinkedSender(id)
         if (cancelledRef.current) return
-        if (senderManuallySetRef.current && valuesRef.current.senderEntryId) {
-          const confirmed = window.confirm(
-            '宛名を変更すると差出人がリンク結果で上書きされます。よろしいですか？',
-          )
-          if (!confirmed) {
-            patchValues({ addressEntryId: id, addressEntryDisplayName: displayName })
-            return
-          }
-        }
+        if (generation !== addressResolveGenerationRef.current) return
         senderManuallySetRef.current = false
         patchValues({
           addressEntryId: id,

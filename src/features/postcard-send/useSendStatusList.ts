@@ -25,6 +25,7 @@ type UseSendStatusListResult = {
   isLoading: boolean
   error: string | null
   settledSearchText: string
+  isDebouncing: boolean
   reload: () => void
 }
 
@@ -148,6 +149,7 @@ export function useSendStatusList(params: UseSendStatusListParams): UseSendStatu
     isLoading,
     error,
     settledSearchText: debouncedSearchText,
+    isDebouncing: searchText !== debouncedSearchText,
     reload,
   }
 }

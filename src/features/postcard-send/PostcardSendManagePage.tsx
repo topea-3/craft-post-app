@@ -7,13 +7,16 @@ import { clampPage, totalPagesFor } from '../../lib/pagination'
 import { POSTCARD_SEND_OPERATION_ERROR_MESSAGE } from './messages'
 import {
   readPrintJobDraftAddressIds,
+  readSendStatusSelectedIds,
   replacePrintJobDraftAddressIds,
   syncPrintPostcardType,
+  writeSendStatusSelectedIds,
 } from './printHandoff'
 import type { BulkSendLocationState, PostcardType, SendStatusFilter } from './types'
 import {
   POSTCARD_SEND_SOURCE_OPTIONS,
   POSTCARD_TYPE_OPTIONS,
+  MAX_SEARCH_KEYWORD_LENGTH,
   buildHistoryYearOptions,
   buildReceiptYearOptions,
   buildStatusYearOptions,
@@ -69,6 +72,8 @@ export function PostcardSendManagePage() {
           <button
             type="button"
             role="tab"
+            id="postcard-send-history-tab"
+            aria-controls="postcard-send-history-panel"
             aria-selected={tab === 'history'}
             className={tab === 'history' ? 'address-list-create-button' : 'address-list-filter-toggle'}
             onClick={() => setTab('history')}
@@ -78,6 +83,8 @@ export function PostcardSendManagePage() {
           <button
             type="button"
             role="tab"
+            id="postcard-send-status-tab"
+            aria-controls="postcard-send-status-panel"
             aria-selected={tab === 'status'}
             className={tab === 'status' ? 'address-list-create-button' : 'address-list-filter-toggle'}
             onClick={() => setTab('status')}
@@ -87,12 +94,27 @@ export function PostcardSendManagePage() {
         </div>
       </div>
 
-      {tab === 'history' ? <HistoryTab /> : <StatusTab />}
+      <div
+        role="tabpanel"
+        hidden={tab !== 'history'}
+        id="postcard-send-history-panel"
+        aria-labelledby="postcard-send-history-tab"
+      >
+        <HistoryTab active={tab === 'history'} />
+      </div>
+      <div
+        role="tabpanel"
+        hidden={tab !== 'status'}
+        id="postcard-send-status-panel"
+        aria-labelledby="postcard-send-status-tab"
+      >
+        <StatusTab active={tab === 'status'} />
+      </div>
     </div>
   )
 }
 
-function HistoryTab() {
+function HistoryTab({ active }: { active: boolean }) {
   const navigate = useNavigate()
   const [isFilterOpen, setIsFilterOpen] = useState(false)
   const [searchText, setSearchText] = useState('')
@@ -101,22 +123,22 @@ function HistoryTab() {
   const [source, setSource] = useState('')
   const [page, setPage] = useState(1)
   const [availableYears, setAvailableYears] = useState<number[]>([])
-  const [yearsFetchStatus, setYearsFetchStatus] = useState<'idle' | 'ok' | 'error'>('idle')
   const [yearsError, setYearsError] = useState<string | null>(null)
   const [yearsReloadToken, setYearsReloadToken] = useState(0)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const isDeletingRef = useRef(false)
   const cancelledRef = useRef(false)
 
-  const { items, total, isLoading, error, settledSearchText, reload } = usePostcardSendList({
-    searchText,
-    year,
-    postcardType,
-    source,
-    page,
-    pageSize: PAGE_SIZE,
-    onPageChange: setPage,
-  })
+  const { items, total, isLoading, error, settledSearchText, isDebouncing, reload } =
+    usePostcardSendList({
+      searchText,
+      year,
+      postcardType,
+      source,
+      page,
+      pageSize: PAGE_SIZE,
+      onPageChange: setPage,
+    })
 
   useEffect(() => {
     cancelledRef.current = false
@@ -126,6 +148,7 @@ function HistoryTab() {
   }, [])
 
   useEffect(() => {
+    if (!active) return
     let cancelled = false
     ;(async () => {
       try {
@@ -133,19 +156,17 @@ function HistoryTab() {
         if (cancelled) return
         setAvailableYears(years)
         setYearsError(null)
-        setYearsFetchStatus('ok')
       } catch (e) {
         console.error('Failed to load postcard send years:', e)
         if (!cancelled) {
           setYearsError(POSTCARD_SEND_OPERATION_ERROR_MESSAGE)
-          setYearsFetchStatus('error')
         }
       }
     })()
     return () => {
       cancelled = true
     }
-  }, [yearsReloadToken])
+  }, [active, yearsReloadToken])
 
   const yearOptions = useMemo(() => {
     const options = buildHistoryYearOptions(availableYears)
@@ -155,21 +176,13 @@ function HistoryTab() {
     return options
   }, [availableYears, year])
 
-  useEffect(() => {
-    if (yearsFetchStatus !== 'ok') return
-    if (!year) return
-    if (!yearOptions.some((option) => option.value === year)) {
-      setYear('')
-      setPage(1)
-    }
-  }, [yearOptions, year, yearsFetchStatus])
-
   const totalPages = totalPagesFor(total, PAGE_SIZE)
   const currentPage = clampPage(page, total, PAGE_SIZE)
   const isFiltering =
     settledSearchText.trim().length > 0 || year !== '' || postcardType !== '' || source !== ''
-  const isNoData = !isFiltering && total === 0
-  const isNoSearchResult = isFiltering && total === 0
+  const showSettledEmpty = !isDebouncing && !isLoading
+  const isNoData = showSettledEmpty && !isFiltering && total === 0
+  const isNoSearchResult = showSettledEmpty && isFiltering && total === 0
   const hasItems = total > 0
   const isBusy = deletingId !== null
 
@@ -221,6 +234,7 @@ function HistoryTab() {
               onChange={(e) => setSearchText(e.target.value)}
               placeholder="宛名・差出人・メモで検索"
               className="address-list-filter-input"
+              maxLength={MAX_SEARCH_KEYWORD_LENGTH}
               disabled={isBusy}
             />
           </label>
@@ -400,7 +414,7 @@ function HistoryTab() {
   )
 }
 
-function StatusTab() {
+function StatusTab({ active }: { active: boolean }) {
   const navigate = useNavigate()
   const thisYear = currentLocalYear()
   const [searchText, setSearchText] = useState('')
@@ -413,12 +427,12 @@ function StatusTab() {
   const [page, setPage] = useState(1)
   const [sendYears, setSendYears] = useState<number[]>([])
   const [receiptYears, setReceiptYears] = useState<number[]>([])
-  const [selectedIds, setSelectedIds] = useState<string[]>([])
+  const [selectedIds, setSelectedIds] = useState<string[]>(() => readSendStatusSelectedIds())
   const [selectionError, setSelectionError] = useState<string | null>(null)
 
   const apiReceiptYear = limitByReceipt ? receiptYear : null
 
-  const { items, total, isLoading, error, settledSearchText } = useSendStatusList({
+  const { items, total, isLoading, error, settledSearchText, isDebouncing } = useSendStatusList({
     searchText,
     year,
     postcardType,
@@ -430,24 +444,30 @@ function StatusTab() {
   })
 
   useEffect(() => {
+    writeSendStatusSelectedIds(selectedIds)
+  }, [selectedIds])
+
+  useEffect(() => {
+    if (!active) return
     let cancelled = false
     ;(async () => {
       try {
-        const [sYears, rYears] = await Promise.all([
-          invoke<number[]>('list_postcard_send_years'),
-          invoke<number[]>('list_postcard_receipt_years'),
-        ])
-        if (cancelled) return
-        setSendYears(sYears)
-        setReceiptYears(rYears)
+        const sYears = await invoke<number[]>('list_postcard_send_years')
+        if (!cancelled) setSendYears(sYears)
       } catch (e) {
-        console.error('Failed to load years for send status:', e)
+        console.error('Failed to load send years for send status:', e)
+      }
+      try {
+        const rYears = await invoke<number[]>('list_postcard_receipt_years')
+        if (!cancelled) setReceiptYears(rYears)
+      } catch (e) {
+        console.error('Failed to load receipt years for send status:', e)
       }
     })()
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [active])
 
   const yearOptions = useMemo(
     () => buildStatusYearOptions(sendYears, thisYear, year),
@@ -475,7 +495,8 @@ function StatusTab() {
   const totalPages = totalPagesFor(total, PAGE_SIZE)
   const currentPage = clampPage(page, total, PAGE_SIZE)
   const hasKeyword = settledSearchText.trim().length > 0
-  const isEmpty = !isLoading && total === 0
+  const showSettledEmpty = !isDebouncing && !isLoading
+  const isEmpty = showSettledEmpty && total === 0
 
   const toggleSelect = (id: string) => {
     setSelectionError(null)
@@ -630,6 +651,7 @@ function StatusTab() {
             onChange={(e) => setSearchText(e.target.value)}
             placeholder="住所録の表示名で検索"
             className="address-list-filter-input"
+            maxLength={MAX_SEARCH_KEYWORD_LENGTH}
           />
         </label>
       </div>
@@ -651,7 +673,7 @@ function StatusTab() {
 
       {selectionError ? <p className="address-list-error">{selectionError}</p> : null}
       {error ? <p className="address-list-error">{error}</p> : null}
-      {isLoading ? <p>読み込み中…</p> : null}
+      {isLoading || isDebouncing ? <p>読み込み中…</p> : null}
 
       {isEmpty && hasKeyword ? (
         <div className="address-list-empty">
@@ -674,7 +696,7 @@ function StatusTab() {
         </div>
       ) : null}
 
-      {!isLoading && total > 0 ? (
+      {!isLoading && !isDebouncing && total > 0 ? (
         <>
           <table className="address-list-table">
             <thead>

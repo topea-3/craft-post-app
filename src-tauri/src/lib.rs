@@ -56,6 +56,9 @@ use crate::infrastructure::sender::sqlx_sender_entry_repository::SqlxSenderEntry
 const MAX_PAGE_LIMIT: i64 = 200;
 /// 印刷ジョブの宛名選択上限（設計 FR-01）
 const MAX_PRINT_ADDRESS_ENTRY_IDS: usize = 200;
+/// 検索キーワード最大長（Unicode scalar / コードポイント）。受取・送付で共有
+const MAX_SEARCH_KEYWORD: usize = 100;
+const SEARCH_KEYWORD_TOO_LONG_MESSAGE: &str = "検索キーワードが長すぎます。";
 /// レイアウト prefs の layer_id allowlist（フロント ALL_PRINT_LAYER_IDS と同期）
 const PRINT_LAYER_ID_ALLOWLIST: &[&str] = &[
   "recipient.postalCode",
@@ -1108,6 +1111,23 @@ fn postcard_command_error(err: AppError) -> String {
   String::from(err)
 }
 
+/// 空は None。Unicode scalar 超過は Validation。
+fn parse_search_keyword(keyword: Option<String>) -> Result<Option<String>, String> {
+  let Some(raw) = keyword else {
+    return Ok(None);
+  };
+  let trimmed = raw.trim();
+  if trimmed.is_empty() {
+    return Ok(None);
+  }
+  if trimmed.chars().count() > MAX_SEARCH_KEYWORD {
+    return Err(postcard_command_error(AppError::Validation(
+      SEARCH_KEYWORD_TOO_LONG_MESSAGE.to_string(),
+    )));
+  }
+  Ok(Some(trimmed.to_string()))
+}
+
 fn map_postcard_receipt_write_error(
   err: crate::domain::postcard_receipt::postcard_receipt_repository::PostcardReceiptRepositoryError,
   log_context: &str,
@@ -1443,7 +1463,7 @@ async fn search_postcard_receipts_impl(
 
   // 削除済み一覧・復元は v1 非スコープのため、公開 API は常に active のみ返す
   let query = PostcardReceiptSearchQuery {
-    keyword: keyword.filter(|k| !k.trim().is_empty()),
+    keyword: parse_search_keyword(keyword)?,
     year,
     category: parsed_category,
     address_entry_id: parsed_address_entry_id,
@@ -2650,7 +2670,7 @@ async fn search_postcard_sends_impl(
   };
 
   let query = PostcardSendSearchQuery {
-    keyword: keyword.filter(|k| !k.trim().is_empty()),
+    keyword: parse_search_keyword(keyword)?,
     year,
     postcard_type: parsed_type,
     address_entry_id: parsed_address_entry_id,
@@ -2851,7 +2871,7 @@ async fn search_send_status_impl(
     postcard_type: parsed_type,
     status,
     receipt_year,
-    keyword: keyword.filter(|k| !k.trim().is_empty()),
+    keyword: parse_search_keyword(keyword)?,
     pagination: SendPagination { limit: l, offset: o },
   };
 

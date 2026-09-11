@@ -30,7 +30,12 @@ export function PostcardSendForm({ form, onCancel, submitLabel = '保存' }: Pro
       }}
     >
       {errors.form ? (
-        <p id={POSTCARD_SEND_FIELD_IDS.form} className="address-form-error" role="alert">
+        <p
+          id={POSTCARD_SEND_FIELD_IDS.form}
+          className="address-form-error"
+          role="alert"
+          tabIndex={-1}
+        >
           {errors.form}
         </p>
       ) : null}
@@ -94,12 +99,16 @@ export function PostcardSendForm({ form, onCancel, submitLabel = '保存' }: Pro
         <div className="address-form-label">
           <span>宛名</span>
           <div>
-            <span id={POSTCARD_SEND_FIELD_IDS.addressEntryId}>
-              {values.addressEntryDisplayName ?? '未選択'}
-            </span>
+            <span>{values.addressEntryDisplayName ?? '未選択'}</span>
             {allowIdentityEdit ? (
               <>
-                <button type="button" className="link-button" onClick={() => setAddressDialogOpen(true)}>
+                <button
+                  type="button"
+                  id={POSTCARD_SEND_FIELD_IDS.addressEntryId}
+                  className="link-button"
+                  onClick={() => setAddressDialogOpen(true)}
+                  aria-invalid={Boolean(errors.addressEntryId)}
+                >
                   選択
                 </button>
                 {values.addressEntryId ? (
@@ -116,12 +125,16 @@ export function PostcardSendForm({ form, onCancel, submitLabel = '保存' }: Pro
         <div className="address-form-label">
           <span>差出人</span>
           <div>
-            <span id={POSTCARD_SEND_FIELD_IDS.senderEntryId}>
-              {values.senderEntryLabel ?? '未選択'}
-            </span>
+            <span>{values.senderEntryLabel ?? '未選択'}</span>
             {allowIdentityEdit ? (
               <>
-                <button type="button" className="link-button" onClick={() => setSenderDialogOpen(true)}>
+                <button
+                  type="button"
+                  id={POSTCARD_SEND_FIELD_IDS.senderEntryId}
+                  className="link-button"
+                  onClick={() => setSenderDialogOpen(true)}
+                  aria-invalid={Boolean(errors.senderEntryId)}
+                >
                   選択
                 </button>
                 {values.senderEntryId ? (
