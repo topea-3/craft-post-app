@@ -5,7 +5,9 @@
 ## リポジトリ構成
 
 - **モノレポ**: アプリ本体・ドキュメント・スクリプトを 1 リポジトリで管理しています。
-- **ブランチ**: main（リリース用） / develop（統合用） / feature（作業用）。詳細は [docs/repository-and-branch-strategy.md](docs/repository-and-branch-strategy.md) を参照してください。
+- **ブランチ**: main（リリース用） / develop（統合用） / feature（作業用）。詳細は [docs/project-setup/repository-and-branch-strategy.md](docs/project-setup/repository-and-branch-strategy.md) を参照してください。
+- **ライセンス**: MIT（[LICENSE](LICENSE)、方針は [docs/project-setup/license-decision.md](docs/project-setup/license-decision.md)）。埋め込みフォント（Noto Serif JP / OFL-1.1）は [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) を参照。
+- **リリース**: [docs/project-setup/release-workflow.md](docs/project-setup/release-workflow.md)（スキル `create-release-pr` + マージ時 CI）。
 
 ## ドキュメント
 

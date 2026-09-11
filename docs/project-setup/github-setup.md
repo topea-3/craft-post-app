@@ -43,11 +43,12 @@ Craft Post App を GitHub にプッシュしたあと、リポジトリ設定と
 
 ## 3. リリースの流れ（運用）
 
+詳細は [release-workflow.md](./release-workflow.md) を参照。
+
 1. 通常の開発は **develop** から **feature/TOP-XX-...** を切り、作業後に **develop** へ PR でマージする。
 2. リリース時:
-   - **develop** を **main** へ PR でマージする。
-   - **main** にタグを打つ（例: `git tag v1.0.0 && git push origin v1.0.0`）。
-   - **GitHub Releases** で該当タグのリリースを作成し、ビルド成果物とリリースノートを添付する。
+   - Cursor スキル `create-release-pr` で MAJOR / MINOR / PATCH を指定し、バージョン更新と **develop → main** の PR を作成する。
+   - PR をマージすると GitHub Actions（`Release`）がタグ作成・Windows `.exe` ビルド・GitHub Releases 公開を行う。
 3. （任意）**develop** を **main** と同期する（`develop` で `git merge main`）。
 
 ---
@@ -57,4 +58,5 @@ Craft Post App を GitHub にプッシュしたあと、リポジトリ設定と
 | 日付       | 内容 |
 |------------|------|
 | 2026-03-08 | 初版。GitHub リポジトリ作成・プッシュ・ブランチ保護の手順を記載。 |
+| 2026-09-12 | TOP-33。リリースをスキル + マージ時 CI に更新。 |
 
