@@ -6,11 +6,10 @@ import { currentLocalYear } from '../../lib/date'
 import { clampPage, totalPagesFor } from '../../lib/pagination'
 import { POSTCARD_SEND_OPERATION_ERROR_MESSAGE } from './messages'
 import {
+  clearSendStatusSelectedIds,
   readPrintJobDraftAddressIds,
-  readSendStatusSelectedIds,
   replacePrintJobDraftAddressIds,
   syncPrintPostcardType,
-  writeSendStatusSelectedIds,
 } from './printHandoff'
 import type { BulkSendLocationState, PostcardType, SendStatusFilter } from './types'
 import {
@@ -38,6 +37,11 @@ type Tab = 'history' | 'status'
 export function PostcardSendManagePage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const tab: Tab = searchParams.get('tab') === 'status' ? 'status' : 'history'
+
+  // ページ再マウント時はフィルタを復元しない方針のため、残存選択もクリアする（1b）
+  useEffect(() => {
+    clearSendStatusSelectedIds()
+  }, [])
 
   const setTab = (next: Tab) => {
     const params = new URLSearchParams(searchParams)
@@ -427,7 +431,9 @@ function StatusTab({ active }: { active: boolean }) {
   const [page, setPage] = useState(1)
   const [sendYears, setSendYears] = useState<number[]>([])
   const [receiptYears, setReceiptYears] = useState<number[]>([])
-  const [selectedIds, setSelectedIds] = useState<string[]>(() => readSendStatusSelectedIds())
+  const [yearsError, setYearsError] = useState<string | null>(null)
+  const [yearsReloadToken, setYearsReloadToken] = useState(0)
+  const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [selectionError, setSelectionError] = useState<string | null>(null)
 
   const apiReceiptYear = limitByReceipt ? receiptYear : null
@@ -444,30 +450,38 @@ function StatusTab({ active }: { active: boolean }) {
   })
 
   useEffect(() => {
-    writeSendStatusSelectedIds(selectedIds)
-  }, [selectedIds])
-
-  useEffect(() => {
     if (!active) return
     let cancelled = false
     ;(async () => {
+      setYearsError(null)
+      let sendOk = false
+      let receiptOk = false
       try {
         const sYears = await invoke<number[]>('list_postcard_send_years')
-        if (!cancelled) setSendYears(sYears)
+        if (!cancelled) {
+          setSendYears(sYears)
+          sendOk = true
+        }
       } catch (e) {
         console.error('Failed to load send years for send status:', e)
       }
       try {
         const rYears = await invoke<number[]>('list_postcard_receipt_years')
-        if (!cancelled) setReceiptYears(rYears)
+        if (!cancelled) {
+          setReceiptYears(rYears)
+          receiptOk = true
+        }
       } catch (e) {
         console.error('Failed to load receipt years for send status:', e)
+      }
+      if (!cancelled && (!sendOk || !receiptOk)) {
+        setYearsError(POSTCARD_SEND_OPERATION_ERROR_MESSAGE)
       }
     })()
     return () => {
       cancelled = true
     }
-  }, [active])
+  }, [active, yearsReloadToken])
 
   const yearOptions = useMemo(
     () => buildStatusYearOptions(sendYears, thisYear, year),
@@ -500,16 +514,15 @@ function StatusTab({ active }: { active: boolean }) {
 
   const toggleSelect = (id: string) => {
     setSelectionError(null)
-    setSelectedIds((prev) => {
-      if (prev.includes(id)) {
-        return prev.filter((x) => x !== id)
-      }
-      if (prev.length >= MAX_SELECTION) {
-        setSelectionError(`選択できる宛名は最大 ${MAX_SELECTION} 件です。`)
-        return prev
-      }
-      return [...prev, id]
-    })
+    if (selectedIds.includes(id)) {
+      setSelectedIds((prev) => prev.filter((x) => x !== id))
+      return
+    }
+    if (selectedIds.length >= MAX_SELECTION) {
+      setSelectionError(`選択できる宛名は最大 ${MAX_SELECTION} 件です。`)
+      return
+    }
+    setSelectedIds((prev) => [...prev, id])
   }
 
   const handlePrint = () => {
@@ -522,6 +535,8 @@ function StatusTab({ active }: { active: boolean }) {
       if (!confirmed) return
     }
     replacePrintJobDraftAddressIds(selectedIds)
+    clearSendStatusSelectedIds()
+    clearSelection()
     if (postcardType === 'nenga' || postcardType === 'mochu') {
       syncPrintPostcardType(postcardType)
     }
@@ -672,6 +687,18 @@ function StatusTab({ active }: { active: boolean }) {
       ) : null}
 
       {selectionError ? <p className="address-list-error">{selectionError}</p> : null}
+      {yearsError ? (
+        <p className="address-list-error">
+          {yearsError}{' '}
+          <button
+            type="button"
+            className="link-button"
+            onClick={() => setYearsReloadToken((t) => t + 1)}
+          >
+            再試行
+          </button>
+        </p>
+      ) : null}
       {error ? <p className="address-list-error">{error}</p> : null}
       {isLoading || isDebouncing ? <p>読み込み中…</p> : null}
 

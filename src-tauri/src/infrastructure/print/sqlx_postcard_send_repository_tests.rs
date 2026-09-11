@@ -436,6 +436,121 @@ mod tests {
   }
 
   #[tokio::test]
+  async fn search_history_keyword_matches_snapshot_while_live_exists() {
+    let pool = setup_pool().await;
+    let address_id = Uuid::new_v4();
+    let sender_id = Uuid::new_v4();
+    // live は改名後、snapshot は送付時の旧名
+    seed_address(&pool, address_id, "改名後", "宛名", None, None).await;
+    seed_sender(&pool, sender_id).await;
+
+    let repo = SqlxPostcardSendRepository::new(pool);
+    repo
+      .create_batch(&[sample_send_as_of(
+        Uuid::new_v4(),
+        address_id,
+        sender_id,
+        NaiveDate::from_ymd_opt(2026, 3, 2).unwrap(),
+        PostcardType::Nenga,
+        r#"{"primary_last":"送付時","primary_first":"太郎"}"#,
+        r#"{"primary_last":"差出","primary_first":"太郎"}"#,
+      )])
+      .await
+      .expect("create");
+
+    let (by_snap, total_snap) = repo
+      .search(PostcardSendSearchQuery {
+        keyword: Some("送付時".to_string()),
+        year: Some(2026),
+        postcard_type: None,
+        address_entry_id: None,
+        source: None,
+        include_deleted: false,
+        pagination: Pagination {
+          limit: 20,
+          offset: 0,
+        },
+        sort_order: SortOrder::Desc,
+      })
+      .await
+      .expect("search by snapshot");
+    assert_eq!(total_snap, 1);
+    assert_eq!(by_snap[0].send.address_entry_id(), address_id);
+
+    let (by_live, total_live) = repo
+      .search(PostcardSendSearchQuery {
+        keyword: Some("改名後".to_string()),
+        year: Some(2026),
+        postcard_type: None,
+        address_entry_id: None,
+        source: None,
+        include_deleted: false,
+        pagination: Pagination {
+          limit: 20,
+          offset: 0,
+        },
+        sort_order: SortOrder::Desc,
+      })
+      .await
+      .expect("search by live");
+    assert_eq!(total_live, 1);
+    assert_eq!(by_live[0].send.address_entry_id(), address_id);
+  }
+
+  #[tokio::test]
+  async fn search_send_status_receipt_keyword_and_type_together() {
+    let pool = setup_pool().await;
+    let match_id = Uuid::new_v4();
+    let other_id = Uuid::new_v4();
+    let sender_id = Uuid::new_v4();
+    seed_address(&pool, match_id, "対象", "花子", Some("タイショウ"), Some("ハナコ")).await;
+    seed_address(&pool, other_id, "別件", "次郎", Some("ベッケン"), Some("ジロウ")).await;
+    seed_sender(&pool, sender_id).await;
+    seed_receipt(&pool, match_id, "2025-11-01").await;
+    seed_receipt(&pool, other_id, "2025-11-02").await;
+
+    let repo = SqlxPostcardSendRepository::new(pool);
+    repo
+      .create_batch(&[sample_send_as_of(
+        Uuid::new_v4(),
+        match_id,
+        sender_id,
+        NaiveDate::from_ymd_opt(2026, 1, 15).unwrap(),
+        PostcardType::Mochu,
+        r#"{"primary_last":"対象","primary_first":"花子"}"#,
+        r#"{"primary_last":"山田","primary_first":"太郎"}"#,
+      )])
+      .await
+      .expect("create mochu");
+
+    let (sent, sent_total) = repo
+      .search_send_status(status_query(
+        2026,
+        SendStatusFilter::Sent,
+        Some(PostcardType::Mochu),
+        Some(2025),
+        Some("対象"),
+      ))
+      .await
+      .expect("sent+receipt+keyword+type");
+    assert_eq!(sent_total, 1);
+    assert_eq!(sent[0].address_entry_id, match_id);
+
+    let (unsent, unsent_total) = repo
+      .search_send_status(status_query(
+        2026,
+        SendStatusFilter::Unsent,
+        Some(PostcardType::Nenga),
+        Some(2025),
+        Some("対象"),
+      ))
+      .await
+      .expect("unsent nenga with receipt+keyword");
+    assert_eq!(unsent_total, 1);
+    assert_eq!(unsent[0].address_entry_id, match_id);
+  }
+
+  #[tokio::test]
   async fn search_send_status_type_change_moves_between_sent_unsent() {
     let pool = setup_pool().await;
     let address_id = Uuid::new_v4();

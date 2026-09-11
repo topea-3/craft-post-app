@@ -160,6 +160,18 @@ export function PostcardSendDetailPage() {
           <dt>更新日時</dt>
           <dd>{formatDateTime(detail.updatedAt)}</dd>
         </div>
+        <div>
+          <dt>ID</dt>
+          <dd>
+            <code>{detail.id}</code>
+          </dd>
+        </div>
+        <details>
+          <summary>printJobId</summary>
+          <dd>
+            <code>{detail.printJobId}</code>
+          </dd>
+        </details>
       </dl>
     </div>
   )

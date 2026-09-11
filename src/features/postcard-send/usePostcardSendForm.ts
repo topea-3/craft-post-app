@@ -169,9 +169,13 @@ export function usePostcardSendForm(args: CreateArgs | EditArgs): UsePostcardSen
       if (!senderId) {
         return null
       }
-      const sender = await invoke<{ id: string; label: string }>('get_sender_entry', {
-        id: senderId,
-      })
+      const sender = await invoke<{ id: string; label: string; archived: boolean }>(
+        'get_sender_entry',
+        { id: senderId },
+      )
+      if (sender.archived) {
+        return null
+      }
       return { id: sender.id, label: sender.label }
     } catch {
       return null

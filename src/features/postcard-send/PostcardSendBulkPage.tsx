@@ -10,6 +10,7 @@ import {
 import { AddressEntrySelectDialog } from '../sender/AddressEntrySelectDialog'
 import type { AddressEntryListItem } from '../address/types'
 import { mapPostcardSendInvokeError } from './messages'
+import { clearSendStatusSelectedIds } from './printHandoff'
 import type { BulkSendLocationState, PostcardType } from './types'
 import { POSTCARD_TYPE_OPTIONS } from './types'
 
@@ -41,7 +42,6 @@ export function PostcardSendBulkPage() {
   const [isSubmitting, setSubmitting] = useState(false)
   const seedIds = state?.addressEntryIds ?? []
   const [isSeeding, setSeeding] = useState(() => seedIds.length > 0)
-  const [seedNotice, setSeedNotice] = useState<string | null>(null)
   const submittingRef = useRef(false)
   const seededRef = useRef(false)
 
@@ -93,9 +93,14 @@ export function PostcardSendBulkPage() {
       )
       const next = results.flatMap((r) => (r.kind === 'ok' ? [r.row] : []))
       const skipped = targetIds.length - next.length
-      setRows(next)
       if (skipped > 0) {
-        setSeedNotice(`${skipped} 件は参照できないため除外しました。`)
+        // 設計: 欠落/アーカイブを除外して続行しない（all-or-nothing）
+        setRows([])
+        setFormError(
+          `${skipped} 件は参照できないため引き継げません。送付状況から選び直してください。`,
+        )
+      } else {
+        setRows(next)
       }
       setSeeding(false)
     })()
@@ -194,6 +199,7 @@ export function PostcardSendBulkPage() {
           })),
         },
       })
+      clearSendStatusSelectedIds()
       navigate('/sends')
     } catch (e) {
       console.error(e)
@@ -213,7 +219,6 @@ export function PostcardSendBulkPage() {
       </header>
 
       {formError ? <p className="address-form-error">{formError}</p> : null}
-      {seedNotice ? <p className="address-form-help">{seedNotice}</p> : null}
       {isSeeding ? <p>宛名を読み込み中…</p> : null}
       {hasUnlinked ? (
         <p className="address-form-error">

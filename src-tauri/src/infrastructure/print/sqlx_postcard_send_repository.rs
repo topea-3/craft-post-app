@@ -124,24 +124,17 @@ fn build_search_where_clause(query: &PostcardSendSearchQuery) -> String {
   if query.keyword.is_some() {
     let display = address_display_name_sql("ae");
     let sender_display = sender_display_name_sql("se");
+    // live と snapshot を常に OR（表示が snapshot 優先のため、改名後も旧名で当たるようにする）
     s.push_str(&format!(
       " AND (
           {display} LIKE ? ESCAPE '\\' OR
           IFNULL(se.label, '') LIKE ? ESCAPE '\\' OR
           {sender_display} LIKE ? ESCAPE '\\' OR
           IFNULL(ps.memo, '') LIKE ? ESCAPE '\\' OR
-          (
-            ae.id IS NULL AND (
-              IFNULL(json_extract(ps.address_snapshot, '$.primary_last'), '') LIKE ? ESCAPE '\\' OR
-              IFNULL(json_extract(ps.address_snapshot, '$.primary_first'), '') LIKE ? ESCAPE '\\'
-            )
-          ) OR
-          (
-            se.id IS NULL AND (
-              IFNULL(json_extract(ps.sender_snapshot, '$.primary_last'), '') LIKE ? ESCAPE '\\' OR
-              IFNULL(json_extract(ps.sender_snapshot, '$.primary_first'), '') LIKE ? ESCAPE '\\'
-            )
-          )
+          IFNULL(json_extract(ps.address_snapshot, '$.primary_last'), '') LIKE ? ESCAPE '\\' OR
+          IFNULL(json_extract(ps.address_snapshot, '$.primary_first'), '') LIKE ? ESCAPE '\\' OR
+          IFNULL(json_extract(ps.sender_snapshot, '$.primary_last'), '') LIKE ? ESCAPE '\\' OR
+          IFNULL(json_extract(ps.sender_snapshot, '$.primary_first'), '') LIKE ? ESCAPE '\\'
         )"
     ));
   }
