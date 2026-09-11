@@ -46,9 +46,11 @@ gh api repos/<owner>/<repo>/pulls/<n>/reviews/<review_id>
 gh api repos/<owner>/<repo>/pulls/<n>/reviews/<review_id>/comments --paginate
 ```
 
-## GraphQL（解決状態が必要なとき）
+レビュー本文だけの指摘（インラインコメント無し）は、PR 会話への通常コメントで返信する。
 
-REST のコメント ID は GraphQL の `databaseId` に対応する。
+## GraphQL（解決状態・thread id が必要なとき）
+
+REST のコメント ID は GraphQL の `databaseId` に対応する。Resolve 用の `thread.id`（`PRRT_...`）もここから取る。
 
 ```bash
 gh api graphql -f query='
@@ -68,4 +70,4 @@ query($o:String!,$r:String!,$n:Int!){
 }' -f o=<owner> -f r=<repo> -F n=<n>
 ```
 
-スレッド解決や返信投稿はユーザー指示があるときのみ行う（本スキルのデフォルトはコード修正＋コミット／プッシュ）。
+返信投稿と Resolve の手順は [comment-reply-resolve.md](comment-reply-resolve.md) を参照する。

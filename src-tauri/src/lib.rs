@@ -27,10 +27,14 @@ use crate::domain::postcard_receipt::postcard_receipt_repository::{
   Pagination as ReceiptPagination, PostcardReceiptAddressContext, PostcardReceiptRepository,
   PostcardReceiptSearchQuery, PostcardReceiptWithContext, SortOrder as ReceiptSortOrder,
 };
-use crate::domain::print::postcard_send::PostcardSend;
+use crate::domain::print::postcard_send::{PostcardSend, PostcardSendError, PostcardSendId};
 use crate::domain::print::postcard_send_repository::{
-  PostcardSendRepository, PostcardSendRepositoryError,
+  Pagination as SendPagination, PostcardSendAddressContext, PostcardSendRepository,
+  PostcardSendRepositoryError, PostcardSendSearchQuery, PostcardSendSenderContext,
+  PostcardSendWithContext, SendStatusFilter, SendStatusItem, SendStatusQuery,
+  SortOrder as SendSortOrder,
 };
+use crate::domain::print::postcard_send_source::PostcardSendSource;
 use crate::domain::print::postcard_type::PostcardType;
 use crate::domain::print::print_layout_preference::PrintLayoutPreference;
 use crate::domain::print::print_layout_preference_repository::PrintLayoutPreferenceRepository;
@@ -52,6 +56,9 @@ use crate::infrastructure::sender::sqlx_sender_entry_repository::SqlxSenderEntry
 const MAX_PAGE_LIMIT: i64 = 200;
 /// 印刷ジョブの宛名選択上限（設計 FR-01）
 const MAX_PRINT_ADDRESS_ENTRY_IDS: usize = 200;
+/// 検索キーワード最大長（Unicode scalar / コードポイント）。受取・送付で共有
+const MAX_SEARCH_KEYWORD: usize = 100;
+const SEARCH_KEYWORD_TOO_LONG_MESSAGE: &str = "検索キーワードが長すぎます。";
 /// レイアウト prefs の layer_id allowlist（フロント ALL_PRINT_LAYER_IDS と同期）
 const PRINT_LAYER_ID_ALLOWLIST: &[&str] = &[
   "recipient.postalCode",
@@ -99,6 +106,16 @@ const ADDRESS_ENTRY_NOT_FOUND_MESSAGE: &str = "address entry not found";
 const ADDRESS_ENTRY_ARCHIVED_MESSAGE: &str = "address entry is archived";
 const SENDER_ENTRY_NOT_FOUND_MESSAGE: &str = "sender entry not found";
 const SENDER_ENTRY_ARCHIVED_MESSAGE: &str = "sender entry is archived";
+const SEND_FUTURE_DATE_MESSAGE: &str = "送付日に未来の日付は指定できません。";
+const SEND_MEMO_TOO_LONG_MESSAGE: &str = "メモは 1000 文字以内で入力してください。";
+const SEND_DUPLICATE_ADDRESS_MESSAGE: &str = "宛名が重複しています。";
+const SEND_NO_SENDER_LINK_MESSAGE: &str = "差出人が紐づいていない宛名があります。";
+const SEND_NOT_FOUND_MESSAGE: &str = "postcard send not found";
+const SEND_CONFLICT_MESSAGE: &str =
+  "他の操作で更新済みです。画面を再読み込みしてから再度保存してください。";
+const SEND_INVALID_STATUS_MESSAGE: &str = "status must be 'sent' or 'unsent'";
+const SEND_BATCH_EMPTY_MESSAGE: &str = "items must contain at least 1 entry";
+const SEND_BATCH_TOO_MANY_MESSAGE: &str = "items must not exceed 200 entries";
 
 fn map_sender_write_error(e: SenderRepositoryError, log_context: &str, fallback_code: &str) -> AppError {
   match e {
@@ -162,6 +179,13 @@ pub fn run() {
       list_print_layout_preferences,
       save_print_layout_preferences,
       create_postcard_sends_batch,
+      create_postcard_sends_manual_batch,
+      get_postcard_send,
+      search_postcard_sends,
+      list_postcard_send_years,
+      update_postcard_send,
+      delete_postcard_send,
+      search_send_status,
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");
@@ -1087,6 +1111,23 @@ fn postcard_command_error(err: AppError) -> String {
   String::from(err)
 }
 
+/// 空は None。Unicode scalar 超過は Validation。
+fn parse_search_keyword(keyword: Option<String>) -> Result<Option<String>, String> {
+  let Some(raw) = keyword else {
+    return Ok(None);
+  };
+  let trimmed = raw.trim();
+  if trimmed.is_empty() {
+    return Ok(None);
+  }
+  if trimmed.chars().count() > MAX_SEARCH_KEYWORD {
+    return Err(postcard_command_error(AppError::Validation(
+      SEARCH_KEYWORD_TOO_LONG_MESSAGE.to_string(),
+    )));
+  }
+  Ok(Some(trimmed.to_string()))
+}
+
 fn map_postcard_receipt_write_error(
   err: crate::domain::postcard_receipt::postcard_receipt_repository::PostcardReceiptRepositoryError,
   log_context: &str,
@@ -1422,7 +1463,7 @@ async fn search_postcard_receipts_impl(
 
   // 削除済み一覧・復元は v1 非スコープのため、公開 API は常に active のみ返す
   let query = PostcardReceiptSearchQuery {
-    keyword: keyword.filter(|k| !k.trim().is_empty()),
+    keyword: parse_search_keyword(keyword)?,
     year,
     category: parsed_category,
     address_entry_id: parsed_address_entry_id,
@@ -1563,6 +1604,80 @@ pub struct CreatePostcardSendsBatchInput {
   /// `"nenga"` | `"mochu"`
   pub postcard_type: String,
   pub items: Vec<CreatePostcardSendItemDto>,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
+pub struct CreatePostcardSendsManualItemDto {
+  pub address_entry_id: String,
+  #[serde(default)]
+  pub sender_entry_id: Option<String>,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
+pub struct CreatePostcardSendsManualBatchInput {
+  /// `"nenga"` | `"mochu"`
+  pub postcard_type: String,
+  pub sent_on: String,
+  #[serde(default)]
+  pub memo: Option<String>,
+  pub items: Vec<CreatePostcardSendsManualItemDto>,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
+pub struct CreatePostcardSendsManualBatchResult {
+  pub ids: Vec<String>,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
+pub struct PostcardSendDto {
+  pub id: String,
+  pub print_job_id: String,
+  pub address_entry_id: String,
+  pub sender_entry_id: String,
+  pub sender_snapshot: String,
+  pub address_snapshot: String,
+  pub postcard_type: String,
+  pub sent_on: String,
+  pub source: String,
+  pub memo: Option<String>,
+  pub created_at: String,
+  pub updated_at: String,
+  pub address_entry_display_name: Option<String>,
+  pub address_entry_address_line: Option<String>,
+  pub address_entry_archived: Option<bool>,
+  pub sender_entry_label: Option<String>,
+  pub sender_entry_display_name: Option<String>,
+  pub sender_entry_archived: Option<bool>,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
+pub struct PostcardSendSearchResult {
+  pub items: Vec<PostcardSendDto>,
+  pub total: i64,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
+pub struct UpdatePostcardSendInput {
+  pub sent_on: String,
+  pub postcard_type: String,
+  #[serde(default)]
+  pub memo: Option<String>,
+  pub expected_updated_at: String,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
+pub struct SendStatusItemDto {
+  pub address_entry_id: String,
+  pub display_name: String,
+  pub address_summary: String,
+  pub last_sent_on: Option<String>,
+  pub send_count: i64,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
+pub struct SendStatusSearchResult {
+  pub items: Vec<SendStatusItemDto>,
+  pub total: i64,
 }
 
 /// `resolve_print_job_items` が AddressEntry 側で失敗したときのエラー契約。
@@ -2124,14 +2239,20 @@ async fn create_postcard_sends_batch_impl(
     })?;
 
     // sent_on は create_new 内で Local::now().date_naive()（フロント非送信）
-    sends.push(PostcardSend::create_new(
-      print_job_id,
-      address_entry_id,
-      sender_entry_id,
-      sender_snapshot,
-      address_snapshot,
-      postcard_type,
-    ));
+    // source=print, memo=null
+    sends.push(
+      PostcardSend::create_new(
+        print_job_id,
+        address_entry_id,
+        sender_entry_id,
+        sender_snapshot,
+        address_snapshot,
+        postcard_type,
+        PostcardSendSource::Print,
+        None,
+      )
+      .map_err(|e| postcard_command_error(map_postcard_send_error(e)))?,
+    );
   }
 
   let requested_address_ids: std::collections::HashSet<Uuid> =
@@ -2172,4 +2293,596 @@ async fn create_postcard_sends_batch_impl(
       )))
     }
   }
+}
+
+fn map_postcard_send_error(err: PostcardSendError) -> AppError {
+  match err {
+    PostcardSendError::FutureSentDate => {
+      AppError::Validation(SEND_FUTURE_DATE_MESSAGE.to_string())
+    }
+    PostcardSendError::InvalidMemo(_) => {
+      AppError::Validation(SEND_MEMO_TOO_LONG_MESSAGE.to_string())
+    }
+  }
+}
+
+fn map_postcard_send_write_error(
+  err: PostcardSendRepositoryError,
+  log_context: &str,
+  fallback_code: &str,
+) -> String {
+  match err {
+    PostcardSendRepositoryError::NotFound => {
+      postcard_command_error(AppError::Validation(SEND_NOT_FOUND_MESSAGE.to_string()))
+    }
+    PostcardSendRepositoryError::OptimisticLockConflict => {
+      postcard_command_error(AppError::Validation(SEND_CONFLICT_MESSAGE.to_string()))
+    }
+    PostcardSendRepositoryError::Conflict => {
+      postcard_command_error(AppError::Validation(
+        "postcard send already exists for print job and address".to_string(),
+      ))
+    }
+    other => {
+      log::error!("{log_context} failed: {:?}", other);
+      postcard_command_error(AppError::Repository(fallback_code.to_string()))
+    }
+  }
+}
+
+fn parse_send_memo(memo: Option<String>) -> Result<Option<Memo>, String> {
+  match memo {
+    Some(text) if !text.is_empty() => Memo::new(text)
+      .map(Some)
+      .map_err(|_| postcard_command_error(AppError::Validation(SEND_MEMO_TOO_LONG_MESSAGE.to_string()))),
+    _ => Ok(None),
+  }
+}
+
+fn postcard_send_dto_from_context(ctx: PostcardSendWithContext) -> PostcardSendDto {
+  let send = ctx.send;
+  let (address_entry_display_name, address_entry_address_line, address_entry_archived) =
+    match ctx.address {
+      Some(PostcardSendAddressContext {
+        display_name,
+        address_line,
+        archived,
+      }) => (Some(display_name), Some(address_line), Some(archived)),
+      None => (None, None, None),
+    };
+  let (sender_entry_label, sender_entry_display_name, sender_entry_archived) = match ctx.sender {
+    Some(PostcardSendSenderContext {
+      label,
+      display_name,
+      archived,
+    }) => (Some(label), Some(display_name), Some(archived)),
+    None => (None, None, None),
+  };
+
+  PostcardSendDto {
+    id: send.id().as_uuid().to_string(),
+    print_job_id: send.print_job_id().to_string(),
+    address_entry_id: send.address_entry_id().to_string(),
+    sender_entry_id: send.sender_entry_id().to_string(),
+    sender_snapshot: send.sender_snapshot().to_string(),
+    address_snapshot: send.address_snapshot().to_string(),
+    postcard_type: send.postcard_type().as_str().to_string(),
+    sent_on: send.sent_on().format("%Y-%m-%d").to_string(),
+    source: send.source().as_str().to_string(),
+    memo: send.memo().map(|m| m.text().to_string()),
+    created_at: send.created_at().to_rfc3339(),
+    updated_at: send.updated_at().to_rfc3339(),
+    address_entry_display_name,
+    address_entry_address_line,
+    address_entry_archived,
+    sender_entry_label,
+    sender_entry_display_name,
+    sender_entry_archived,
+  }
+}
+
+fn send_status_item_dto(item: SendStatusItem) -> SendStatusItemDto {
+  SendStatusItemDto {
+    address_entry_id: item.address_entry_id.to_string(),
+    display_name: item.display_name,
+    address_summary: item.address_summary,
+    last_sent_on: item
+      .last_sent_on
+      .map(|d| d.format("%Y-%m-%d").to_string()),
+    send_count: item.send_count,
+  }
+}
+
+async fn validate_active_address_for_send(pool: &SqlitePool, address_entry_id: Uuid) -> Result<(), String> {
+  let repo = SqlxAddressEntryRepository::new(pool.clone());
+  let found = repo
+    .find_by_id(&AddressEntryId::from_uuid(address_entry_id))
+    .await
+    .map_err(|e| {
+      log::error!("validate_active_address_for_send failed: {:?}", e);
+      AppError::Repository("SEND_ADDRESS_LOOKUP_FAILED".to_string())
+    })?
+    .ok_or_else(|| {
+      postcard_command_error(AppError::Validation(ADDRESS_ENTRY_NOT_FOUND_MESSAGE.to_string()))
+    })?;
+  if found.archived() {
+    return Err(postcard_command_error(AppError::Validation(
+      ADDRESS_ENTRY_ARCHIVED_MESSAGE.to_string(),
+    )));
+  }
+  Ok(())
+}
+
+async fn validate_active_sender_for_send(pool: &SqlitePool, sender_entry_id: Uuid) -> Result<(), String> {
+  let repo = SqlxSenderEntryRepository::new(pool.clone());
+  let found = repo
+    .find_by_id(&SenderEntryId::from_uuid(sender_entry_id))
+    .await
+    .map_err(|e| {
+      log::error!("validate_active_sender_for_send failed: {:?}", e);
+      AppError::Repository("SEND_SENDER_LOOKUP_FAILED".to_string())
+    })?
+    .ok_or_else(|| {
+      postcard_command_error(AppError::Validation(SENDER_ENTRY_NOT_FOUND_MESSAGE.to_string()))
+    })?;
+  if found.archived() {
+    return Err(postcard_command_error(AppError::Validation(
+      SENDER_ENTRY_ARCHIVED_MESSAGE.to_string(),
+    )));
+  }
+  Ok(())
+}
+
+#[tauri::command]
+async fn create_postcard_sends_manual_batch(
+  pool: State<'_, SqlitePool>,
+  input: CreatePostcardSendsManualBatchInput,
+) -> Result<CreatePostcardSendsManualBatchResult, String> {
+  create_postcard_sends_manual_batch_impl(pool.inner(), input).await
+}
+
+async fn create_postcard_sends_manual_batch_impl(
+  pool: &SqlitePool,
+  input: CreatePostcardSendsManualBatchInput,
+) -> Result<CreatePostcardSendsManualBatchResult, String> {
+  if input.items.is_empty() {
+    return Err(postcard_command_error(AppError::Validation(
+      SEND_BATCH_EMPTY_MESSAGE.to_string(),
+    )));
+  }
+  if input.items.len() > MAX_PRINT_ADDRESS_ENTRY_IDS {
+    return Err(postcard_command_error(AppError::Validation(
+      SEND_BATCH_TOO_MANY_MESSAGE.to_string(),
+    )));
+  }
+
+  let mut seen = std::collections::HashSet::new();
+  for item in &input.items {
+    if !seen.insert(item.address_entry_id.clone()) {
+      return Err(postcard_command_error(AppError::Validation(
+        SEND_DUPLICATE_ADDRESS_MESSAGE.to_string(),
+      )));
+    }
+  }
+
+  let postcard_type = PostcardType::from_str(&input.postcard_type)
+    .map_err(|e| postcard_command_error(AppError::Validation(e.to_string())))?;
+  let sent_on = chrono::NaiveDate::parse_from_str(&input.sent_on, "%Y-%m-%d")
+    .map_err(|e| postcard_command_error(AppError::Validation(e.to_string())))?;
+  let memo = parse_send_memo(input.memo)?;
+
+  let print_job_id = Uuid::new_v4();
+  let sender_repo = SqlxSenderEntryRepository::new(pool.clone());
+  let mut sends = Vec::with_capacity(input.items.len());
+
+  for item in input.items {
+    let address_entry_id = Uuid::parse_str(&item.address_entry_id)
+      .map_err(|e| postcard_command_error(AppError::Validation(e.to_string())))?;
+    validate_active_address_for_send(pool, address_entry_id).await?;
+
+    let sender_entry_id = match item.sender_entry_id.filter(|s| !s.is_empty()) {
+      Some(id_str) => {
+        let sid = Uuid::parse_str(&id_str)
+          .map_err(|e| postcard_command_error(AppError::Validation(e.to_string())))?;
+        validate_active_sender_for_send(pool, sid).await?;
+        sid
+      }
+      None => {
+        let linked = sender_repo
+          .find_sender_id_by_address_entry_id(address_entry_id)
+          .await
+          .map_err(|e| {
+            log::error!("manual batch sender link lookup failed: {:?}", e);
+            AppError::Repository("SEND_MANUAL_CREATE_FAILED".to_string())
+          })?;
+        let Some(linked_id) = linked else {
+          return Err(postcard_command_error(AppError::Validation(
+            SEND_NO_SENDER_LINK_MESSAGE.to_string(),
+          )));
+        };
+        let sid = linked_id.as_uuid();
+        validate_active_sender_for_send(pool, sid).await?;
+        sid
+      }
+    };
+
+    let address_snap =
+      build_address_print_snapshot_impl(pool, address_entry_id.to_string()).await?;
+    let sender_snap = build_sender_print_snapshot_impl(pool, sender_entry_id.to_string()).await?;
+    let address_snapshot = serde_json::to_string(&address_snap).map_err(|e| {
+      log::error!("manual batch address snapshot serialize failed: {:?}", e);
+      AppError::Repository("SEND_MANUAL_CREATE_FAILED".to_string())
+    })?;
+    let sender_snapshot = serde_json::to_string(&sender_snap).map_err(|e| {
+      log::error!("manual batch sender snapshot serialize failed: {:?}", e);
+      AppError::Repository("SEND_MANUAL_CREATE_FAILED".to_string())
+    })?;
+
+    let send = PostcardSend::create_new_as_of(
+      print_job_id,
+      address_entry_id,
+      sender_entry_id,
+      sender_snapshot,
+      address_snapshot,
+      postcard_type,
+      sent_on,
+      PostcardSendSource::Manual,
+      memo.clone(),
+      PostcardSend::local_today(),
+    )
+    .map_err(|e| postcard_command_error(map_postcard_send_error(e)))?;
+    sends.push(send);
+  }
+
+  let ids: Vec<String> = sends
+    .iter()
+    .map(|s| s.id().as_uuid().to_string())
+    .collect();
+
+  let repo = SqlxPostcardSendRepository::new(pool.clone());
+  match repo.create_batch(&sends).await {
+    Ok(()) => Ok(CreatePostcardSendsManualBatchResult { ids }),
+    Err(PostcardSendRepositoryError::Conflict) => Err(map_postcard_send_write_error(
+      PostcardSendRepositoryError::Conflict,
+      "create_postcard_sends_manual_batch",
+      "SEND_MANUAL_CREATE_FAILED",
+    )),
+    Err(e) => Err(map_postcard_send_write_error(
+      e,
+      "create_postcard_sends_manual_batch",
+      "SEND_MANUAL_CREATE_FAILED",
+    )),
+  }
+}
+
+#[tauri::command]
+async fn get_postcard_send(
+  pool: State<'_, SqlitePool>,
+  id: String,
+) -> Result<PostcardSendDto, String> {
+  get_postcard_send_impl(pool.inner(), id).await
+}
+
+async fn get_postcard_send_impl(pool: &SqlitePool, id: String) -> Result<PostcardSendDto, String> {
+  let uuid =
+    Uuid::parse_str(&id).map_err(|e| postcard_command_error(AppError::Validation(e.to_string())))?;
+  let send_id = PostcardSendId::from_uuid(uuid);
+  let repo = SqlxPostcardSendRepository::new(pool.clone());
+  let found = repo
+    .find_by_id(&send_id)
+    .await
+    .map_err(|e| {
+      log::error!("get_postcard_send failed: {:?}", e);
+      AppError::Repository("SEND_GET_FAILED".to_string())
+    })?
+    .ok_or_else(|| {
+      postcard_command_error(AppError::Validation(SEND_NOT_FOUND_MESSAGE.to_string()))
+    })?;
+
+  if found.send.is_deleted() {
+    return Err(postcard_command_error(AppError::Validation(
+      SEND_NOT_FOUND_MESSAGE.to_string(),
+    )));
+  }
+
+  Ok(postcard_send_dto_from_context(found))
+}
+
+#[tauri::command]
+async fn search_postcard_sends(
+  pool: State<'_, SqlitePool>,
+  keyword: Option<String>,
+  year: Option<i32>,
+  postcard_type: Option<String>,
+  address_entry_id: Option<String>,
+  source: Option<String>,
+  include_deleted: Option<bool>,
+  limit: Option<i64>,
+  offset: Option<i64>,
+  sort_order: Option<String>,
+) -> Result<PostcardSendSearchResult, String> {
+  search_postcard_sends_impl(
+    pool.inner(),
+    keyword,
+    year,
+    postcard_type,
+    address_entry_id,
+    source,
+    include_deleted,
+    limit,
+    offset,
+    sort_order,
+  )
+  .await
+}
+
+async fn search_postcard_sends_impl(
+  pool: &SqlitePool,
+  keyword: Option<String>,
+  year: Option<i32>,
+  postcard_type: Option<String>,
+  address_entry_id: Option<String>,
+  source: Option<String>,
+  include_deleted: Option<bool>,
+  limit: Option<i64>,
+  offset: Option<i64>,
+  sort_order: Option<String>,
+) -> Result<PostcardSendSearchResult, String> {
+  let (l, o) = (
+    limit.unwrap_or(DEFAULT_SEARCH_LIMIT),
+    offset.unwrap_or(DEFAULT_SEARCH_OFFSET),
+  );
+  if l < 1 || l > MAX_PAGE_LIMIT {
+    return Err(postcard_command_error(AppError::Validation(format!(
+      "limit must be between 1 and {}",
+      MAX_PAGE_LIMIT
+    ))));
+  }
+  if o < 0 {
+    return Err(postcard_command_error(AppError::Validation(
+      "offset must be >= 0".to_string(),
+    )));
+  }
+
+  let parsed_type = match postcard_type {
+    Some(value) if !value.is_empty() => Some(
+      PostcardType::from_str(&value)
+        .map_err(|e| postcard_command_error(AppError::Validation(e.to_string())))?,
+    ),
+    _ => None,
+  };
+  let parsed_address_entry_id = match address_entry_id {
+    Some(id) if !id.is_empty() => Some(
+      Uuid::parse_str(&id).map_err(|e| postcard_command_error(AppError::Validation(e.to_string())))?,
+    ),
+    _ => None,
+  };
+  let parsed_source = match source {
+    Some(value) if !value.is_empty() => Some(
+      PostcardSendSource::from_str(&value)
+        .map_err(|e| postcard_command_error(AppError::Validation(e.to_string())))?,
+    ),
+    _ => None,
+  };
+  let sort_order = match sort_order.as_deref() {
+    Some("asc") => SendSortOrder::Asc,
+    _ => SendSortOrder::Desc,
+  };
+
+  let query = PostcardSendSearchQuery {
+    keyword: parse_search_keyword(keyword)?,
+    year,
+    postcard_type: parsed_type,
+    address_entry_id: parsed_address_entry_id,
+    source: parsed_source,
+    include_deleted: include_deleted.unwrap_or(false),
+    pagination: SendPagination { limit: l, offset: o },
+    sort_order,
+  };
+
+  let repo = SqlxPostcardSendRepository::new(pool.clone());
+  let (items, total) = repo.search(query).await.map_err(|e| {
+    log::error!("search_postcard_sends failed: {:?}", e);
+    String::from(AppError::Repository("SEND_SEARCH_FAILED".to_string()))
+  })?;
+
+  Ok(PostcardSendSearchResult {
+    items: items
+      .into_iter()
+      .map(postcard_send_dto_from_context)
+      .collect(),
+    total,
+  })
+}
+
+#[tauri::command]
+async fn list_postcard_send_years(pool: State<'_, SqlitePool>) -> Result<Vec<i32>, String> {
+  list_postcard_send_years_impl(pool.inner()).await
+}
+
+async fn list_postcard_send_years_impl(pool: &SqlitePool) -> Result<Vec<i32>, String> {
+  let repo = SqlxPostcardSendRepository::new(pool.clone());
+  repo.list_sent_years().await.map_err(|e| {
+    log::error!("list_postcard_send_years failed: {:?}", e);
+    String::from(AppError::Repository("SEND_LIST_YEARS_FAILED".to_string()))
+  })
+}
+
+#[tauri::command]
+async fn update_postcard_send(
+  pool: State<'_, SqlitePool>,
+  id: String,
+  input: UpdatePostcardSendInput,
+) -> Result<(), String> {
+  update_postcard_send_impl(pool.inner(), id, input).await
+}
+
+async fn update_postcard_send_impl(
+  pool: &SqlitePool,
+  id: String,
+  input: UpdatePostcardSendInput,
+) -> Result<(), String> {
+  let uuid =
+    Uuid::parse_str(&id).map_err(|e| postcard_command_error(AppError::Validation(e.to_string())))?;
+  let send_id = PostcardSendId::from_uuid(uuid);
+  let repo = SqlxPostcardSendRepository::new(pool.clone());
+
+  DateTime::parse_from_rfc3339(&input.expected_updated_at).map_err(|e| {
+    postcard_command_error(AppError::Validation(format!(
+      "invalid expected_updated_at: {e}"
+    )))
+  })?;
+
+  let existing = repo
+    .find_by_id(&send_id)
+    .await
+    .map_err(|e| {
+      log::error!("update_postcard_send find_by_id failed: {:?}", e);
+      AppError::Repository("SEND_UPDATE_FAILED".to_string())
+    })?
+    .ok_or_else(|| {
+      postcard_command_error(AppError::Validation(SEND_NOT_FOUND_MESSAGE.to_string()))
+    })?;
+
+  if existing.send.is_deleted() {
+    return Err(postcard_command_error(AppError::Validation(
+      SEND_NOT_FOUND_MESSAGE.to_string(),
+    )));
+  }
+
+  let previous_sent_on = existing.send.sent_on();
+  let sent_on = chrono::NaiveDate::parse_from_str(&input.sent_on, "%Y-%m-%d")
+    .map_err(|e| postcard_command_error(AppError::Validation(e.to_string())))?;
+  let postcard_type = PostcardType::from_str(&input.postcard_type)
+    .map_err(|e| postcard_command_error(AppError::Validation(e.to_string())))?;
+  let memo = parse_send_memo(input.memo)?;
+
+  let send = PostcardSend::from_persisted_for_update(
+    send_id,
+    existing.send.print_job_id(),
+    existing.send.address_entry_id(),
+    existing.send.sender_entry_id(),
+    existing.send.sender_snapshot().to_string(),
+    existing.send.address_snapshot().to_string(),
+    postcard_type,
+    sent_on,
+    existing.send.source(),
+    memo,
+    existing.send.created_at(),
+    Utc::now(),
+    existing.send.deleted_at(),
+    previous_sent_on,
+    PostcardSend::local_today(),
+  )
+  .map_err(|e| postcard_command_error(map_postcard_send_error(e)))?;
+
+  repo
+    .update(&send, &input.expected_updated_at)
+    .await
+    .map_err(|e| map_postcard_send_write_error(e, "update_postcard_send", "SEND_UPDATE_FAILED"))?;
+  Ok(())
+}
+
+#[tauri::command]
+async fn delete_postcard_send(pool: State<'_, SqlitePool>, id: String) -> Result<(), String> {
+  delete_postcard_send_impl(pool.inner(), id).await
+}
+
+async fn delete_postcard_send_impl(pool: &SqlitePool, id: String) -> Result<(), String> {
+  let uuid =
+    Uuid::parse_str(&id).map_err(|e| postcard_command_error(AppError::Validation(e.to_string())))?;
+  let send_id = PostcardSendId::from_uuid(uuid);
+  let repo = SqlxPostcardSendRepository::new(pool.clone());
+  repo.delete(&send_id).await.map_err(|e| match e {
+    PostcardSendRepositoryError::NotFound => {
+      postcard_command_error(AppError::Validation(SEND_NOT_FOUND_MESSAGE.to_string()))
+    }
+    other => {
+      log::error!("delete_postcard_send failed: {:?}", other);
+      postcard_command_error(AppError::Repository("SEND_DELETE_FAILED".to_string()))
+    }
+  })?;
+  Ok(())
+}
+
+#[tauri::command]
+async fn search_send_status(
+  pool: State<'_, SqlitePool>,
+  year: i32,
+  postcard_type: Option<String>,
+  status: String,
+  receipt_year: Option<i32>,
+  keyword: Option<String>,
+  limit: Option<i64>,
+  offset: Option<i64>,
+) -> Result<SendStatusSearchResult, String> {
+  search_send_status_impl(
+    pool.inner(),
+    year,
+    postcard_type,
+    status,
+    receipt_year,
+    keyword,
+    limit,
+    offset,
+  )
+  .await
+}
+
+async fn search_send_status_impl(
+  pool: &SqlitePool,
+  year: i32,
+  postcard_type: Option<String>,
+  status: String,
+  receipt_year: Option<i32>,
+  keyword: Option<String>,
+  limit: Option<i64>,
+  offset: Option<i64>,
+) -> Result<SendStatusSearchResult, String> {
+  let (l, o) = (
+    limit.unwrap_or(DEFAULT_SEARCH_LIMIT),
+    offset.unwrap_or(DEFAULT_SEARCH_OFFSET),
+  );
+  if l < 1 || l > MAX_PAGE_LIMIT {
+    return Err(postcard_command_error(AppError::Validation(format!(
+      "limit must be between 1 and {}",
+      MAX_PAGE_LIMIT
+    ))));
+  }
+  if o < 0 {
+    return Err(postcard_command_error(AppError::Validation(
+      "offset must be >= 0".to_string(),
+    )));
+  }
+
+  let status = SendStatusFilter::parse(&status).ok_or_else(|| {
+    postcard_command_error(AppError::Validation(SEND_INVALID_STATUS_MESSAGE.to_string()))
+  })?;
+  let parsed_type = match postcard_type {
+    Some(value) if !value.is_empty() => Some(
+      PostcardType::from_str(&value)
+        .map_err(|e| postcard_command_error(AppError::Validation(e.to_string())))?,
+    ),
+    _ => None,
+  };
+
+  let query = SendStatusQuery {
+    year,
+    postcard_type: parsed_type,
+    status,
+    receipt_year,
+    keyword: parse_search_keyword(keyword)?,
+    pagination: SendPagination { limit: l, offset: o },
+  };
+
+  let repo = SqlxPostcardSendRepository::new(pool.clone());
+  let (items, total) = repo.search_send_status(query).await.map_err(|e| {
+    log::error!("search_send_status failed: {:?}", e);
+    String::from(AppError::Repository("SEND_STATUS_SEARCH_FAILED".to_string()))
+  })?;
+
+  Ok(SendStatusSearchResult {
+    items: items.into_iter().map(send_status_item_dto).collect(),
+    total,
+  })
 }

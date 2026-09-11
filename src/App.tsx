@@ -12,6 +12,11 @@ import { PostcardReceiptListPage } from './features/postcard-receipt/PostcardRec
 import { PostcardReceiptCreatePage } from './features/postcard-receipt/PostcardReceiptCreatePage'
 import { PostcardReceiptDetailPage } from './features/postcard-receipt/PostcardReceiptDetailPage'
 import { PostcardReceiptEditPage } from './features/postcard-receipt/PostcardReceiptEditPage'
+import { PostcardSendManagePage } from './features/postcard-send/PostcardSendManagePage'
+import { PostcardSendCreatePage } from './features/postcard-send/PostcardSendCreatePage'
+import { PostcardSendDetailPage } from './features/postcard-send/PostcardSendDetailPage'
+import { PostcardSendEditPage } from './features/postcard-send/PostcardSendEditPage'
+import { PostcardSendBulkPage } from './features/postcard-send/PostcardSendBulkPage'
 import { PrintSelectPage } from './features/print/pages/PrintSelectPage'
 import { PrintConfirmPage } from './features/print/pages/PrintConfirmPage'
 import { PrintPreviewPage } from './features/print/pages/PrintPreviewPage'
@@ -24,6 +29,7 @@ function AppLayout() {
     { to: '/senders/new', label: '差出人新規作成' },
     { to: '/receipts', label: '受取履歴一覧' },
     { to: '/receipts/new', label: '受取履歴新規作成' },
+    { to: '/sends', label: '送付履歴' },
     { to: '/print/select', label: '宛名印刷' },
   ]
 
@@ -70,6 +76,11 @@ const router = createBrowserRouter([
       { path: 'receipts/new', element: <PostcardReceiptCreatePage /> },
       { path: 'receipts/:id', element: <PostcardReceiptDetailPage /> },
       { path: 'receipts/:id/edit', element: <PostcardReceiptEditPage /> },
+      { path: 'sends', element: <PostcardSendManagePage /> },
+      { path: 'sends/new', element: <PostcardSendCreatePage /> },
+      { path: 'sends/bulk', element: <PostcardSendBulkPage /> },
+      { path: 'sends/:id', element: <PostcardSendDetailPage /> },
+      { path: 'sends/:id/edit', element: <PostcardSendEditPage /> },
       { path: 'print/select', element: <PrintSelectPage /> },
       { path: 'print/confirm', element: <PrintConfirmPage /> },
       { path: 'print/preview', element: <PrintPreviewPage /> },
