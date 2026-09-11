@@ -21,10 +21,10 @@ jobs:
       github.event.pull_request.head.repo.full_name == github.repository
     runs-on: windows-latest
     steps:
-      - name: Checkout main
+      - name: Checkout merge commit
         uses: actions/checkout@v4
         with:
-          ref: main
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
           fetch-depth: 0
           fetch-tags: true
 
@@ -104,23 +104,29 @@ jobs:
           echo "path=${EXE}" >> "$GITHUB_OUTPUT"
           echo "Found ${EXE}"
 
-      - name: Create tag if missing
+      - name: Create tag if missing (SHA must match HEAD)
         id: tag
         shell: bash
         run: |
           set -euo pipefail
           TAG="${{ steps.meta.outputs.tag }}"
+          HEAD=$(git rev-parse HEAD)
           git fetch --tags origin
           if git rev-parse "$TAG" >/dev/null 2>&1; then
+            TAG_SHA=$(git rev-parse "$TAG^{commit}")
+            if [ "$TAG_SHA" != "$HEAD" ]; then
+              echo "::error::Tag ${TAG} points to ${TAG_SHA} but HEAD is ${HEAD}. Refusing to update Release assets for a different commit."
+              exit 1
+            fi
             echo "exists=true" >> "$GITHUB_OUTPUT"
-            echo "Tag ${TAG} already exists; skip create (retry-safe)."
+            echo "Tag ${TAG} already points at HEAD; skip create (retry-safe)."
           else
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git tag -a "$TAG" -m "Release ${TAG}"
             git push origin "$TAG"
             echo "exists=false" >> "$GITHUB_OUTPUT"
-            echo "Created ${TAG}"
+            echo "Created ${TAG} at ${HEAD}"
           fi
 
       - name: Create GitHub Release and upload .exe

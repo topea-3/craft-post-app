@@ -6,7 +6,8 @@
  *   node next-version.mjs <major|minor|patch>
  *   node next-version.mjs --set <X.Y.Z>
  *
- * --set  Writes package.json / tauri.conf.json / Cargo.toml to the given version
+ * --set  Updates package.json + package-lock.json via `npm version`,
+ *        and patches tauri.conf.json / Cargo.toml by text replace
  *        (does not re-derive from tags). Use after a successful derive in the same run.
  *
  * Prints JSON: { current, next, tag, bump } for bump mode,
@@ -75,33 +76,41 @@ function assertSemVer(version) {
   }
 }
 
+/** Replace the first top-level "version" field; preserves newlines / formatting. */
+function replaceTopLevelJsonVersion(raw, next) {
+  const updated = raw.replace(
+    /^(\s*"version"\s*:\s*")[^"]*(")/m,
+    `$1${next}$2`,
+  )
+  if (updated === raw) {
+    console.error('Failed to find top-level "version" field to replace')
+    process.exit(1)
+  }
+  return updated
+}
+
 function writeVersions(next) {
   assertSemVer(next)
-  const pkgPath = join(root, 'package.json')
-  const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'))
-  pkg.version = next
-  writeFileSync(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`)
 
-  const lockPath = join(root, 'package-lock.json')
   try {
-    const lock = JSON.parse(readFileSync(lockPath, 'utf8'))
-    lock.version = next
-    if (lock.packages && lock.packages['']) {
-      lock.packages[''].version = next
-    }
-    writeFileSync(lockPath, `${JSON.stringify(lock, null, 2)}\n`)
+    execSync(
+      `npm version ${next} --no-git-tag-version --allow-same-version`,
+      {
+        cwd: root,
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+      },
+    )
   } catch (err) {
-    if (err && err.code !== 'ENOENT') {
-      console.error('Failed to update package-lock.json version')
-      console.error(err.message || String(err))
-      process.exit(1)
-    }
+    const stderr = err.stderr?.toString?.() || err.message || String(err)
+    console.error('npm version failed (package.json / package-lock.json)')
+    console.error(stderr.trim())
+    process.exit(1)
   }
 
   const tauriPath = join(root, 'src-tauri', 'tauri.conf.json')
-  const tauri = JSON.parse(readFileSync(tauriPath, 'utf8'))
-  tauri.version = next
-  writeFileSync(tauriPath, `${JSON.stringify(tauri, null, 2)}\n`)
+  const tauriRaw = readFileSync(tauriPath, 'utf8')
+  writeFileSync(tauriPath, replaceTopLevelJsonVersion(tauriRaw, next))
 
   const cargoPath = join(root, 'src-tauri', 'Cargo.toml')
   const cargo = readFileSync(cargoPath, 'utf8')
@@ -109,11 +118,11 @@ function writeVersions(next) {
     console.error('Failed to find version in src-tauri/Cargo.toml')
     process.exit(1)
   }
-  const updated = cargo.replace(
+  const cargoUpdated = cargo.replace(
     /^version\s*=\s*"[^"]*"/m,
     `version = "${next}"`,
   )
-  writeFileSync(cargoPath, updated)
+  writeFileSync(cargoPath, cargoUpdated)
 }
 
 if (args[0] === '--set') {

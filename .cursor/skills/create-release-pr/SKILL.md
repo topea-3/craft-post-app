@@ -107,7 +107,7 @@ node .cursor/skills/create-release-pr/scripts/next-version.mjs <major|minor|patc
 node .cursor/skills/create-release-pr/scripts/next-version.mjs --set X.Y.Z
 ```
 
-更新対象: `package.json` / `src-tauri/tauri.conf.json` / `src-tauri/Cargo.toml`
+更新対象: `package.json` / `package-lock.json`（`npm version` 経由） / `src-tauri/tauri.conf.json` / `src-tauri/Cargo.toml`
 
 3. commit（例: `chore: bump version to X.Y.Z`）し push
 4. `gh pr create --base develop --head chore/release-vX.Y.Z`（タイトル例: `chore: bump version to X.Y.Z`）

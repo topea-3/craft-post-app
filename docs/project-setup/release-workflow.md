@@ -20,9 +20,9 @@ flowchart LR
 3. `chore/release-vX.Y.Z` ブランチでバージョンファイルを更新し、**develop 向け bump PR** を作成する（develop 直 push しない）
 4. bump PR マージ後、同スキル（または手動）で **develop → main** のリリース PR を作成（本文に Version と一般向け変更サマリ）
 5. リリース PR をマージすると **Release** ワークフローが起動し:
-   - PR 本文の Version と `package.json` / `tauri.conf.json` / `Cargo.toml` の一致を確認
+   - マージコミットを checkout し、PR 本文の Version と 3 マニフェストの一致を確認
    - Windows 上で NSIS インストーラ（`.exe`）をビルド
-   - 成功後に `vX.Y.Z` タグを作成（既存ならスキップして再実行可能）
+   - 成功後に `vX.Y.Z` タグを作成。**既存タグは HEAD と SHA 一致時のみスキップ**（不一致は失敗）
    - GitHub Releases を作成／更新し、`.exe` とサマリを添付
 
 ## 2. バージョニング

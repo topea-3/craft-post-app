@@ -1,12 +1,12 @@
 # Bundle license files
 
-Installer / app resources copied from repo roots for Tauri `bundle.licenseFile` and `bundle.resources`.
+Installer / app resources for Tauri `bundle.licenseFile` and `bundle.resources`.
 
-| File | Source of truth |
-|------|-----------------|
-| `LICENSE` | `/LICENSE` |
-| `THIRD_PARTY_NOTICES.md` | `/THIRD_PARTY_NOTICES.md` |
-| `noto-serif-jp-OFL.txt` | `/third_party/noto-serif-jp/OFL.txt` |
-| `noto-serif-jp-README.md` | `/third_party/noto-serif-jp/README.md` |
+| File | Notes |
+|------|--------|
+| `LICENSE` | Copy of repo-root `/LICENSE` (MIT). Keep byte-identical when syncing. |
+| `noto-serif-jp-OFL.txt` | Copy of `/third_party/noto-serif-jp/OFL.txt`. Keep byte-identical when syncing. |
+| `THIRD_PARTY_NOTICES.md` | **Distribution-oriented** index (links point at files in this folder). |
+| `noto-serif-jp-README.md` | **Distribution-oriented** notes (links point at `./noto-serif-jp-OFL.txt`). |
 
-Update the source first, then refresh these copies.
+Do not copy `third_party/.../README.md` or root `THIRD_PARTY_NOTICES.md` verbatim into this folder — repo-relative links break inside the installer.
