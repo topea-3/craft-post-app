@@ -10,6 +10,20 @@ use crate::domain::address::address_entry_repository::{
   DbCoRecipientRow, Pagination, SortKey, SortOrder,
 };
 
+fn escape_like_pattern(keyword: &str) -> String {
+  let mut escaped = String::with_capacity(keyword.len());
+  for ch in keyword.chars() {
+    match ch {
+      '\\' | '%' | '_' => {
+        escaped.push('\\');
+        escaped.push(ch);
+      }
+      _ => escaped.push(ch),
+    }
+  }
+  format!("%{escaped}%")
+}
+
 fn build_search_where_clause(query: &AddressSearchQuery) -> String {
   let mut s = String::new();
   if !query.include_archived {
@@ -18,12 +32,12 @@ fn build_search_where_clause(query: &AddressSearchQuery) -> String {
   if query.keyword.is_some() {
     s.push_str(
       " AND (
-          primary_last      LIKE ? OR
-          primary_first     LIKE ? OR
-          primary_kana_last LIKE ? OR
-          primary_kana_first LIKE ? OR
-          prefecture || city || street || IFNULL(building, '') LIKE ? OR
-          IFNULL(memo, '') LIKE ?
+          primary_last      LIKE ? ESCAPE '\\' OR
+          primary_first     LIKE ? ESCAPE '\\' OR
+          primary_kana_last LIKE ? ESCAPE '\\' OR
+          primary_kana_first LIKE ? ESCAPE '\\' OR
+          prefecture || city || street || IFNULL(building, '') LIKE ? ESCAPE '\\' OR
+          IFNULL(memo, '') LIKE ? ESCAPE '\\'
         )",
     );
   }
@@ -383,7 +397,7 @@ impl AddressEntryRepository for SqlxAddressEntryRepository {
     let count_sql = format!("SELECT COUNT(*) AS cnt FROM address_entries WHERE 1 = 1 {}", where_clause);
     let mut count_q = sqlx::query(&count_sql);
     if let Some(keyword) = query.keyword.as_ref() {
-      let kw = format!("%{}%", keyword);
+      let kw = escape_like_pattern(keyword);
       for _ in 0..6 {
         count_q = count_q.bind(kw.clone());
       }
@@ -427,7 +441,7 @@ impl AddressEntryRepository for SqlxAddressEntryRepository {
     let mut q = sqlx::query(&sql);
 
     if let Some(keyword) = query.keyword.as_ref() {
-      let kw = format!("%{}%", keyword);
+      let kw = escape_like_pattern(keyword);
       for _ in 0..6 {
         q = q.bind(kw.clone());
       }
@@ -560,5 +574,15 @@ pub(crate) async fn build_entries_with_co_recipients(
   }
 
   Ok(result)
+}
+
+#[cfg(test)]
+mod escape_like_tests {
+  use super::escape_like_pattern;
+
+  #[test]
+  fn escapes_percent_underscore_and_backslash() {
+    assert_eq!(escape_like_pattern("a%b_c\\d"), "%a\\%b\\_c\\\\d%");
+  }
 }
 

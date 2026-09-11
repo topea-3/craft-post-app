@@ -16,7 +16,7 @@ tasks:
     desc: 開発サーバー起動（Tauri + Vite）。Windows では .env の VCVARS64_BAT を呼んでから実行
     cmds:
       - cmd: 'cmd /c "call {{.VCVARS64_BAT}}"'
-      - cmd: "{{.NPM_CMD}} tauri dev"
+      - cmd: "{{.NPM_CMD}} tauri:dev"
 
   env:setup:
     desc: '.env の設定。必須引数でバッチの絶対パスを指定。例: task env:setup BAT="C:\\path\\vcvars64.bat"'
@@ -37,7 +37,7 @@ tasks:
     desc: 開発サーバー起動（Tauri + Vite、ホットリロード）。Windows では .env の VCVARS64_BAT を呼んでから実行
     cmds:
       - cmd: 'cmd /c "call {{.VCVARS64_BAT}}"'
-      - cmd: "{{.NPM_CMD}} tauri dev"
+      - cmd: "{{.NPM_CMD}} tauri:dev"
 
   dev:web:
     desc: フロントのみ開発サーバー（Vite、ブラウザ確認用）
@@ -52,7 +52,7 @@ tasks:
   build:app:
     desc: Tauri アプリの本番ビルド（インストーラ・実行ファイル生成）
     cmds:
-      - "{{.NPM_CMD}} tauri build"
+      - "{{.NPM_CMD}} tauri:build"
 
   lint:
     desc: ESLint の実行

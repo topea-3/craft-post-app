@@ -1,10 +1,10 @@
 [package]
 name = "app"
 version = "0.1.0"
-description = "A Tauri App"
-authors = ["you"]
+description = "Craft Post — offline postcard address and print manager"
+authors = ["Toshiya Takizawa"]
 license = "MIT"
-repository = ""
+repository = "https://github.com/topea-3/craft-post-app"
 edition = "2024"
 rust-version = "1.85"
 

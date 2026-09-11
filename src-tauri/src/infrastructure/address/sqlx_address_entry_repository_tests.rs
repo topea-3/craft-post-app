@@ -116,5 +116,63 @@ mod tests {
     assert_eq!(entries.len(), 1);
     assert_eq!(total, 1);
   }
+
+  #[tokio::test]
+  async fn search_keyword_escapes_like_wildcards() {
+    let pool = setup_pool().await;
+    let repo = SqlxAddressEntryRepository::new(pool);
+
+    let primary = PersonName::new(
+      "山田".into(),
+      "太郎".into(),
+      Some("ヤマダ".into()),
+      Some("タロウ".into()),
+    )
+    .unwrap();
+    let postal = PostalCode::new("1234567").unwrap();
+    let addr = Address::new(
+      "東京都".into(),
+      "渋谷区".into(),
+      "神南 1-1-1".into(),
+      None,
+    )
+    .unwrap();
+    let memo = Some(Memo::new("100%保証_メモ").unwrap());
+    let entry = AddressEntry::create_new(primary, vec![], Honorific::Sama, postal, addr, memo);
+    repo.create(&entry).await.unwrap();
+
+    let wildcard_query = AddressSearchQuery {
+      keyword: Some("%".into()),
+      sort_key: SortKey::UpdatedAt,
+      sort_order: SortOrder::Desc,
+      include_archived: false,
+      pagination: Some(Pagination { limit: 10, offset: 0 }),
+    };
+    let (wildcard_hits, wildcard_total) = repo.search(wildcard_query).await.unwrap();
+    assert_eq!(wildcard_hits.len(), 1);
+    assert_eq!(wildcard_total, 1);
+
+    let underscore_only = AddressSearchQuery {
+      keyword: Some("_".into()),
+      sort_key: SortKey::UpdatedAt,
+      sort_order: SortOrder::Desc,
+      include_archived: false,
+      pagination: Some(Pagination { limit: 10, offset: 0 }),
+    };
+    let (underscore_hits, underscore_total) = repo.search(underscore_only).await.unwrap();
+    assert_eq!(underscore_hits.len(), 1);
+    assert_eq!(underscore_total, 1);
+
+    let no_match = AddressSearchQuery {
+      keyword: Some("存在しない%キーワード".into()),
+      sort_key: SortKey::UpdatedAt,
+      sort_order: SortOrder::Desc,
+      include_archived: false,
+      pagination: Some(Pagination { limit: 10, offset: 0 }),
+    };
+    let (empty, empty_total) = repo.search(no_match).await.unwrap();
+    assert!(empty.is_empty());
+    assert_eq!(empty_total, 0);
+  }
 }
 
