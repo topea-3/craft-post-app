@@ -5,21 +5,24 @@
 ## リポジトリ構成
 
 - **モノレポ**: アプリ本体・ドキュメント・スクリプトを 1 リポジトリで管理しています。
-- **ブランチ**: main（リリース用） / develop（統合用） / feature（作業用）。詳細は [docs/repository-and-branch-strategy.md](docs/repository-and-branch-strategy.md) を参照してください。
+- **ブランチ**: main（リリース用） / develop（統合用） / feature（作業用）。詳細は [docs/project-setup/repository-and-branch-strategy.md](docs/project-setup/repository-and-branch-strategy.md) を参照してください。
+- **ライセンス**: MIT（[LICENSE](LICENSE)、方針は [docs/project-setup/license-decision.md](docs/project-setup/license-decision.md)）。埋め込みフォント（Noto Serif JP / OFL-1.1）は [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) を参照。
+- **リリース**: [docs/project-setup/release-workflow.md](docs/project-setup/release-workflow.md)（スキル `create-release-pr` + マージ時 CI）。
 
 ## ドキュメント
 
 | ドキュメント | 内容 |
 |--------------|------|
-| [docs/requirements-and-constraints.md](docs/requirements-and-constraints.md) | 要件・制約 |
-| [docs/decisions-summary.md](docs/decisions-summary.md) | 技術決定サマリ |
-| [docs/repository-and-branch-strategy.md](docs/repository-and-branch-strategy.md) | リポジトリ・ブランチ・リリース方針 |
-| [docs/github-setup.md](docs/github-setup.md) | GitHub リポジトリ・ブランチ保護の設定手順 |
-| [docs/dev-setup.md](docs/dev-setup.md) | 開発環境の初期構築・起動方法 |
+| [docs/overview/requirements-and-constraints.md](docs/overview/requirements-and-constraints.md) | 要件・制約 |
+| [docs/overview/decisions-summary.md](docs/overview/decisions-summary.md) | 技術決定サマリ |
+| [docs/project-setup/repository-and-branch-strategy.md](docs/project-setup/repository-and-branch-strategy.md) | リポジトリ・ブランチ・リリース方針 |
+| [docs/project-setup/github-setup.md](docs/project-setup/github-setup.md) | GitHub リポジトリ・ブランチ保護の設定手順 |
+| [docs/project-setup/dev-setup.md](docs/project-setup/dev-setup.md) | 開発環境の初期構築・起動方法 |
+| [docs/project-setup/release-workflow.md](docs/project-setup/release-workflow.md) | リリース運用（スキル + CI） |
 
 ## 開発環境の準備
 
-詳細な手順は **[docs/dev-setup.md](docs/dev-setup.md)** を参照してください。
+詳細な手順は **[docs/project-setup/dev-setup.md](docs/project-setup/dev-setup.md)** を参照してください。
 
 1. **リポジトリのクローン**
 

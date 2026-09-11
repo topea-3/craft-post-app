@@ -1,38 +1,144 @@
-# Craft Post App — リリースビルド（タグ push 時）
-# タグ例: v1.0.0 → GitHub Releases に成果物を添付
-# リポジトリ方針: docs/repository-and-branch-strategy.md 参照
+# Craft Post App — リリース（develop → main マージ時）
+# 方針: docs/project-setup/release-workflow.md
+# PR 本文フォーマット: .cursor/skills/create-release-pr/references/pr-body-template.md
 
 name: Release
 
 on:
-  push:
-    tags:
-      - 'v*'
+  pull_request:
+    types: [closed]
+    branches: [main]
+
+permissions:
+  contents: write
 
 jobs:
-  # Tauri プロジェクト作成後に有効化し、npm install / tauri build を追加する
-  build:
-    name: Build and Release
-    runs-on: ubuntu-latest
+  release:
+    name: Build (Windows), Tag, GitHub Release
+    if: >
+      github.event.pull_request.merged == true &&
+      github.event.pull_request.head.ref == 'develop' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout merge commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
+          fetch-depth: 0
+          fetch-tags: true
 
-      - name: Check tag
-        id: tag
-        run: echo "TAG=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.19'
+          cache: 'npm'
 
-      - name: Placeholder (Tauri 未セットアップ時)
+      - name: Parse version and notes from PR body
+        id: meta
+        shell: bash
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
         run: |
-          echo "Tag ${{ steps.tag.outputs.TAG }} pushed."
-          echo "Tauri プロジェクト作成後、ここで npm ci && npm run tauri build を実行し、"
-          echo "成果物を GitHub Release にアップロードするステップを追加してください。"
+          set -euo pipefail
+          VERSION=$(printf '%s\n' "$PR_BODY" | sed -n 's/^[-*][[:space:]]*\*\*Version\*\*:[[:space:]]*\([0-9]\+\.[0-9]\+\.[0-9]\+\).*/\1/p' | head -n1)
+          if [ -z "$VERSION" ]; then
+            echo "::error::PR body から Version (X.Y.Z) を読めませんでした。create-release-pr のテンプレートを使ってください。"
+            exit 1
+          fi
+          TAG="v${VERSION}"
 
-  # 将来の例（Tauri あり）:
-  # - uses: pnpm/action-setup@v2
-  #   with: { version: 8 }
-  # - uses: actions/setup-node@v4
-  #   with: { node-version: '20', cache: 'pnpm' }
-  # - run: pnpm install --frozen-lockfile
-  # - uses: tauri-apps/tauri-action@v0
-  #   env: { GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}, TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}, TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }} }
-  #   with: { tagName: ${{ steps.tag.outputs.TAG }}, releaseName: 'Craft Post App ${{ steps.tag.outputs.TAG }}', releaseBody: '...', releaseDraft: true }
+          PKG=$(node -p "require('./package.json').version")
+          TAURI=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          CARGO=$(sed -n 's/^version[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' src-tauri/Cargo.toml | head -n1)
+          if [ "$VERSION" != "$PKG" ] || [ "$VERSION" != "$TAURI" ] || [ "$VERSION" != "$CARGO" ]; then
+            echo "::error::PR Version (${VERSION}) がファイルと一致しません (package.json=${PKG}, tauri.conf.json=${TAURI}, Cargo.toml=${CARGO})"
+            exit 1
+          fi
+
+          NOTES=$(printf '%s\n' "$PR_BODY" | awk '
+            BEGIN { p=0 }
+            /^## 変更内容のサマリ[[:space:]]*$/ { p=1; next }
+            /^## / { if (p) exit }
+            { if (p) print }
+          ')
+          NOTES=$(printf '%s\n' "$NOTES" | sed -e 's/[[:space:]]*$//' | sed -e '/./,$!d' | sed -e :a -e '/^\n*$/{$d;N;ba' -e '}')
+          if [ -z "$(printf '%s' "$NOTES" | tr -d '[:space:]')" ]; then
+            NOTES="Release ${TAG}"
+          fi
+          DELIM="NOTES_EOF_$(date +%s)"
+          {
+            echo "version=${VERSION}"
+            echo "tag=${TAG}"
+            echo "NOTES<<${DELIM}"
+            printf '%s\n' "$NOTES"
+            echo "${DELIM}"
+          } >> "$GITHUB_OUTPUT"
+          echo "Parsed ${TAG}"
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@d1031067263f94b142dd6c0ce24c5eb9d02d52a0 # master 2026-09-03
+        with:
+          toolchain: stable
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: src-tauri -> target
+
+      - name: Build Windows installer (.exe / NSIS)
+        run: npm run tauri build -- --bundles nsis
+
+      - name: Locate NSIS artifact
+        id: artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t EXES < <(find src-tauri/target/release/bundle/nsis -type f -name '*.exe' | sort)
+          if [ "${#EXES[@]}" -eq 0 ]; then
+            echo "::error::NSIS .exe 成果物が見つかりません。"
+            find src-tauri/target/release/bundle -type f || true
+            exit 1
+          fi
+          EXE="${EXES[0]}"
+          echo "path=${EXE}" >> "$GITHUB_OUTPUT"
+          echo "Found ${EXE}"
+
+      - name: Create tag if missing (SHA must match HEAD)
+        id: tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.meta.outputs.tag }}"
+          HEAD=$(git rev-parse HEAD)
+          git fetch --tags origin
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            TAG_SHA=$(git rev-parse "$TAG^{commit}")
+            if [ "$TAG_SHA" != "$HEAD" ]; then
+              echo "::error::Tag ${TAG} points to ${TAG_SHA} but HEAD is ${HEAD}. Refusing to update Release assets for a different commit."
+              exit 1
+            fi
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "Tag ${TAG} already points at HEAD; skip create (retry-safe)."
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git tag -a "$TAG" -m "Release ${TAG}"
+            git push origin "$TAG"
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "Created ${TAG} at ${HEAD}"
+          fi
+
+      - name: Create GitHub Release and upload .exe
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
+        with:
+          tag_name: ${{ steps.meta.outputs.tag }}
+          name: Craft Post ${{ steps.meta.outputs.tag }}
+          body: ${{ steps.meta.outputs.NOTES }}
+          files: ${{ steps.artifact.outputs.path }}
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

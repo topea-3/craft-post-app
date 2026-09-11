@@ -32,6 +32,13 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
+    ],
+    "licenseFile": "licenses/LICENSE",
+    "resources": [
+      "licenses/LICENSE",
+      "licenses/THIRD_PARTY_NOTICES.md",
+      "licenses/noto-serif-jp-OFL.txt",
+      "licenses/noto-serif-jp-README.md"
     ]
   }
 }

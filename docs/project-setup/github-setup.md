@@ -43,12 +43,17 @@ Craft Post App を GitHub にプッシュしたあと、リポジトリ設定と
 
 ## 3. リリースの流れ（運用）
 
+詳細は [release-workflow.md](./release-workflow.md) を参照。
+
 1. 通常の開発は **develop** から **feature/TOP-XX-...** を切り、作業後に **develop** へ PR でマージする。
 2. リリース時:
-   - **develop** を **main** へ PR でマージする。
-   - **main** にタグを打つ（例: `git tag v1.0.0 && git push origin v1.0.0`）。
-   - **GitHub Releases** で該当タグのリリースを作成し、ビルド成果物とリリースノートを添付する。
-3. （任意）**develop** を **main** と同期する（`develop` で `git merge main`）。
+   - Cursor スキル `create-release-pr` で MAJOR / MINOR / PATCH を指定する。
+   - バージョン bump は **`chore/release-vX.Y.Z` → develop** の PR で行う（develop 直 push しない。保護ルールと両立）。
+   - bump マージ後、**develop → main** のリリース PR を作成・マージする。
+   - マージすると GitHub Actions（`Release`）がビルド・タグ作成・GitHub Releases 公開を行う。
+3. （推奨）**develop** を **main** と同期する（`develop` で `git merge main`）。
+
+**develop のブランチ保護**: PR 必須にしてよい。リリース bump も PR 経由のため、直 push 例外は不要。
 
 ---
 
@@ -57,4 +62,6 @@ Craft Post App を GitHub にプッシュしたあと、リポジトリ設定と
 | 日付       | 内容 |
 |------------|------|
 | 2026-03-08 | 初版。GitHub リポジトリ作成・プッシュ・ブランチ保護の手順を記載。 |
+| 2026-09-12 | TOP-33。リリースをスキル + マージ時 CI に更新。 |
+| 2026-09-12 | バージョン bump を chore → develop の PR 経由に変更。 |
 

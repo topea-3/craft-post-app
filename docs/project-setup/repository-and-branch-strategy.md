@@ -170,16 +170,15 @@ flowchart LR
 | **署名** | Updater 用の署名は Tauri の仕組みで無料で利用可能。OS レベル（Windows の Authenticode 等）の署名は有料のため、必要に応じて別途検討（desktop-tech-comparison-and-decision.md を参照）。 |
 | **今回の範囲** | 初版リリースでは「手動で新しいビルドをダウンロードして入れ替え」でも可。Updater は後から追加可能。 |
 
-### 4.5 リリースの流れ（ラフ）
+### 4.5 リリースの流れ（確定運用）
+
+詳細手順は [release-workflow.md](./release-workflow.md) を正とする。
 
 1. **develop** でリリース対象の変更を揃え、動作確認する。
-2. **main** にマージする（PR 推奨）。
-3. **main** にタグを打つ（例: `git tag v1.0.0` → push）。
-4. 該当タグで **ビルド** を実行し、成果物（インストーラ等）を取得する。
-5. **GitHub Releases** で該当タグのリリースを作成し、成果物をアップロード・リリースノートを記載する。
-6. （運用次第）develop を main と同期する。
-
-※ CI で「タグ push 時にビルドして Release に成果物を添付」まで自動化すると、手順 4・5 が簡略化できる。初期は手動でもよい。
+2. `create-release-pr` スキルで MAJOR / MINOR / PATCH を選び、`chore/release-vX.Y.Z` → develop の bump PR を作成・マージする。
+3. **develop → main** のリリース PR を作成・マージする。
+4. マージ時の **Release** CI が Windows `.exe` ビルドの後にタグ（例: `v1.0.0`）と GitHub Releases を公開する。
+5. （推奨）develop を main と同期する。
 
 ---
 
@@ -190,11 +189,11 @@ flowchart LR
 | **リポジトリ形態** | モノレポ（1 リポジトリにアプリ・docs・scripts を集約）。 |
 | **ディレクトリ** | `docs/`（設計ドキュメント）、`src-tauri/`（Rust）、フロント用ソース（Tauri テンプレート準拠）、`scripts/`（任意）。 |
 | **ブランチ** | main（リリース用） / develop（統合用） / feature（作業用）。feature は develop から分岐し、develop にマージ。 |
-| **タグ** | リリース時は main にバージョンタグ（例: `v1.0.0`）を打つ。 |
+| **タグ** | リリース時は main にバージョンタグ（例: `v1.0.0`）を打つ（マージ時 CI が作成）。 |
 | **バージョニング** | SemVer（MAJOR.MINOR.PATCH）。タグは `v1.0.0` 形式。 |
-| **ビルド** | Tauri 標準ビルドで OS 別インストーラ・実行形式を生成。 |
-| **配布** | GitHub Releases（または GitLab Releases）でタグに成果物とリリースノートを添付。 |
-| **アップデート** | 初版は手動配布で可。Tauri Updater は必要に応じて後から導入。 |
+| **ビルド** | リリース CI は Windows NSIS（`.exe`）のみ。ローカルでは Tauri 標準ビルドも可。 |
+| **配布** | GitHub Releases でタグに成果物とリリースノートを添付。 |
+| **アップデート** | 初版は手動配布で可。Tauri Updater は必要に応じて後から導入（[tauri-updater-feasibility.md](./tauri-updater-feasibility.md)）。 |
 
 ---
 
@@ -204,4 +203,5 @@ flowchart LR
 |------------|------|
 | 2026-03-08 | 初版。TOP-13「リポジトリ構成・ブランチ戦略の方針決定」に基づき作成。モノレポ・ディレクトリ構成・ブランチ戦略を整理した。 |
 | 2026-03-08 | 4. リリース方法を追加。バージョニング（SemVer）・ビルド・配布（GitHub Releases）・アップデート方針・リリースの流れを記載。5. まとめにリリース関連項目を追加。 |
+| 2026-09-12 | TOP-33。4.5 をスキル + マージ時 CI の確定運用に更新。詳細は release-workflow.md。 |
 
