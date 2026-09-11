@@ -175,10 +175,10 @@ flowchart LR
 詳細手順は [release-workflow.md](./release-workflow.md) を正とする。
 
 1. **develop** でリリース対象の変更を揃え、動作確認する。
-2. `create-release-pr` スキルで MAJOR / MINOR / PATCH を選び、バージョン更新と **develop → main** の PR を作成する。
-3. PR を **main** にマージする。
-4. マージ時の **Release** CI がタグ（例: `v1.0.0`）作成・Windows `.exe` ビルド・GitHub Releases 公開を行う。
-5. （運用次第）develop を main と同期する。
+2. `create-release-pr` スキルで MAJOR / MINOR / PATCH を選び、`chore/release-vX.Y.Z` → develop の bump PR を作成・マージする。
+3. **develop → main** のリリース PR を作成・マージする。
+4. マージ時の **Release** CI が Windows `.exe` ビルドの後にタグ（例: `v1.0.0`）と GitHub Releases を公開する。
+5. （推奨）develop を main と同期する。
 
 ---
 

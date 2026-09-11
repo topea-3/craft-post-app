@@ -21,23 +21,29 @@ Craft Post App 本体の配布ライセンスを定義した記録です。
 | 埋め込みフォント | `@fontsource/noto-serif-jp` は **OFL-1.1**。本体 MIT とは別枠。**埋め込み再配布のため著作権表示と OFL 全文の同梱が必須**（下記）。 |
 | Rust（主要） | Tauri / serde / sqlx 等は MIT または Apache-2.0 OR MIT が一般的。 |
 
-## 埋め込みフォント（OFL-1.1）の遵守
+## 配布物へのライセンス同梱
 
-OFL 条件 2 は、Font Software をソフトウェアに同梱・再配布する場合、**各コピーに著作権表示と本ライセンスを含める**ことを求める（スタンドアロンテキスト可）。
+MIT は著作権表示と許諾文をすべてのコピーに含めることが条件。OFL は埋め込み再配布時に著作権表示とライセンス本文の同梱が条件（条件 2）。
 
 | 成果物 | 役割 |
 |--------|------|
-| `third_party/noto-serif-jp/OFL.txt` | npm パッケージ付属の著作権表示 + OFL 1.1 全文（正本） |
-| `third_party/noto-serif-jp/README.md` | 出所・同梱方針 |
+| ルート `LICENSE` | 本体 MIT の正本（リポジトリ） |
+| `third_party/noto-serif-jp/OFL.txt` | OFL 1.1 全文の正本（リポジトリ／上流コピー元） |
 | `THIRD_PARTY_NOTICES.md` | 第三者通知の入口 |
-| `tauri.conf.json` → `bundle.resources` | インストーラ／配布物への添付 |
+| `src-tauri/licenses/*` | **インストーラ／アプリ資源に同梱するコピー**（`bundle.licenseFile` + `bundle.resources`） |
 
-参考 URL: https://scripts.sil.org/OFL （全文の正本は `OFL.txt`）
+`tauri.conf.json`:
+
+- `bundle.licenseFile`: `licenses/LICENSE`（NSIS ライセンス画面）
+- `bundle.resources`: MIT / OFL / THIRD_PARTY_NOTICES
+
+参考 URL: https://scripts.sil.org/OFL （全文の正本は `OFL.txt` / `licenses/noto-serif-jp-OFL.txt`）
 
 ## 注意
 
 - 依存を追加するときは、GPL 系など相互運用しにくいライセンスが入らないか確認する。
-- OFL フォントを追加・差し替える場合は、当該パッケージの著作権表示とライセンス全文を `third_party/` に置き、`THIRD_PARTY_NOTICES.md` と `bundle.resources` を更新する。
+- OFL フォントを追加・差し替える場合は `third_party/` を更新し、`src-tauri/licenses/` と `THIRD_PARTY_NOTICES.md`・`bundle.resources` を同期する。
+- ルート `LICENSE` を更新したら `src-tauri/licenses/LICENSE` も同じ内容に更新する。
 
 ## 変更履歴
 
@@ -45,3 +51,4 @@ OFL 条件 2 は、Font Software をソフトウェアに同梱・再配布す�
 |------|------|
 | 2026-09-12 | TOP-33 に基づき MIT を採用・記録。 |
 | 2026-09-12 | OFL フォントの著作権表示・ライセンス全文同梱を必須として追記・実装。 |
+| 2026-09-12 | 本体 MIT を `bundle.licenseFile` / `src-tauri/licenses/` に同梱。 |

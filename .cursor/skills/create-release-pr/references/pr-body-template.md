@@ -22,13 +22,13 @@
 ## チェックリスト
 
 - [x] develop から main へのマージである
-- [x] バージョンを SemVer で更新した（package.json / tauri.conf.json / Cargo.toml）
+- [x] バージョンを SemVer で更新した（package.json / tauri.conf.json / Cargo.toml。bump は chore → develop PR 経由）
 - [x] 変更内容のサマリを一般向けに記載した
 - [ ] 動作確認済み（該当する場合）
 
 ## 備考
 
-マージ後、Release ワークフローがタグ作成・Windows ビルド・GitHub Releases 公開を行う。
+マージ後、Release ワークフローが Windows ビルド成功後にタグ作成・GitHub Releases 公開を行う。
 ```
 
 ### CI が読む箇所

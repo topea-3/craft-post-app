@@ -14,10 +14,11 @@ permissions:
 
 jobs:
   release:
-    name: Tag, Build (Windows), GitHub Release
+    name: Build (Windows), Tag, GitHub Release
     if: >
       github.event.pull_request.merged == true &&
-      github.event.pull_request.head.ref == 'develop'
+      github.event.pull_request.head.ref == 'develop' &&
+      github.event.pull_request.head.repo.full_name == github.repository
     runs-on: windows-latest
     steps:
       - name: Checkout main
@@ -25,6 +26,7 @@ jobs:
         with:
           ref: main
           fetch-depth: 0
+          fetch-tags: true
 
       - name: Parse version and notes from PR body
         id: meta
@@ -39,10 +41,15 @@ jobs:
             exit 1
           fi
           TAG="v${VERSION}"
-          if git rev-parse "$TAG" >/dev/null 2>&1; then
-            echo "::error::Tag $TAG は既に存在します。"
+
+          PKG=$(node -p "require('./package.json').version")
+          TAURI=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          CARGO=$(sed -n 's/^version[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' src-tauri/Cargo.toml | head -n1)
+          if [ "$VERSION" != "$PKG" ] || [ "$VERSION" != "$TAURI" ] || [ "$VERSION" != "$CARGO" ]; then
+            echo "::error::PR Version (${VERSION}) がファイルと一致しません (package.json=${PKG}, tauri.conf.json=${TAURI}, Cargo.toml=${CARGO})"
             exit 1
           fi
+
           NOTES=$(printf '%s\n' "$PR_BODY" | awk '
             BEGIN { p=0 }
             /^## 変更内容のサマリ[[:space:]]*$/ { p=1; next }
@@ -62,15 +69,6 @@ jobs:
             echo "${DELIM}"
           } >> "$GITHUB_OUTPUT"
           echo "Parsed ${TAG}"
-
-      - name: Create and push tag
-        shell: bash
-        run: |
-          set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag -a "${{ steps.meta.outputs.tag }}" -m "Release ${{ steps.meta.outputs.tag }}"
-          git push origin "${{ steps.meta.outputs.tag }}"
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -105,6 +103,25 @@ jobs:
           fi
           echo "path=${EXE}" >> "$GITHUB_OUTPUT"
           echo "Found ${EXE}"
+
+      - name: Create tag if missing
+        id: tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.meta.outputs.tag }}"
+          git fetch --tags origin
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "Tag ${TAG} already exists; skip create (retry-safe)."
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git tag -a "$TAG" -m "Release ${TAG}"
+            git push origin "$TAG"
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "Created ${TAG}"
+          fi
 
       - name: Create GitHub Release and upload .exe
         uses: softprops/action-gh-release@v2
