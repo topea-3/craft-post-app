@@ -39,7 +39,8 @@ export function PostcardSendBulkPage() {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
   const [isSubmitting, setSubmitting] = useState(false)
-  const [isSeeding, setSeeding] = useState(false)
+  const seedIds = state?.addressEntryIds ?? []
+  const [isSeeding, setSeeding] = useState(() => seedIds.length > 0)
   const [seedNotice, setSeedNotice] = useState<string | null>(null)
   const submittingRef = useRef(false)
   const seededRef = useRef(false)
@@ -49,7 +50,6 @@ export function PostcardSendBulkPage() {
     const ids = state?.addressEntryIds ?? []
     if (ids.length === 0) return
     seededRef.current = true
-    setSeeding(true)
     ;(async () => {
       const targetIds = ids.slice(0, MAX_SELECTION)
       const results = await Promise.all(
