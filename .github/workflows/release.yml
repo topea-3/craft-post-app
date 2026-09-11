@@ -28,6 +28,12 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.19'
+          cache: 'npm'
+
       - name: Parse version and notes from PR body
         id: meta
         shell: bash
@@ -70,12 +76,6 @@ jobs:
           } >> "$GITHUB_OUTPUT"
           echo "Parsed ${TAG}"
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20.19'
-          cache: 'npm'
-
       - name: Install frontend dependencies
         run: npm ci
 
@@ -95,12 +95,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          EXE=$(find src-tauri/target/release/bundle/nsis -type f -name '*.exe' | head -n1)
-          if [ -z "$EXE" ]; then
+          mapfile -t EXES < <(find src-tauri/target/release/bundle/nsis -type f -name '*.exe' | sort)
+          if [ "${#EXES[@]}" -eq 0 ]; then
             echo "::error::NSIS .exe 成果物が見つかりません。"
             find src-tauri/target/release/bundle -type f || true
             exit 1
           fi
+          EXE="${EXES[0]}"
           echo "path=${EXE}" >> "$GITHUB_OUTPUT"
           echo "Found ${EXE}"
 

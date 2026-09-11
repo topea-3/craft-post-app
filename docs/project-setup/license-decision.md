@@ -10,7 +10,7 @@ Craft Post App 本体の配布ライセンスを定義した記録です。
 |------|------|
 | **本体ライセンス** | **MIT** |
 | **根拠** | 直接依存・主要推移依存の大半が MIT / Apache-2.0 / ISC / BSD 系で、MIT 選択と整合する。GPL 系のブロッカーは検出していない。 |
-| **リポジトリ上の表記** | ルート `LICENSE`、`src-tauri/Cargo.toml` の `license = "MIT"` |
+| **リポジトリ上の表記** | ルート `LICENSE`（Copyright 2026 Toshiya Takizawa）、`src-tauri/Cargo.toml` の `license = "MIT"` |
 
 ## 依存関係の確認結果（要約）
 
@@ -52,3 +52,4 @@ MIT は著作権表示と許諾文をすべてのコピーに含めることが�
 | 2026-09-12 | TOP-33 に基づき MIT を採用・記録。 |
 | 2026-09-12 | OFL フォントの著作権表示・ライセンス全文同梱を必須として追記・実装。 |
 | 2026-09-12 | 本体 MIT を `bundle.licenseFile` / `src-tauri/licenses/` に同梱。 |
+| 2026-09-12 | 著作権表記を Toshiya Takizawa に統一。CI で LICENSE/OFL コピーの byte 一致を検証。 |

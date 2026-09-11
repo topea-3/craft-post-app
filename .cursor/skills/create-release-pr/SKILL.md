@@ -107,7 +107,7 @@ node .cursor/skills/create-release-pr/scripts/next-version.mjs <major|minor|patc
 node .cursor/skills/create-release-pr/scripts/next-version.mjs --set X.Y.Z
 ```
 
-更新対象: `package.json` / `package-lock.json`（`npm version` 経由） / `src-tauri/tauri.conf.json` / `src-tauri/Cargo.toml`
+更新対象: `package.json` / `package-lock.json`（`npm version` 経由） / `src-tauri/tauri.conf.json` / `src-tauri/Cargo.toml` / `src-tauri/Cargo.lock`（`app` パッケージ）
 
 3. commit（例: `chore: bump version to X.Y.Z`）し push
 4. `gh pr create --base develop --head chore/release-vX.Y.Z`（タイトル例: `chore: bump version to X.Y.Z`）
@@ -115,11 +115,17 @@ node .cursor/skills/create-release-pr/scripts/next-version.mjs --set X.Y.Z
 
 ### Step 5: リリース PR（develop → main）
 
-前提: `origin/develop` の 3 ファイルの version が Step 2 の `next`（またはユーザー指定の公開版）と一致していること。未一致なら bump PR マージ待ちとして停止する。
+1. **必ず再 fetch** する（bump PR をマージした直後の同一実行で古い `origin/develop` を見ないため）:
 
-既に open な `develop` → `main` の PR がある場合は新規作成せず、本文・タイトルの更新可否をユーザーに確認する。
+```bash
+git fetch origin develop
+```
 
-無い場合:
+2. 前提: `origin/develop` の version ファイル（`package.json` / `tauri.conf.json` / `Cargo.toml`）が Step 2 の `next`（またはユーザー指定の公開版）と一致していること。未一致なら bump PR マージ待ちとして停止する。
+
+3. 既に open な `develop` → `main` の PR がある場合は新規作成せず、本文・タイトルの更新可否をユーザーに確認する。
+
+4. 無い場合:
 
 ```bash
 gh pr create --base main --head develop --title "Release vX.Y.Z" --body-file <pr-body>

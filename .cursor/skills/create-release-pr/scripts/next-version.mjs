@@ -7,7 +7,7 @@
  *   node next-version.mjs --set <X.Y.Z>
  *
  * --set  Updates package.json + package-lock.json via `npm version`,
- *        and patches tauri.conf.json / Cargo.toml by text replace
+ *        and patches tauri.conf.json / Cargo.toml / Cargo.lock (app) by text replace
  *        (does not re-derive from tags). Use after a successful derive in the same run.
  *
  * Prints JSON: { current, next, tag, bump } for bump mode,
@@ -78,29 +78,23 @@ function assertSemVer(version) {
 
 /** Replace the first top-level "version" field; preserves newlines / formatting. */
 function replaceTopLevelJsonVersion(raw, next) {
-  const updated = raw.replace(
-    /^(\s*"version"\s*:\s*")[^"]*(")/m,
-    `$1${next}$2`,
-  )
-  if (updated === raw) {
+  if (!/^(\s*"version"\s*:\s*")[^"]*(")/m.test(raw)) {
     console.error('Failed to find top-level "version" field to replace')
     process.exit(1)
   }
-  return updated
+  return raw.replace(/^(\s*"version"\s*:\s*")[^"]*(")/m, `$1${next}$2`)
 }
 
 function writeVersions(next) {
   assertSemVer(next)
 
   try {
-    execSync(
-      `npm version ${next} --no-git-tag-version --allow-same-version`,
-      {
-        cwd: root,
-        encoding: 'utf8',
-        stdio: ['ignore', 'pipe', 'pipe'],
-      },
-    )
+    execSync(`npm version "${next}" --no-git-tag-version --allow-same-version`, {
+      cwd: root,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+      shell: true,
+    })
   } catch (err) {
     const stderr = err.stderr?.toString?.() || err.message || String(err)
     console.error('npm version failed (package.json / package-lock.json)')
@@ -123,6 +117,32 @@ function writeVersions(next) {
     `version = "${next}"`,
   )
   writeFileSync(cargoPath, cargoUpdated)
+
+  const lockPath = join(root, 'src-tauri', 'Cargo.lock')
+  try {
+    const lockRaw = readFileSync(lockPath, 'utf8')
+    const lockUpdated = lockRaw.replace(
+      /(^\[\[package\]\]\r?\nname = "app"\r?\nversion = ")[^"]*(")/m,
+      `$1${next}$2`,
+    )
+    if (
+      !/(^\[\[package\]\]\r?\nname = "app"\r?\nversion = ")[^"]*(")/m.test(
+        lockRaw,
+      )
+    ) {
+      console.error(
+        'Failed to find [[package]] name = "app" version in src-tauri/Cargo.lock',
+      )
+      process.exit(1)
+    }
+    writeFileSync(lockPath, lockUpdated)
+  } catch (err) {
+    if (err && err.code === 'ENOENT') {
+      console.error('src-tauri/Cargo.lock not found')
+      process.exit(1)
+    }
+    throw err
+  }
 }
 
 if (args[0] === '--set') {

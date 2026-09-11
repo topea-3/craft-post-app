@@ -23,6 +23,13 @@ jobs:
           test -f .editorconfig && echo ".editorconfig OK" || exit 1
           test -f .gitignore && echo ".gitignore OK" || exit 1
 
+      - name: Check license copies are byte-identical
+        run: |
+          set -euo pipefail
+          cmp -s LICENSE src-tauri/licenses/LICENSE
+          cmp -s third_party/noto-serif-jp/OFL.txt src-tauri/licenses/noto-serif-jp-OFL.txt
+          echo "LICENSE / OFL bundle copies match sources"
+
   frontend:
     name: Frontend (lint, test & build)
     runs-on: ubuntu-latest
