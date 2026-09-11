@@ -124,7 +124,7 @@ fn build_search_where_clause(query: &PostcardSendSearchQuery) -> String {
   if query.keyword.is_some() {
     let display = address_display_name_sql("ae");
     let sender_display = sender_display_name_sql("se");
-    // live と snapshot を常に OR（表示が snapshot 優先のため、改名後も旧名で当たるようにする）
+    // live + snapshot（フィールド別・表示名連結）を常に OR
     s.push_str(&format!(
       " AND (
           {display} LIKE ? ESCAPE '\\' OR
@@ -133,8 +133,16 @@ fn build_search_where_clause(query: &PostcardSendSearchQuery) -> String {
           IFNULL(ps.memo, '') LIKE ? ESCAPE '\\' OR
           IFNULL(json_extract(ps.address_snapshot, '$.primary_last'), '') LIKE ? ESCAPE '\\' OR
           IFNULL(json_extract(ps.address_snapshot, '$.primary_first'), '') LIKE ? ESCAPE '\\' OR
+          TRIM(
+            IFNULL(json_extract(ps.address_snapshot, '$.primary_last'), '') || ' ' ||
+            IFNULL(json_extract(ps.address_snapshot, '$.primary_first'), '')
+          ) LIKE ? ESCAPE '\\' OR
           IFNULL(json_extract(ps.sender_snapshot, '$.primary_last'), '') LIKE ? ESCAPE '\\' OR
-          IFNULL(json_extract(ps.sender_snapshot, '$.primary_first'), '') LIKE ? ESCAPE '\\'
+          IFNULL(json_extract(ps.sender_snapshot, '$.primary_first'), '') LIKE ? ESCAPE '\\' OR
+          TRIM(
+            IFNULL(json_extract(ps.sender_snapshot, '$.primary_last'), '') || ' ' ||
+            IFNULL(json_extract(ps.sender_snapshot, '$.primary_first'), '')
+          ) LIKE ? ESCAPE '\\'
         )"
     ));
   }
@@ -254,8 +262,10 @@ fn bind_search_params<'q>(
   if let Some(keyword) = &query.keyword {
     let pattern = escape_like_pattern(keyword);
     // live address display, sender label, sender display, memo,
-    // address snapshot last/first, sender snapshot last/first
+    // address snapshot last/first/concat, sender snapshot last/first/concat
     q = q
+      .bind(pattern.clone())
+      .bind(pattern.clone())
       .bind(pattern.clone())
       .bind(pattern.clone())
       .bind(pattern.clone())

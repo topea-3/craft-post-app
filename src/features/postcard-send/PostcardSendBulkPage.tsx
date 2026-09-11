@@ -10,7 +10,6 @@ import {
 import { AddressEntrySelectDialog } from '../sender/AddressEntrySelectDialog'
 import type { AddressEntryListItem } from '../address/types'
 import { mapPostcardSendInvokeError } from './messages'
-import { clearSendStatusSelectedIds } from './printHandoff'
 import type { BulkSendLocationState, PostcardType } from './types'
 import { POSTCARD_TYPE_OPTIONS } from './types'
 
@@ -199,7 +198,6 @@ export function PostcardSendBulkPage() {
           })),
         },
       })
-      clearSendStatusSelectedIds()
       navigate('/sends')
     } catch (e) {
       console.error(e)

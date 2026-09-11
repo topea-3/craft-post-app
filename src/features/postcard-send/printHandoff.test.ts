@@ -1,11 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import {
-  clearSendStatusSelectedIds,
-  readPrintJobDraftAddressIds,
-  readSendStatusSelectedIds,
-  replacePrintJobDraftAddressIds,
-  writeSendStatusSelectedIds,
-} from './printHandoff'
+import { readPrintJobDraftAddressIds, replacePrintJobDraftAddressIds } from './printHandoff'
 
 describe('printHandoff', () => {
   beforeEach(() => {
@@ -20,12 +14,5 @@ describe('printHandoff', () => {
       excludedAlerts: [],
     })
     expect(readPrintJobDraftAddressIds()).toEqual(['a', 'b'])
-  })
-
-  it('clears send status selected ids', () => {
-    writeSendStatusSelectedIds(['x', 'y'])
-    expect(readSendStatusSelectedIds()).toEqual(['x', 'y'])
-    clearSendStatusSelectedIds()
-    expect(readSendStatusSelectedIds()).toEqual([])
   })
 })

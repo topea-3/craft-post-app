@@ -166,12 +166,15 @@ export function PostcardSendDetailPage() {
             <code>{detail.id}</code>
           </dd>
         </div>
-        <details>
-          <summary>printJobId</summary>
+        <div>
+          <dt>printJobId</dt>
           <dd>
-            <code>{detail.printJobId}</code>
+            <details>
+              <summary>表示</summary>
+              <code>{detail.printJobId}</code>
+            </details>
           </dd>
-        </details>
+        </div>
       </dl>
     </div>
   )

@@ -6,7 +6,6 @@ import { currentLocalYear } from '../../lib/date'
 import { clampPage, totalPagesFor } from '../../lib/pagination'
 import { POSTCARD_SEND_OPERATION_ERROR_MESSAGE } from './messages'
 import {
-  clearSendStatusSelectedIds,
   readPrintJobDraftAddressIds,
   replacePrintJobDraftAddressIds,
   syncPrintPostcardType,
@@ -37,11 +36,6 @@ type Tab = 'history' | 'status'
 export function PostcardSendManagePage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const tab: Tab = searchParams.get('tab') === 'status' ? 'status' : 'history'
-
-  // ページ再マウント時はフィルタを復元しない方針のため、残存選択もクリアする（1b）
-  useEffect(() => {
-    clearSendStatusSelectedIds()
-  }, [])
 
   const setTab = (next: Tab) => {
     const params = new URLSearchParams(searchParams)
@@ -315,7 +309,18 @@ function HistoryTab({ active }: { active: boolean }) {
         </div>
       ) : null}
 
-      {yearsError ? <p className="address-list-error">{yearsError}</p> : null}
+      {yearsError ? (
+        <p className="address-list-error">
+          {yearsError}{' '}
+          <button
+            type="button"
+            className="link-button"
+            onClick={() => setYearsReloadToken((t) => t + 1)}
+          >
+            再試行
+          </button>
+        </p>
+      ) : null}
       {error ? <p className="address-list-error">{error}</p> : null}
       {isLoading ? <p>読み込み中…</p> : null}
 
@@ -535,7 +540,6 @@ function StatusTab({ active }: { active: boolean }) {
       if (!confirmed) return
     }
     replacePrintJobDraftAddressIds(selectedIds)
-    clearSendStatusSelectedIds()
     clearSelection()
     if (postcardType === 'nenga' || postcardType === 'mochu') {
       syncPrintPostcardType(postcardType)

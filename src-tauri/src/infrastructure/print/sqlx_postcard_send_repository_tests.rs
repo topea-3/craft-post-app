@@ -473,9 +473,28 @@ mod tests {
         sort_order: SortOrder::Desc,
       })
       .await
-      .expect("search by snapshot");
+      .expect("search by snapshot last");
     assert_eq!(total_snap, 1);
     assert_eq!(by_snap[0].send.address_entry_id(), address_id);
+
+    let (by_full, total_full) = repo
+      .search(PostcardSendSearchQuery {
+        keyword: Some("送付時 太郎".to_string()),
+        year: Some(2026),
+        postcard_type: None,
+        address_entry_id: None,
+        source: None,
+        include_deleted: false,
+        pagination: Pagination {
+          limit: 20,
+          offset: 0,
+        },
+        sort_order: SortOrder::Desc,
+      })
+      .await
+      .expect("search by snapshot display name");
+    assert_eq!(total_full, 1);
+    assert_eq!(by_full[0].send.address_entry_id(), address_id);
 
     let (by_live, total_live) = repo
       .search(PostcardSendSearchQuery {
