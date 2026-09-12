@@ -376,6 +376,10 @@ a.btn-icon {
   gap: 0.75rem 1.5rem;
 }
 
+.address-list-filter[hidden] {
+  display: none !important;
+}
+
 .address-list-filter-label {
   display: flex;
   flex-direction: column;
