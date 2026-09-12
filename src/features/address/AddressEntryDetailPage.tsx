@@ -179,22 +179,13 @@ export function AddressEntryDetailPage() {
           )}
         </div>
         <div className="address-detail-header-actions">
-          <button
-            type="button"
-            onClick={handleEdit}
-          >
+          <button type="button" className="btn btn-label btn-normal" onClick={handleEdit}>
             編集
           </button>
-          <button
-            type="button"
-            onClick={handleArchive}
-          >
+          <button type="button" className="btn btn-label btn-normal" onClick={handleArchive}>
             アーカイブ
           </button>
-          <button
-            type="button"
-            onClick={handleBackToList}
-          >
+          <button type="button" className="btn btn-label btn-normal" onClick={handleBackToList}>
             戻る
           </button>
         </div>

@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { PaginationControls } from '../../components/PaginationControls'
+import { IconButton } from '../../components/ui/IconButton'
+import { IconEdit, IconFilter, IconPlus, IconSpinner, IconTrash } from '../../components/ui/icons'
 import { currentLocalYear } from '../../lib/date'
 import { clampPage, totalPagesFor } from '../../lib/pagination'
 import { POSTCARD_SEND_OPERATION_ERROR_MESSAGE } from './messages'
@@ -54,10 +56,10 @@ export function PostcardSendManagePage() {
         <div className="address-list-header-actions">
           {tab === 'history' ? (
             <>
-              <Link to="/sends/new" className="address-list-create-button">
-                新規作成
+              <Link to="/sends/new" className="btn btn-icon btn-primary" aria-label="新規作成" title="新規作成">
+                <IconPlus />
               </Link>
-              <Link to="/sends/bulk" className="address-list-filter-toggle">
+              <Link to="/sends/bulk" className="btn btn-label btn-normal">
                 一括登録
               </Link>
             </>
@@ -73,7 +75,9 @@ export function PostcardSendManagePage() {
             id="postcard-send-history-tab"
             aria-controls="postcard-send-history-panel"
             aria-selected={tab === 'history'}
-            className={tab === 'history' ? 'address-list-create-button' : 'address-list-filter-toggle'}
+            className={
+              tab === 'history' ? 'btn btn-label btn-normal is-active' : 'btn btn-label btn-normal'
+            }
             onClick={() => setTab('history')}
           >
             履歴
@@ -84,7 +88,9 @@ export function PostcardSendManagePage() {
             id="postcard-send-status-tab"
             aria-controls="postcard-send-status-panel"
             aria-selected={tab === 'status'}
-            className={tab === 'status' ? 'address-list-create-button' : 'address-list-filter-toggle'}
+            className={
+              tab === 'status' ? 'btn btn-label btn-normal is-active' : 'btn btn-label btn-normal'
+            }
             onClick={() => setTab('status')}
           >
             送付状況
@@ -212,18 +218,29 @@ function HistoryTab({ active }: { active: boolean }) {
   return (
     <>
       <div className="address-list-header-actions" style={{ marginBottom: '0.75rem' }}>
-        <button
-          type="button"
-          className="address-list-filter-toggle"
+        <IconButton
+          label={
+            isFilterOpen
+              ? 'フィルタを閉じる'
+              : isFiltering
+                ? 'フィルタを開く（絞り込み中）'
+                : 'フィルタを開く'
+          }
+          aria-expanded={isFilterOpen}
+          aria-controls="postcard-send-history-filter"
+          className={isFilterOpen || isFiltering ? 'is-active' : undefined}
           onClick={() => setIsFilterOpen((open) => !open)}
           disabled={isBusy}
         >
-          フィルタ
-        </button>
+          <IconFilter />
+        </IconButton>
       </div>
 
-      {isFilterOpen ? (
-        <div className="address-list-filter">
+      <div
+        className="address-list-filter"
+        id="postcard-send-history-filter"
+        hidden={!isFilterOpen}
+      >
           <label className="address-list-filter-label">
             <span>検索</span>
             <input
@@ -294,7 +311,7 @@ function HistoryTab({ active }: { active: boolean }) {
           </label>
           <button
             type="button"
-            className="address-list-filter-toggle"
+            className="btn btn-label btn-normal"
             onClick={() => {
               setSearchText('')
               setYear('')
@@ -306,8 +323,7 @@ function HistoryTab({ active }: { active: boolean }) {
           >
             条件クリア
           </button>
-        </div>
-      ) : null}
+      </div>
 
       {yearsError ? (
         <p className="address-list-error">
@@ -388,23 +404,23 @@ function HistoryTab({ active }: { active: boolean }) {
                       {memo.text}
                       {memo.truncated ? '…' : ''}
                     </td>
-                    <td onClick={(e) => e.stopPropagation()}>
-                      <button
-                        type="button"
-                        className="link-button"
+                    <td className="address-list-actions" onClick={(e) => e.stopPropagation()}>
+                      <IconButton
+                        label="編集"
                         disabled={isBusy}
                         onClick={() => navigate(`/sends/${item.id}/edit`)}
                       >
-                        編集
-                      </button>
-                      <button
-                        type="button"
-                        className="link-button"
+                        <IconEdit />
+                      </IconButton>
+                      <IconButton
+                        label={deletingId === item.id ? '削除中…' : '削除'}
+                        className={deletingId === item.id ? 'is-busy' : undefined}
+                        aria-busy={deletingId === item.id}
                         disabled={isBusy}
                         onClick={() => handleDelete(item.id)}
                       >
-                        削除
-                      </button>
+                        {deletingId === item.id ? <IconSpinner /> : <IconTrash />}
+                      </IconButton>
                     </td>
                   </tr>
                 )
@@ -602,7 +618,7 @@ function StatusTab({ active }: { active: boolean }) {
             <button
               type="button"
               className={
-                status === 'unsent' ? 'address-list-create-button' : 'address-list-filter-toggle'
+                status === 'unsent' ? 'btn btn-label btn-primary' : 'btn btn-label btn-normal'
               }
               onClick={() => {
                 setStatus('unsent')
@@ -615,7 +631,7 @@ function StatusTab({ active }: { active: boolean }) {
             <button
               type="button"
               className={
-                status === 'sent' ? 'address-list-create-button' : 'address-list-filter-toggle'
+                status === 'sent' ? 'btn btn-label btn-primary' : 'btn btn-label btn-normal'
               }
               onClick={() => {
                 setStatus('sent')
@@ -678,10 +694,10 @@ function StatusTab({ active }: { active: boolean }) {
       {status === 'unsent' && selectedIds.length > 0 ? (
         <div className="address-list-header-actions" style={{ marginBottom: '0.75rem' }}>
           <span>{selectedIds.length} 件選択中</span>
-          <button type="button" className="address-list-create-button" onClick={handlePrint}>
+          <button type="button" className="btn btn-label btn-primary" onClick={handlePrint}>
             選択して印刷
           </button>
-          <button type="button" className="address-list-filter-toggle" onClick={handleBulk}>
+          <button type="button" className="btn btn-label btn-normal" onClick={handleBulk}>
             選択して一括登録
           </button>
           <button type="button" className="link-button" onClick={clearSelection}>

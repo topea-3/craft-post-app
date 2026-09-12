@@ -8,15 +8,16 @@ type Props = {
 
 export function MemoField({ value, error, onChange }: Props) {
   return (
-    <TextAreaField
-      label="メモ"
-      value={value}
-      rows={4}
-      maxLength={1000}
-      error={error}
-      helperText="最大 1000 文字まで入力できます。"
-      onChange={onChange}
-    />
+    <div className="field-memo">
+      <TextAreaField
+        label="メモ"
+        value={value}
+        rows={8}
+        maxLength={1000}
+        error={error}
+        helperText="最大 1000 文字まで入力できます。"
+        onChange={onChange}
+      />
+    </div>
   )
 }
-

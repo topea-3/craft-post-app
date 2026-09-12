@@ -43,7 +43,7 @@ export function PostcardSendForm({ form, onCancel, submitLabel = '保存' }: Pro
       <fieldset className="address-form-section" disabled={isSubmitting}>
         <legend>送付情報</legend>
         <label className="address-form-label" htmlFor={POSTCARD_SEND_FIELD_IDS.sentOn}>
-          送付日
+          <span>送付日</span>
           <input
             id={POSTCARD_SEND_FIELD_IDS.sentOn}
             type="date"
@@ -55,7 +55,7 @@ export function PostcardSendForm({ form, onCancel, submitLabel = '保存' }: Pro
         {errors.sentOn ? <p className="address-form-error">{errors.sentOn}</p> : null}
 
         <label className="address-form-label" htmlFor={POSTCARD_SEND_FIELD_IDS.postcardType}>
-          種別
+          <span>種別</span>
           <select
             id={POSTCARD_SEND_FIELD_IDS.postcardType}
             value={values.postcardType}
@@ -74,7 +74,7 @@ export function PostcardSendForm({ form, onCancel, submitLabel = '保存' }: Pro
         {errors.postcardType ? <p className="address-form-error">{errors.postcardType}</p> : null}
 
         <label className="address-form-label" htmlFor={POSTCARD_SEND_FIELD_IDS.memo}>
-          メモ
+          <span>メモ</span>
           <textarea
             id={POSTCARD_SEND_FIELD_IDS.memo}
             value={values.memo}
@@ -150,10 +150,10 @@ export function PostcardSendForm({ form, onCancel, submitLabel = '保存' }: Pro
       </fieldset>
 
       <div className="address-form-actions">
-        <button type="button" className="link-button" onClick={onCancel} disabled={isSubmitting}>
+        <button type="button" className="btn btn-label btn-normal" onClick={onCancel} disabled={isSubmitting}>
           キャンセル
         </button>
-        <button type="submit" className="address-list-create-button" disabled={isSubmitting}>
+        <button type="submit" className="btn btn-label btn-primary" disabled={isSubmitting}>
           {isSubmitting ? '保存中…' : submitLabel}
         </button>
       </div>

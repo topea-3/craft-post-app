@@ -3,6 +3,10 @@ export const PRINT_OPERATION_ERROR_MESSAGE =
 
 export const PRINT_SELECT_EMPTY_MESSAGE = '1 件以上選択してください。'
 export const PRINT_SELECT_MAX_MESSAGE = '最大 200 件まで選択できます。'
+export const PRINT_SELECT_LABELS_PENDING_MESSAGE =
+  '差出人の確認中です。しばらくしてから再度お試しください。'
+export const PRINT_SELECT_NO_OK_ON_PAGE_MESSAGE =
+  'このページに選択可能なOK行がありません。'
 export const PRINT_NO_VALID_ITEMS_MESSAGE =
   '印刷可能な宛名がありません。差出人の紐づけを確認してください。'
 export const PRINT_PRUNE_MESSAGE = (count: number) =>
