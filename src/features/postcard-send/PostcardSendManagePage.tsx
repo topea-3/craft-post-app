@@ -3,7 +3,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { PaginationControls } from '../../components/PaginationControls'
 import { IconButton } from '../../components/ui/IconButton'
-import { IconEdit, IconFilter, IconPlus, IconTrash } from '../../components/ui/icons'
+import { IconEdit, IconFilter, IconPlus, IconSpinner, IconTrash } from '../../components/ui/icons'
 import { currentLocalYear } from '../../lib/date'
 import { clampPage, totalPagesFor } from '../../lib/pagination'
 import { POSTCARD_SEND_OPERATION_ERROR_MESSAGE } from './messages'
@@ -75,7 +75,9 @@ export function PostcardSendManagePage() {
             id="postcard-send-history-tab"
             aria-controls="postcard-send-history-panel"
             aria-selected={tab === 'history'}
-            className={tab === 'history' ? 'address-list-create-button' : 'address-list-filter-toggle'}
+            className={
+              tab === 'history' ? 'btn btn-label btn-primary' : 'btn btn-label btn-normal'
+            }
             onClick={() => setTab('history')}
           >
             履歴
@@ -86,7 +88,9 @@ export function PostcardSendManagePage() {
             id="postcard-send-status-tab"
             aria-controls="postcard-send-status-panel"
             aria-selected={tab === 'status'}
-            className={tab === 'status' ? 'address-list-create-button' : 'address-list-filter-toggle'}
+            className={
+              tab === 'status' ? 'btn btn-label btn-primary' : 'btn btn-label btn-normal'
+            }
             onClick={() => setTab('status')}
           >
             送付状況
@@ -298,7 +302,7 @@ function HistoryTab({ active }: { active: boolean }) {
           </label>
           <button
             type="button"
-            className="address-list-filter-toggle"
+            className="btn btn-label btn-normal"
             onClick={() => {
               setSearchText('')
               setYear('')
@@ -401,11 +405,13 @@ function HistoryTab({ active }: { active: boolean }) {
                         <IconEdit />
                       </IconButton>
                       <IconButton
-                        label="削除"
+                        label={deletingId === item.id ? '削除中…' : '削除'}
+                        className={deletingId === item.id ? 'is-busy' : undefined}
+                        aria-busy={deletingId === item.id}
                         disabled={isBusy}
                         onClick={() => handleDelete(item.id)}
                       >
-                        <IconTrash />
+                        {deletingId === item.id ? <IconSpinner /> : <IconTrash />}
                       </IconButton>
                     </td>
                   </tr>
@@ -604,7 +610,7 @@ function StatusTab({ active }: { active: boolean }) {
             <button
               type="button"
               className={
-                status === 'unsent' ? 'address-list-create-button' : 'address-list-filter-toggle'
+                status === 'unsent' ? 'btn btn-label btn-primary' : 'btn btn-label btn-normal'
               }
               onClick={() => {
                 setStatus('unsent')
@@ -617,7 +623,7 @@ function StatusTab({ active }: { active: boolean }) {
             <button
               type="button"
               className={
-                status === 'sent' ? 'address-list-create-button' : 'address-list-filter-toggle'
+                status === 'sent' ? 'btn btn-label btn-primary' : 'btn btn-label btn-normal'
               }
               onClick={() => {
                 setStatus('sent')
@@ -680,10 +686,10 @@ function StatusTab({ active }: { active: boolean }) {
       {status === 'unsent' && selectedIds.length > 0 ? (
         <div className="address-list-header-actions" style={{ marginBottom: '0.75rem' }}>
           <span>{selectedIds.length} 件選択中</span>
-          <button type="button" className="address-list-create-button" onClick={handlePrint}>
+          <button type="button" className="btn btn-label btn-primary" onClick={handlePrint}>
             選択して印刷
           </button>
-          <button type="button" className="address-list-filter-toggle" onClick={handleBulk}>
+          <button type="button" className="btn btn-label btn-normal" onClick={handleBulk}>
             選択して一括登録
           </button>
           <button type="button" className="link-button" onClick={clearSelection}>

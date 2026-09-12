@@ -153,4 +153,44 @@ describe('PrintSelectPage bulk selection', () => {
     expect(screen.queryByText(PRINT_SELECT_LABELS_PENDING_MESSAGE)).not.toBeInTheDocument()
     expect(screen.queryByText(PRINT_SELECT_NO_OK_ON_PAGE_MESSAGE)).not.toBeInTheDocument()
   })
+
+  it('shows max selection banner when page OK select would exceed the limit', async () => {
+    const user = userEvent.setup()
+    const preselected = Array.from({ length: 200 }, (_, i) => `pre-${i}`)
+    sessionStorage.setItem('printJobDraft', JSON.stringify({ addressEntryIds: preselected }))
+
+    invokeMock.mockImplementation(async (cmd: string, args?: unknown) => {
+      if (cmd === 'search_address_entries') {
+        return {
+          items: [addressDto('a1', '山田')],
+          total: 1,
+        }
+      }
+      if (cmd === 'get_sender_id_by_address_entry_id') {
+        return 'sender-a1'
+      }
+      if (cmd === 'get_sender_entry') {
+        return { label: '自宅', archived: false }
+      }
+      if (cmd === 'filter_active_address_entry_ids') {
+        return (args as { addressEntryIds: string[] }).addressEntryIds
+      }
+      throw new Error(`unexpected command ${cmd}`)
+    })
+
+    render(
+      <MemoryRouter>
+        <PrintSelectPage />
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'このページのOKを選択' })).toBeEnabled()
+    })
+    await user.click(screen.getByRole('button', { name: 'このページのOKを選択' }))
+    await waitFor(() => {
+      expect(screen.getByText('最大 200 件まで選択できます。')).toBeInTheDocument()
+    })
+    expect(screen.getByText(/選択: 200 \/ /)).toBeInTheDocument()
+  })
 })

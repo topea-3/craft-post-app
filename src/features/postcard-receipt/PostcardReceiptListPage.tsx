@@ -4,7 +4,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { PaginationControls } from '../../components/PaginationControls'
 import { Button } from '../../components/ui/Button'
 import { IconButton } from '../../components/ui/IconButton'
-import { IconEdit, IconFilter, IconPlus, IconTrash } from '../../components/ui/icons'
+import { IconEdit, IconFilter, IconPlus, IconSpinner, IconTrash } from '../../components/ui/icons'
 import { clampPage, totalPagesFor } from '../../lib/pagination'
 import type { AddressEntryListItem } from '../address/types'
 import { AddressEntrySelectDialog } from '../sender/AddressEntrySelectDialog'
@@ -330,10 +330,12 @@ export function PostcardReceiptListPage() {
                       </IconButton>
                       <IconButton
                         label={deletingId === item.id ? '削除中…' : '削除'}
+                        className={deletingId === item.id ? 'is-busy' : undefined}
+                        aria-busy={deletingId === item.id}
                         onClick={() => handleDelete(item.id)}
                         disabled={isBusy}
                       >
-                        <IconTrash />
+                        {deletingId === item.id ? <IconSpinner /> : <IconTrash />}
                       </IconButton>
                     </td>
                   </tr>

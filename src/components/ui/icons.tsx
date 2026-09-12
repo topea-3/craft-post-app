@@ -98,3 +98,20 @@ export function IconTrash({ className }: IconProps) {
     </svg>
   )
 }
+
+export function IconSpinner({ className }: IconProps) {
+  return (
+    <svg
+      {...size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      aria-hidden="true"
+      className={['icon-spinner', className].filter(Boolean).join(' ')}
+    >
+      <path d="M12 3a9 9 0 1 0 9 9" />
+    </svg>
+  )
+}
