@@ -28,7 +28,7 @@
 
    ```bash
    git clone <repo-url>
-   cd craft_post_root
+   cd craft-post-app
    ```
 
 2. **前提条件**: Node.js（20.x LTS 以上）、Rust（rustup）、Windows の場合は WebView2。
@@ -37,16 +37,24 @@
 
    ```bash
    npm install
-   npm run tauri dev
+   npm run tauri:dev
    ```
 
 4. **ブランチ**: 通常の開発は `develop` から `feature/TOP-XX-...` を切って作業します。
 
 5. **エディタ**: ルートの [.editorconfig](.editorconfig) に従い、インデント・改行・文字コードを統一してください。
 
+開発起動（`npm run tauri:dev`）は identifier `com.topea.craftpost.dev`、本番ビルド（`npm run tauri:build`）は `com.topea.craftpost` を使います。同じ端末でも AppData が分かれるため、開発用データと本番データは衝突しません。
+
+## データの保存場所とバックアップ（v0.1.0）
+
+住所録・送受信履歴は端末ローカルの SQLite（AppData 配下）のみに保存します。**クラウド同期はなく、手動エクスポート／自動バックアップは v0.1.0 では未提供**です。アンインストールや OS のユーザーデータ削除で消える点に注意してください。バックアップ機能は後続バージョンで検討します。
+
 ## API ログのデバッグモード（本番ビルド）
 
-Rust 側の `log` 出力をファイルに残す機能です。**開発ビルド**（`tauri dev` など）ではコンソールに全レベルが出るため、この設定は基本的に **リリース実行ファイル**向けです。デバッグ状態とログフォルダは **永続化されません**（セッション内のみ）。
+Rust 側の `log` 出力をファイルに残す機能です。**開発ビルド**（`tauri:dev` など）ではコンソールに全レベルが出るため、この設定は基本的に **リリース実行ファイル**向けです。デバッグ状態とログフォルダは **永続化されません**（セッション内のみ）。
+
+ログ出力先は **絶対パス**で、ユーザープロファイル・AppData・一時フォルダのいずれかの配下に限ります。
 
 ### 起動時に CLI で有効化する
 
@@ -54,12 +62,12 @@ Rust 側の `log` 出力をファイルに残す機能です。**開発ビルド
 
 ```bash
 # Windows の例（パスにスペースがある場合は引用符で囲む）
-CraftPost.exe --api-debug --api-debug-log-dir "D:\logs\craft-post"
+"Craft Post.exe" --api-debug --api-debug-log-dir "%LOCALAPPDATA%\com.topea.craftpost\logs"
 ```
 
 ```bash
 # 等号形式でも指定可能
-CraftPost.exe --api-debug --api-debug-log-dir=C:\temp\api-logs
+"Craft Post.exe" --api-debug --api-debug-log-dir=%TEMP%\craft-post-api-logs
 ```
 
 ### フロントから Tauri コマンドで有効化する
@@ -69,9 +77,9 @@ CraftPost.exe --api-debug --api-debug-log-dir=C:\temp\api-logs
 ```typescript
 import { invoke } from '@tauri-apps/api/core'
 
-// 1. 出力フォルダを指定
+// 1. 出力フォルダを指定（ユーザープロファイル / AppData / TEMP 配下の絶対パス）
 await invoke('set_api_log_debug_directory', {
-  directory: 'D:\\logs\\craft-post',
+  directory: 'C:\\Users\\you\\AppData\\Local\\com.topea.craftpost\\logs',
 })
 
 // 2. デバッグモード ON（この時点のログレベルは DEBUG）
@@ -93,8 +101,9 @@ await invoke('set_api_log_debug_enabled', { enabled: false })
 
 - バージョンは **SemVer**（例: `1.0.0`）。タグは `v1.0.0` 形式で **main** に打ちます。
 - 配布は **GitHub Releases** で、タグに紐づけて成果物とリリースノートを添付する想定です。
-- リリースの流れは [docs/repository-and-branch-strategy.md#45-リリースの流れ](docs/repository-and-branch-strategy.md#45-リリースの流れラフ) を参照してください。
+- リリースの流れは [docs/project-setup/repository-and-branch-strategy.md#45-リリースの流れ確定運用](docs/project-setup/repository-and-branch-strategy.md#45-リリースの流れ確定運用) を参照してください。
 
 ## ライセンス
 
-（未定）
+- 本体: [MIT License](LICENSE)（Copyright 2026 Toshiya Takizawa）
+- 埋め込みフォント（Noto Serif JP）: [OFL-1.1](third_party/noto-serif-jp/OFL.txt)（詳細は [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)）

@@ -15,6 +15,7 @@ use crate::domain::postcard_receipt::postcard_receipt_repository::{
 use crate::infrastructure::address::sqlx_address_entry_repository::{
   build_entries_with_co_recipients, SqlxAddressEntryRepository,
 };
+use crate::infrastructure::sql_like::escape_like_pattern;
 
 pub struct SqlxPostcardReceiptRepository {
   pool: SqlitePool,
@@ -107,20 +108,6 @@ fn build_search_order_clause(sort_order: &SortOrder) -> String {
     SortOrder::Desc => "pr.received_at DESC, pr.id ASC",
   };
   format!(" ORDER BY {}", order)
-}
-
-fn escape_like_pattern(keyword: &str) -> String {
-  let mut escaped = String::with_capacity(keyword.len());
-  for ch in keyword.chars() {
-    match ch {
-      '\\' | '%' | '_' => {
-        escaped.push('\\');
-        escaped.push(ch);
-      }
-      _ => escaped.push(ch),
-    }
-  }
-  format!("%{escaped}%")
 }
 
 fn map_search_row(row: &sqlx::sqlite::SqliteRow) -> DbPostcardReceiptSearchRow {
@@ -560,14 +547,4 @@ fn bind_search_params<'q>(
       .bind(pattern); // address line
   }
   q
-}
-
-#[cfg(test)]
-mod escape_tests {
-  use super::escape_like_pattern;
-
-  #[test]
-  fn escapes_like_wildcards() {
-    assert_eq!(escape_like_pattern("a%b_c\\d"), "%a\\%b\\_c\\\\d%");
-  }
 }

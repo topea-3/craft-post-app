@@ -4,10 +4,11 @@
 //! - **本番ビルド**: 既定は出力なし。デバッグモード ON かつログフォルダ指定時のみ、DEBUG 以下をファイルへ。
 //! - デバッグ状態とフォルダパスは **永続化しない**（プロセス内のみ）。
 //! - CLI: `--api-debug` と `--api-debug-log-dir <path>`（または `=path`）で起動時からファイルログを有効化可能。
+//! - ログフォルダは絶対パスかつ、ユーザープロファイル / AppData / 一時フォルダ配下に制限する。
 
 use std::fs::{self, OpenOptions};
 use std::io::{BufWriter, Write};
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::sync::Mutex;
 
 use chrono::Local;
@@ -59,12 +60,21 @@ impl ApiLogger {
 
     if !is_dev && cli_debug {
       match normalize_dir(cli_dir) {
-        Some(dir) => {
-          fs::create_dir_all(&dir).map_err(|e| format!("ログフォルダを作成できません: {}", e))?;
-          inner.log_directory = Some(dir.clone());
-          inner.writer = Some(Self::open_log_writer(&dir)?);
-          inner.debug_enabled = true;
-        }
+        Some(raw) => match prepare_log_directory(raw) {
+          Ok(dir) => match Self::open_log_writer(&dir) {
+            Ok(writer) => {
+              inner.log_directory = Some(dir);
+              inner.writer = Some(writer);
+              inner.debug_enabled = true;
+            }
+            Err(msg) => {
+              eprintln!("[Craft Post] ログファイルを開けません: {msg} ファイルログは無効のまま起動します。");
+            }
+          },
+          Err(msg) => {
+            eprintln!("[Craft Post] --api-debug-log-dir が拒否されました: {msg} ファイルログは無効のまま起動します。");
+          }
+        },
         None => {
           eprintln!(
             "[Craft Post] --api-debug を使う場合は --api-debug-log-dir で出力フォルダを指定してください。ファイルログは無効のまま起動します。"
@@ -177,26 +187,35 @@ impl ApiLogger {
     if self.is_dev {
       return Ok(());
     }
-    let path = directory.and_then(|s| {
-      let t = s.trim();
-      if t.is_empty() {
-        None
-      } else {
-        Some(PathBuf::from(t))
+    let path = match directory {
+      None => None,
+      Some(s) => {
+        let t = s.trim();
+        if t.is_empty() {
+          None
+        } else {
+          Some(prepare_log_directory(PathBuf::from(t))?)
+        }
       }
-    });
+    };
 
     let mut inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
-    inner.log_directory = path.clone();
-
     if inner.debug_enabled {
-      inner.writer = None;
-      if let Some(ref dir) = path {
-        fs::create_dir_all(dir).map_err(|e| format!("ログフォルダを作成できません: {}", e))?;
-        inner.writer = Some(Self::open_log_writer(dir)?);
-      } else {
-        inner.debug_enabled = false;
+      match path.as_ref() {
+        Some(dir) => {
+          // 失敗時は状態を触らない（writer 準備成功後にだけ更新）
+          let writer = Self::open_log_writer(dir)?;
+          inner.log_directory = path;
+          inner.writer = Some(writer);
+        }
+        None => {
+          inner.log_directory = None;
+          inner.writer = None;
+          inner.debug_enabled = false;
+        }
       }
+    } else {
+      inner.log_directory = path;
     }
     drop(inner);
     self.update_max_level();
@@ -208,17 +227,21 @@ impl ApiLogger {
     if self.is_dev {
       return Ok(());
     }
+
     let mut inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
     if enabled {
-      let dir = inner.log_directory.as_ref().ok_or_else(|| {
+      let dir = inner.log_directory.clone().ok_or_else(|| {
         "ログ出力フォルダを指定してください。フォルダを設定してからデバッグモードを有効にしてください。"
           .to_string()
       })?;
       if dir.as_os_str().is_empty() {
         return Err("ログ出力フォルダを指定してください。".to_string());
       }
-      fs::create_dir_all(dir).map_err(|e| format!("ログフォルダを作成できません: {}", e))?;
-      inner.writer = Some(Self::open_log_writer(dir)?);
+      // ロック内で作成〜writer 準備まで行い、失敗時は状態を更新しない
+      let prepared = prepare_log_directory(dir)?;
+      let writer = Self::open_log_writer(&prepared)?;
+      inner.log_directory = Some(prepared);
+      inner.writer = Some(writer);
       inner.debug_enabled = true;
     } else {
       inner.writer = None;
@@ -245,6 +268,155 @@ fn normalize_dir(cli_dir: Option<PathBuf>) -> Option<PathBuf> {
       Some(p)
     }
   })
+}
+
+/// `.` / `..` を解決した絶対パスを返す（存在確認はしない）。
+fn normalize_absolute_path(path: &Path) -> Result<PathBuf, String> {
+  if !path.is_absolute() {
+    return Err("ログフォルダは絶対パスで指定してください。".to_string());
+  }
+
+  let mut out = PathBuf::new();
+  for component in path.components() {
+    match component {
+      Component::Prefix(prefix) => out.push(prefix.as_os_str()),
+      Component::RootDir => out.push(component.as_os_str()),
+      Component::CurDir => {}
+      Component::ParentDir => {
+        if !out.pop() {
+          return Err("不正なログフォルダパスです。".to_string());
+        }
+      }
+      Component::Normal(seg) => out.push(seg),
+    }
+  }
+  Ok(out)
+}
+
+fn path_key(path: &Path) -> String {
+  let s = path.to_string_lossy();
+  #[cfg(windows)]
+  {
+    let trimmed = s
+      .strip_prefix(r"\\?\")
+      .or_else(|| s.strip_prefix("//?/"))
+      .unwrap_or(&s);
+    trimmed.to_lowercase()
+  }
+  #[cfg(not(windows))]
+  {
+    s.into_owned()
+  }
+}
+
+fn is_path_under(path: &Path, root: &Path) -> bool {
+  let path_s = path_key(path);
+  let root_s = path_key(root);
+  if path_s == root_s {
+    return true;
+  }
+  let sep = std::path::MAIN_SEPARATOR;
+  path_s.starts_with(&(root_s + &sep.to_string()))
+}
+
+fn allowed_log_roots() -> Result<Vec<PathBuf>, String> {
+  let mut roots = Vec::new();
+
+  if let Some(home) = dirs_home() {
+    roots.push(home);
+  }
+  roots.push(std::env::temp_dir());
+
+  #[cfg(windows)]
+  {
+    for key in ["LOCALAPPDATA", "APPDATA"] {
+      if let Ok(val) = std::env::var(key) {
+        if !val.is_empty() {
+          roots.push(PathBuf::from(val));
+        }
+      }
+    }
+  }
+
+  if roots.is_empty() {
+    return Err("許可されたログフォルダの基準パスを解決できません。".to_string());
+  }
+  Ok(roots)
+}
+
+fn dirs_home() -> Option<PathBuf> {
+  #[cfg(windows)]
+  {
+    std::env::var_os("USERPROFILE").map(PathBuf::from)
+  }
+  #[cfg(not(windows))]
+  {
+    std::env::var_os("HOME").map(PathBuf::from)
+  }
+}
+
+/// 絶対パス化し、ユーザープロファイル / AppData / 一時フォルダ配下のみ許可する。
+pub(crate) fn validate_log_directory(path: PathBuf) -> Result<PathBuf, String> {
+  let normalized = normalize_absolute_path(&path)?;
+  ensure_under_allowed_roots(&normalized)?;
+  Ok(normalized)
+}
+
+fn ensure_under_allowed_roots(path: &Path) -> Result<(), String> {
+  let roots = allowed_log_roots()?;
+  if !roots.iter().any(|root| {
+    let Ok(root_norm) = normalize_absolute_path(root) else {
+      return false;
+    };
+    is_path_under(path, &root_norm)
+  }) {
+    return Err(
+      "ログフォルダはユーザープロファイル、AppData、または一時フォルダ配下の絶対パスを指定してください。"
+        .to_string(),
+    );
+  }
+  Ok(())
+}
+
+/// 作成後に canonicalize し、許可ルート配下かを再検証する。
+/// 拒否時は、今回新規作成した空ディレクトリがあれば削除する。
+fn prepare_log_directory(path: PathBuf) -> Result<PathBuf, String> {
+  let normalized = validate_log_directory(path)?;
+  let existed_before = normalized.exists();
+  fs::create_dir_all(&normalized).map_err(|e| format!("ログフォルダを作成できません: {}", e))?;
+
+  let cleanup_if_created = |normalized: &Path, existed_before: bool| {
+    if !existed_before {
+      let _ = fs::remove_dir(normalized);
+    }
+  };
+
+  let canonical = match normalized.canonicalize() {
+    Ok(p) => p,
+    Err(e) => {
+      cleanup_if_created(&normalized, existed_before);
+      return Err(format!("ログフォルダを解決できません: {}", e));
+    }
+  };
+
+  let roots = allowed_log_roots()?;
+  let under = roots.iter().any(|root| {
+    let root_canon = root
+      .canonicalize()
+      .or_else(|_| normalize_absolute_path(root))
+      .ok();
+    root_canon
+      .map(|r| is_path_under(&canonical, &r))
+      .unwrap_or(false)
+  });
+  if !under {
+    cleanup_if_created(&normalized, existed_before);
+    return Err(
+      "ログフォルダはユーザープロファイル、AppData、または一時フォルダ配下の絶対パスを指定してください。"
+        .to_string(),
+    );
+  }
+  Ok(canonical)
 }
 
 /// CLI とビルド種別から API ロガーを初期化し、`log` クレートのグローバルロガーとして登録する。
@@ -312,5 +484,69 @@ mod tests {
     let (d2, p2) = parse_api_log_cli_args_from(&b);
     assert!(!d2);
     assert_eq!(p2, Some(PathBuf::from("/var/log/cp")));
+  }
+
+  #[test]
+  fn reject_relative_log_directory() {
+    let err = validate_log_directory(PathBuf::from("relative\\logs")).unwrap_err();
+    assert!(err.contains("絶対パス"));
+  }
+
+  #[test]
+  fn reject_path_outside_allowed_roots() {
+    #[cfg(windows)]
+    {
+      let err = validate_log_directory(PathBuf::from(r"C:\Windows\Temp\..\System32\craft")).unwrap_err();
+      assert!(
+        err.contains("ユーザープロファイル") || err.contains("不正"),
+        "unexpected: {err}"
+      );
+    }
+    #[cfg(not(windows))]
+    {
+      let err = validate_log_directory(PathBuf::from("/etc/craft-post-logs")).unwrap_err();
+      assert!(err.contains("ユーザープロファイル") || err.contains("一時"));
+    }
+  }
+
+  #[test]
+  fn accept_temp_subdirectory() {
+    let dir = std::env::temp_dir().join("craft-post-api-log-test");
+    let ok = validate_log_directory(dir.clone()).expect("temp subdir should be allowed");
+    assert_eq!(ok, normalize_absolute_path(&dir).unwrap());
+  }
+
+  #[test]
+  fn prepare_log_directory_accepts_temp_after_create() {
+    let dir = std::env::temp_dir().join(format!(
+      "craft-post-api-log-prepare-{}",
+      std::process::id()
+    ));
+    let _ = fs::remove_dir_all(&dir);
+    let prepared = prepare_log_directory(dir.clone()).expect("prepare temp");
+    assert!(prepared.exists());
+    assert!(is_path_under(
+      &prepared,
+      &std::env::temp_dir()
+        .canonicalize()
+        .unwrap_or_else(|_| std::env::temp_dir())
+    ));
+    let _ = fs::remove_dir_all(&dir);
+  }
+
+  #[test]
+  fn accept_user_profile_subdirectory() {
+    let home = dirs_home().expect("home");
+    let dir = home.join("craft-post-logs-test");
+    let ok = validate_log_directory(dir.clone()).expect("home subdir should be allowed");
+    assert_eq!(ok, normalize_absolute_path(&dir).unwrap());
+  }
+
+  #[test]
+  fn normalize_collapses_dotdot() {
+    let home = dirs_home().expect("home");
+    let sneaky = home.join("a").join("..").join("craft-post-logs-test");
+    let ok = validate_log_directory(sneaky).expect("normalized under home");
+    assert_eq!(ok, normalize_absolute_path(&home.join("craft-post-logs-test")).unwrap());
   }
 }

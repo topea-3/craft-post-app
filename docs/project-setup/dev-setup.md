@@ -28,7 +28,7 @@
 
 - Rust は Windows で **MSVC ツールチェーン**（`link.exe` と C ランタイムライブラリ）を使います。
 - **Visual Studio 2022** または **Build Tools for Visual Studio 2022** をインストールし、ワークロードで「C++ によるデスクトップ開発」および **Windows 10/11 SDK** にチェックを入れてください。
-- `npm run tauri dev` や `cargo build` は、**開発者用のシェル**（「Developer PowerShell for VS 2022」など）から実行するか、後述の **LNK1104 / msvcrt.lib** 対処に従って環境変数を設定してください。
+- `npm run tauri:dev` や `cargo build` は、**開発者用のシェル**（「Developer PowerShell for VS 2022」など）から実行するか、後述の **LNK1104 / msvcrt.lib** 対処に従って環境変数を設定してください。
 
 ### 1.4 Windows での WebView2
 
@@ -41,7 +41,7 @@
 
 ```bash
 git clone <リポジトリURL>
-cd craft_post_root
+cd craft-post-app
 ```
 
 通常の開発は `develop` ブランチから `feature/TOP-XX-...` を切って作業します。
@@ -81,10 +81,11 @@ Task が `tauri dev` の前に `vcvars64.bat` を実行するため、開発者�
 ### 直接 npm で起動する場合
 
 ```bash
-npm run tauri dev
+npm run tauri:dev
 ```
 
 - **開発者用シェル**（Developer PowerShell for VS 2022 など）から実行するか、上記の Task + .env を利用してください。
+- 開発起動では identifier `com.topea.craftpost.dev`（本番は `com.topea.craftpost`）を使い、AppData が本番と分離されます。
 - フロントの Vite 開発サーバー（例: http://localhost:5173）が起動し、Tauri のウィンドウが開きます。
 - ホットリロードにより、フロントの変更は自動で反映されます。
 
@@ -97,7 +98,7 @@ npm run tauri dev
 | `task` / `task dev` | 開発サーバー起動（Windows では .env の VCVARS64_BAT を読んでから実行）。 |
 | `npm run dev` | フロントのみ（Vite）の開発サーバー。ブラウザで確認する場合に使用。 |
 | `npm run build` | フロントの本番ビルド（`dist/` に出力）。 |
-| `task build:app` / `npm run tauri build` | Tauri アプリの本番ビルド（インストーラ・実行ファイルを生成）。 |
+| `task build:app` / `npm run tauri:build` | Tauri アプリの本番ビルド（インストーラ・実行ファイルを生成）。 |
 | `task lint` / `npm run lint` | リンターの実行（設定している場合）。 |
 
 ---
@@ -113,7 +114,7 @@ npm run tauri dev
 
 ### Rust のビルドエラー
 
-- `cargo clean` の後、再度 `npm run tauri dev` を試してください。
+- `cargo clean` の後、再度 `npm run tauri:dev` を試してください。
 - ツールチェーン: `rustup update` で最新に更新してください。
 
 ### フロントのポート競合
