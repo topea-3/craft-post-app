@@ -101,7 +101,7 @@ await invoke('set_api_log_debug_enabled', { enabled: false })
 
 - バージョンは **SemVer**（例: `1.0.0`）。タグは `v1.0.0` 形式で **main** に打ちます。
 - 配布は **GitHub Releases** で、タグに紐づけて成果物とリリースノートを添付する想定です。
-- リリースの流れは [docs/project-setup/repository-and-branch-strategy.md#45-リリースの流れラフ](docs/project-setup/repository-and-branch-strategy.md#45-リリースの流れラフ) を参照してください。
+- リリースの流れは [docs/project-setup/repository-and-branch-strategy.md#45-リリースの流れ確定運用](docs/project-setup/repository-and-branch-strategy.md#45-リリースの流れ確定運用) を参照してください。
 
 ## ライセンス
 

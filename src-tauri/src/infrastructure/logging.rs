@@ -60,13 +60,17 @@ impl ApiLogger {
 
     if !is_dev && cli_debug {
       match normalize_dir(cli_dir) {
-        Some(raw) => match validate_log_directory(raw) {
-          Ok(dir) => {
-            fs::create_dir_all(&dir).map_err(|e| format!("ログフォルダを作成できません: {}", e))?;
-            inner.log_directory = Some(dir.clone());
-            inner.writer = Some(Self::open_log_writer(&dir)?);
-            inner.debug_enabled = true;
-          }
+        Some(raw) => match prepare_log_directory(raw) {
+          Ok(dir) => match Self::open_log_writer(&dir) {
+            Ok(writer) => {
+              inner.log_directory = Some(dir);
+              inner.writer = Some(writer);
+              inner.debug_enabled = true;
+            }
+            Err(msg) => {
+              eprintln!("[Craft Post] ログファイルを開けません: {msg} ファイルログは無効のまま起動します。");
+            }
+          },
           Err(msg) => {
             eprintln!("[Craft Post] --api-debug-log-dir が拒否されました: {msg} ファイルログは無効のまま起動します。");
           }
@@ -190,22 +194,38 @@ impl ApiLogger {
         if t.is_empty() {
           None
         } else {
-          Some(validate_log_directory(PathBuf::from(t))?)
+          Some(prepare_log_directory(PathBuf::from(t))?)
         }
       }
     };
 
-    let mut inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
-    inner.log_directory = path.clone();
+    let need_writer = {
+      let inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+      inner.debug_enabled
+    };
 
+    // writer の準備が成功してから状態を更新する（失敗時に debug_enabled だけ残さない）
+    let new_writer = if need_writer {
+      match path.as_ref() {
+        Some(dir) => Some(Self::open_log_writer(dir)?),
+        None => None,
+      }
+    } else {
+      None
+    };
+
+    let mut inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
     if inner.debug_enabled {
-      inner.writer = None;
-      if let Some(ref dir) = path {
-        fs::create_dir_all(dir).map_err(|e| format!("ログフォルダを作成できません: {}", e))?;
-        inner.writer = Some(Self::open_log_writer(dir)?);
+      if let Some(writer) = new_writer {
+        inner.log_directory = path;
+        inner.writer = Some(writer);
       } else {
+        inner.log_directory = None;
+        inner.writer = None;
         inner.debug_enabled = false;
       }
+    } else {
+      inner.log_directory = path;
     }
     drop(inner);
     self.update_max_level();
@@ -217,23 +237,32 @@ impl ApiLogger {
     if self.is_dev {
       return Ok(());
     }
-    let mut inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+
     if enabled {
-      let dir = inner.log_directory.as_ref().ok_or_else(|| {
-        "ログ出力フォルダを指定してください。フォルダを設定してからデバッグモードを有効にしてください。"
-          .to_string()
-      })?;
+      let dir = {
+        let inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        inner.log_directory.clone().ok_or_else(|| {
+          "ログ出力フォルダを指定してください。フォルダを設定してからデバッグモードを有効にしてください。"
+            .to_string()
+        })?
+      };
       if dir.as_os_str().is_empty() {
         return Err("ログ出力フォルダを指定してください。".to_string());
       }
-      fs::create_dir_all(dir).map_err(|e| format!("ログフォルダを作成できません: {}", e))?;
-      inner.writer = Some(Self::open_log_writer(dir)?);
+      // 作成・canonicalize・再検証が成功してから debug_enabled を立てる
+      let prepared = prepare_log_directory(dir)?;
+      let writer = Self::open_log_writer(&prepared)?;
+      let mut inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+      inner.log_directory = Some(prepared);
+      inner.writer = Some(writer);
       inner.debug_enabled = true;
+      drop(inner);
     } else {
+      let mut inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
       inner.writer = None;
       inner.debug_enabled = false;
+      drop(inner);
     }
-    drop(inner);
     self.update_max_level();
     Ok(())
   }
@@ -283,7 +312,11 @@ fn path_key(path: &Path) -> String {
   let s = path.to_string_lossy();
   #[cfg(windows)]
   {
-    s.to_lowercase()
+    let trimmed = s
+      .strip_prefix(r"\\?\")
+      .or_else(|| s.strip_prefix("//?/"))
+      .unwrap_or(&s);
+    trimmed.to_lowercase()
   }
   #[cfg(not(windows))]
   {
@@ -340,19 +373,51 @@ fn dirs_home() -> Option<PathBuf> {
 /// 絶対パス化し、ユーザープロファイル / AppData / 一時フォルダ配下のみ許可する。
 pub(crate) fn validate_log_directory(path: PathBuf) -> Result<PathBuf, String> {
   let normalized = normalize_absolute_path(&path)?;
+  ensure_under_allowed_roots(&normalized)?;
+  Ok(normalized)
+}
+
+fn ensure_under_allowed_roots(path: &Path) -> Result<(), String> {
   let roots = allowed_log_roots()?;
   if !roots.iter().any(|root| {
     let Ok(root_norm) = normalize_absolute_path(root) else {
       return false;
     };
-    is_path_under(&normalized, &root_norm)
+    is_path_under(path, &root_norm)
   }) {
     return Err(
       "ログフォルダはユーザープロファイル、AppData、または一時フォルダ配下の絶対パスを指定してください。"
         .to_string(),
     );
   }
-  Ok(normalized)
+  Ok(())
+}
+
+/// 作成後に canonicalize し、許可ルート配下かを再検証する。
+fn prepare_log_directory(path: PathBuf) -> Result<PathBuf, String> {
+  let normalized = validate_log_directory(path)?;
+  fs::create_dir_all(&normalized).map_err(|e| format!("ログフォルダを作成できません: {}", e))?;
+  let canonical = normalized
+    .canonicalize()
+    .map_err(|e| format!("ログフォルダを解決できません: {}", e))?;
+
+  let roots = allowed_log_roots()?;
+  let under = roots.iter().any(|root| {
+    let root_canon = root
+      .canonicalize()
+      .or_else(|_| normalize_absolute_path(root))
+      .ok();
+    root_canon
+      .map(|r| is_path_under(&canonical, &r))
+      .unwrap_or(false)
+  });
+  if !under {
+    return Err(
+      "ログフォルダはユーザープロファイル、AppData、または一時フォルダ配下の絶対パスを指定してください。"
+        .to_string(),
+    );
+  }
+  Ok(canonical)
 }
 
 /// CLI とビルド種別から API ロガーを初期化し、`log` クレートのグローバルロガーとして登録する。
@@ -450,6 +515,24 @@ mod tests {
     let dir = std::env::temp_dir().join("craft-post-api-log-test");
     let ok = validate_log_directory(dir.clone()).expect("temp subdir should be allowed");
     assert_eq!(ok, normalize_absolute_path(&dir).unwrap());
+  }
+
+  #[test]
+  fn prepare_log_directory_accepts_temp_after_create() {
+    let dir = std::env::temp_dir().join(format!(
+      "craft-post-api-log-prepare-{}",
+      std::process::id()
+    ));
+    let _ = fs::remove_dir_all(&dir);
+    let prepared = prepare_log_directory(dir.clone()).expect("prepare temp");
+    assert!(prepared.exists());
+    assert!(is_path_under(
+      &prepared,
+      &std::env::temp_dir()
+        .canonicalize()
+        .unwrap_or_else(|_| std::env::temp_dir())
+    ));
+    let _ = fs::remove_dir_all(&dir);
   }
 
   #[test]

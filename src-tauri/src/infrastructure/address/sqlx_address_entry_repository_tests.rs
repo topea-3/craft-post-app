@@ -138,8 +138,34 @@ mod tests {
     )
     .unwrap();
     let memo = Some(Memo::new("100%保証_メモ").unwrap());
-    let entry = AddressEntry::create_new(primary, vec![], Honorific::Sama, postal, addr, memo);
-    repo.create(&entry).await.unwrap();
+    let with_wildcards = AddressEntry::create_new(primary, vec![], Honorific::Sama, postal, addr, memo);
+    repo.create(&with_wildcards).await.unwrap();
+
+    // エスケープ無しだと `%` / `_` キーワードでヒットしてしまう対照行
+    let control_primary = PersonName::new(
+      "佐藤".into(),
+      "次郎".into(),
+      Some("サトウ".into()),
+      Some("ジロウ".into()),
+    )
+    .unwrap();
+    let control_postal = PostalCode::new("9876543").unwrap();
+    let control_addr = Address::new(
+      "大阪府".into(),
+      "大阪市".into(),
+      "梅田 2-2-2".into(),
+      None,
+    )
+    .unwrap();
+    let control = AddressEntry::create_new(
+      control_primary,
+      vec![],
+      Honorific::Sama,
+      control_postal,
+      control_addr,
+      None,
+    );
+    repo.create(&control).await.unwrap();
 
     let wildcard_query = AddressSearchQuery {
       keyword: Some("%".into()),
@@ -151,6 +177,7 @@ mod tests {
     let (wildcard_hits, wildcard_total) = repo.search(wildcard_query).await.unwrap();
     assert_eq!(wildcard_hits.len(), 1);
     assert_eq!(wildcard_total, 1);
+    assert_eq!(wildcard_hits[0].primary_name().last(), "山田");
 
     let underscore_only = AddressSearchQuery {
       keyword: Some("_".into()),
@@ -162,6 +189,7 @@ mod tests {
     let (underscore_hits, underscore_total) = repo.search(underscore_only).await.unwrap();
     assert_eq!(underscore_hits.len(), 1);
     assert_eq!(underscore_total, 1);
+    assert_eq!(underscore_hits[0].primary_name().last(), "山田");
 
     let no_match = AddressSearchQuery {
       keyword: Some("存在しない%キーワード".into()),
