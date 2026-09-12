@@ -83,22 +83,29 @@ export function PostcardSendDetailPage() {
   const senderArchived = detail.senderEntryArchived === true
 
   return (
-    <div className="address-form-container">
-      <header className="address-form-header">
-        <h1>送付履歴詳細</h1>
+    <div className="address-detail-container">
+      <header className="address-detail-header">
         <div>
-          <Link to="/sends" className="link-button">
+          <h1 className="address-detail-title">送付履歴詳細</h1>
+        </div>
+        <div className="address-detail-header-actions">
+          <Link to="/sends" className="btn btn-label btn-normal">
             一覧へ
           </Link>
           <button
             type="button"
-            className="link-button"
+            className="btn btn-label btn-normal"
             disabled={deleting}
             onClick={() => navigate(`/sends/${detail.id}/edit`)}
           >
             編集
           </button>
-          <button type="button" className="link-button" disabled={deleting} onClick={handleDelete}>
+          <button
+            type="button"
+            className="btn btn-label btn-normal"
+            disabled={deleting}
+            onClick={handleDelete}
+          >
             削除
           </button>
         </div>

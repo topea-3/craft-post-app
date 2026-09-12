@@ -86,10 +86,10 @@ export function AddressEntryForm({
       </FormSection>
 
       <div className="form-footer">
-        <button type="button" className="secondary" onClick={onCancel}>
+        <button type="button" className="btn btn-label btn-normal secondary" onClick={onCancel}>
           キャンセル
         </button>
-        <button type="submit" className="primary" disabled={isSubmitting}>
+        <button type="submit" className="btn btn-label btn-primary primary" disabled={isSubmitting}>
           {mode === 'create' ? '保存' : '更新'}
         </button>
       </div>

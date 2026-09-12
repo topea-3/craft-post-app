@@ -2,6 +2,9 @@ import { useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { useNavigate } from 'react-router-dom'
 import { PaginationControls } from '../../components/PaginationControls'
+import { Button } from '../../components/ui/Button'
+import { IconButton } from '../../components/ui/IconButton'
+import { IconArchive, IconEdit, IconFilter, IconPlus } from '../../components/ui/icons'
 import {
   formatAddressSingleLine,
   formatDisplayName,
@@ -93,22 +96,18 @@ export function AddressEntryListPage() {
       <div className="address-list-header">
         <h1 className="address-list-title">住所録一覧</h1>
         <div className="address-list-header-actions">
-          <button
-            type="button"
-            className="address-list-filter-toggle"
-            onClick={() => setIsFilterOpen((open) => !open)}
-          >
-            フィルタ
-          </button>
-          <button
-            type="button"
-            className="address-list-create-button"
+          <IconButton label="フィルタ" onClick={() => setIsFilterOpen((open) => !open)}>
+            <IconFilter />
+          </IconButton>
+          <IconButton
+            label="新規作成"
+            variant="primary"
             onClick={() => {
               navigate('/addresses/new')
             }}
           >
-            新規作成
-          </button>
+            <IconPlus />
+          </IconButton>
         </div>
       </div>
 
@@ -128,13 +127,9 @@ export function AddressEntryListPage() {
             />
           </label>
           <div className="address-list-filter-actions">
-            <button
-              type="button"
-              onClick={handleClearSearch}
-              disabled={!searchText}
-            >
+            <Button type="button" onClick={handleClearSearch} disabled={!searchText}>
               条件クリア
-            </button>
+            </Button>
           </div>
         </div>
       )}
@@ -149,53 +144,47 @@ export function AddressEntryListPage() {
         </label>
         <label>
           順序:
-          <select value={sortOrder} onChange={(e) => handleChangeSortOrder(e.target.value as ListSortOrder)}>
+          <select
+            value={sortOrder}
+            onChange={(e) => handleChangeSortOrder(e.target.value as ListSortOrder)}
+          >
             <option value="asc">昇順</option>
             <option value="desc">降順</option>
           </select>
         </label>
       </div>
 
-      {isLoading && (
-        <p className="address-list-loading">読み込み中です…</p>
-      )}
+      {isLoading && <p className="address-list-loading">読み込み中です…</p>}
 
-      {error && (
-        <p className="address-list-error">
-          一覧の取得に失敗しました: {error}
-        </p>
-      )}
+      {error && <p className="address-list-error">一覧の取得に失敗しました: {error}</p>}
 
       {!isLoading && !error && isNoData && (
         <div className="address-list-empty">
           <p>まだ住所録が登録されていません。</p>
-          <button
+          <Button
             type="button"
-            className="address-list-create-button-primary"
+            variant="primary"
             onClick={() => {
               navigate('/addresses/new')
             }}
           >
             新規作成
-          </button>
+          </Button>
         </div>
       )}
 
       {!isLoading && !error && isNoSearchResult && (
         <div className="address-list-no-results">
           <p>該当する住所録が見つかりませんでした。</p>
-          <button type="button" onClick={handleClearSearch}>
+          <Button type="button" onClick={handleClearSearch}>
             検索条件をクリア
-          </button>
+          </Button>
         </div>
       )}
 
       {!isLoading && !error && hasItems && (
         <>
-          <table
-            className="address-list-table"
-            aria-label="住所録一覧テーブル"
-          >
+          <table className="address-list-table" aria-label="住所録一覧テーブル">
             <thead>
               <tr>
                 <th scope="col">氏名</th>
@@ -208,10 +197,7 @@ export function AddressEntryListPage() {
             </thead>
             <tbody>
               {pagedItems.map((item) => {
-                const displayName = formatDisplayName(
-                  item.primaryName,
-                  item.coRecipients,
-                )
+                const displayName = formatDisplayName(item.primaryName, item.coRecipients)
                 const postalCode = formatPostalCode(item.postalCode)
                 const addressLine = formatAddressSingleLine(item.address)
                 const memoSnippet = (item.memo ?? '').slice(0, 30)
@@ -225,48 +211,36 @@ export function AddressEntryListPage() {
                   >
                     <td>
                       <span className="address-list-name">{displayName}</span>
-                      <span className="address-list-honorific">
-                        {item.honorific}
-                      </span>
+                      <span className="address-list-honorific">{item.honorific}</span>
                     </td>
-                    <td className="address-list-postal">
-                      {postalCode || item.postalCode}
-                    </td>
-                    <td
-                      className="address-list-address"
-                      title={addressLine}
-                    >
+                    <td className="address-list-postal">{postalCode || item.postalCode}</td>
+                    <td className="address-list-address" title={addressLine}>
                       {addressLine}
                     </td>
-                    <td
-                      className="address-list-memo"
-                      title={item.memo ?? ''}
-                    >
+                    <td className="address-list-memo" title={item.memo ?? ''}>
                       {memoSnippet}
-                      {item.memo && item.memo.length > memoSnippet.length
-                        ? '…'
-                        : ''}
+                      {item.memo && item.memo.length > memoSnippet.length ? '…' : ''}
                     </td>
                     <td className="address-list-updated-at">{updatedAt}</td>
                     <td className="address-list-actions">
-                      <button
-                        type="button"
+                      <IconButton
+                        label="編集"
                         onClick={(e) => {
                           e.stopPropagation()
                           handleClickEdit(item.id)
                         }}
                       >
-                        編集
-                      </button>
-                      <button
-                        type="button"
+                        <IconEdit />
+                      </IconButton>
+                      <IconButton
+                        label="アーカイブ"
                         onClick={(e) => {
                           e.stopPropagation()
                           handleClickArchive(item.id)
                         }}
                       >
-                        アーカイブ
-                      </button>
+                        <IconArchive />
+                      </IconButton>
                     </td>
                   </tr>
                 )
@@ -285,4 +259,3 @@ export function AddressEntryListPage() {
     </div>
   )
 }
-

@@ -2,6 +2,9 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { Link, useNavigate } from 'react-router-dom'
 import { PaginationControls } from '../../components/PaginationControls'
+import { Button } from '../../components/ui/Button'
+import { IconButton } from '../../components/ui/IconButton'
+import { IconEdit, IconFilter, IconPlus, IconTrash } from '../../components/ui/icons'
 import { clampPage, totalPagesFor } from '../../lib/pagination'
 import type { AddressEntryListItem } from '../address/types'
 import { AddressEntrySelectDialog } from '../sender/AddressEntrySelectDialog'
@@ -153,22 +156,21 @@ export function PostcardReceiptListPage() {
       <div className="address-list-header">
         <h1 className="address-list-title">受取履歴一覧</h1>
         <div className="address-list-header-actions">
-          <button
-            type="button"
-            className="address-list-filter-toggle"
+          <IconButton
+            label="フィルタ"
             onClick={() => setIsFilterOpen((open) => !open)}
             disabled={isBusy}
           >
-            フィルタ
-          </button>
-          <button
-            type="button"
-            className="address-list-create-button"
+            <IconFilter />
+          </IconButton>
+          <IconButton
+            label="新規作成"
+            variant="primary"
             onClick={() => navigate('/receipts/new')}
             disabled={isBusy}
           >
-            新規作成
-          </button>
+            <IconPlus />
+          </IconButton>
         </div>
       </div>
 
@@ -250,9 +252,9 @@ export function PostcardReceiptListPage() {
           </div>
 
           <div className="address-list-filter-actions">
-            <button type="button" onClick={handleClearFilters} disabled={!isFiltering || isBusy}>
+            <Button type="button" onClick={handleClearFilters} disabled={!isFiltering || isBusy}>
               条件クリア
-            </button>
+            </Button>
           </div>
         </div>
       ) : null}
@@ -266,14 +268,14 @@ export function PostcardReceiptListPage() {
       {!isLoading && !error && isNoData ? (
         <div className="address-list-empty">
           <p>まだ受取履歴が登録されていません。</p>
-          <button
+          <Button
             type="button"
-            className="address-list-create-button-primary"
+            variant="primary"
             onClick={() => navigate('/receipts/new')}
             disabled={isBusy}
           >
             新規作成
-          </button>
+          </Button>
         </div>
       ) : null}
 
@@ -316,20 +318,20 @@ export function PostcardReceiptListPage() {
                       {memo.truncated ? '…' : ''}
                     </td>
                     <td className="address-list-actions">
-                      <button
-                        type="button"
+                      <IconButton
+                        label="編集"
                         onClick={() => navigate(`/receipts/${item.id}/edit`)}
                         disabled={isBusy}
                       >
-                        編集
-                      </button>
-                      <button
-                        type="button"
+                        <IconEdit />
+                      </IconButton>
+                      <IconButton
+                        label={deletingId === item.id ? '削除中…' : '削除'}
                         onClick={() => handleDelete(item.id)}
                         disabled={isBusy}
                       >
-                        {deletingId === item.id ? '削除中…' : '削除'}
-                      </button>
+                        <IconTrash />
+                      </IconButton>
                     </td>
                   </tr>
                 )

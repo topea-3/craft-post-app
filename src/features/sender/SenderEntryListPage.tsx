@@ -2,6 +2,9 @@ import { useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { useNavigate } from 'react-router-dom'
 import { PaginationControls } from '../../components/PaginationControls'
+import { Button } from '../../components/ui/Button'
+import { IconButton } from '../../components/ui/IconButton'
+import { IconArchive, IconEdit, IconPlus } from '../../components/ui/icons'
 import { formatAddressSingleLine, formatPostalCode, formatUpdatedAt } from '../address/types'
 import { SENDER_OPERATION_ERROR_MESSAGE } from './messages'
 import { formatSenderDisplayName } from './types'
@@ -37,15 +40,15 @@ export function SenderEntryListPage() {
     <div className="address-list-container">
       <div className="address-list-header">
         <h1 className="address-list-title">差出人一覧</h1>
-        <button
-          type="button"
-          className="address-list-create-button"
+        <IconButton
+          label="新規作成"
+          variant="primary"
           onClick={() => {
             navigate('/senders/new')
           }}
         >
-          新規作成
-        </button>
+          <IconPlus />
+        </IconButton>
       </div>
 
       {isLoading ? <p className="address-list-loading">読み込み中です…</p> : null}
@@ -54,15 +57,15 @@ export function SenderEntryListPage() {
       {!isLoading && !error && items.length === 0 && (
         <div className="address-list-empty">
           <p>まだ差出人が登録されていません。</p>
-          <button
+          <Button
             type="button"
-            className="address-list-create-button-primary"
+            variant="primary"
             onClick={() => {
               navigate('/senders/new')
             }}
           >
             新規作成
-          </button>
+          </Button>
         </div>
       )}
 
@@ -103,24 +106,24 @@ export function SenderEntryListPage() {
                     </td>
                     <td className="address-list-updated-at">{updatedAt}</td>
                     <td className="address-list-actions">
-                      <button
-                        type="button"
+                      <IconButton
+                        label="編集"
                         onClick={(e) => {
                           e.stopPropagation()
                           navigate(`/senders/${item.id}/edit`)
                         }}
                       >
-                        編集
-                      </button>
-                      <button
-                        type="button"
+                        <IconEdit />
+                      </IconButton>
+                      <IconButton
+                        label="アーカイブ"
                         onClick={(e) => {
                           e.stopPropagation()
                           handleArchive(item.id)
                         }}
                       >
-                        アーカイブ
-                      </button>
+                        <IconArchive />
+                      </IconButton>
                     </td>
                   </tr>
                 )
@@ -143,4 +146,3 @@ export function SenderEntryListPage() {
     </div>
   )
 }
-

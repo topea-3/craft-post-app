@@ -37,6 +37,7 @@ export function PrintSelectPage() {
     removeIds,
     applyActiveFilterDiff,
     setExcludedAlerts,
+    setSelectedIds,
     clearDraft,
   } = usePrintJobDraft()
 
@@ -133,6 +134,39 @@ export function PrintSelectPage() {
     toggleId(id)
   }
 
+  const handleSelectAllOk = () => {
+    const okIds = items
+      .filter((item) => {
+        const known = Object.prototype.hasOwnProperty.call(senderLabels, item.id)
+        const senderLabel = senderLabels[item.id]
+        return known && senderLabel !== null
+      })
+      .map((item) => item.id)
+
+    if (okIds.length === 0) {
+      setBannerError(null)
+      return
+    }
+
+    const merged = [...selectedIds]
+    for (const id of okIds) {
+      if (merged.includes(id)) continue
+      if (merged.length >= MAX_PRINT_SELECTION) {
+        setBannerError(PRINT_SELECT_MAX_MESSAGE)
+        setSelectedIds(merged)
+        return
+      }
+      merged.push(id)
+    }
+    setBannerError(null)
+    setSelectedIds(merged)
+  }
+
+  const handleDeselectAll = () => {
+    setBannerError(null)
+    setSelectedIds([])
+  }
+
   const handleCancel = () => {
     clearDraft()
     navigate('/addresses')
@@ -190,6 +224,14 @@ export function PrintSelectPage() {
             placeholder="氏名・住所など"
           />
         </label>
+        <div className="print-select-bulk-actions">
+          <button type="button" className="btn btn-label btn-normal" onClick={handleSelectAllOk}>
+            全選択（OKのみ）
+          </button>
+          <button type="button" className="btn btn-label btn-normal" onClick={handleDeselectAll}>
+            全解除
+          </button>
+        </div>
       </div>
 
       {(pruneMessage || bannerError || (excludedAlerts.length > 0 && !bannerError)) && (
@@ -277,12 +319,12 @@ export function PrintSelectPage() {
           />
         </div>
         <div className="print-page-actions">
-          <button type="button" onClick={handleCancel}>
+          <button type="button" className="btn btn-label btn-normal" onClick={handleCancel}>
             キャンセル
           </button>
           <button
             type="button"
-            className="print-primary-button"
+            className="btn btn-label btn-primary print-primary-button"
             onClick={handleProceed}
             disabled={resolving || selectedCount === 0}
           >

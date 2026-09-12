@@ -147,16 +147,26 @@ export function PostcardReceiptDetailPage() {
         <div className="address-detail-header-actions">
           <button
             type="button"
-            className="address-list-create-button"
+            className="btn btn-label btn-normal"
             onClick={handleEdit}
             disabled={isDeleting}
           >
             編集
           </button>
-          <button type="button" onClick={handleDelete} disabled={isDeleting}>
+          <button
+            type="button"
+            className="btn btn-label btn-normal"
+            onClick={handleDelete}
+            disabled={isDeleting}
+          >
             {isDeleting ? '削除中…' : '削除'}
           </button>
-          <button type="button" onClick={handleBackToList} disabled={isDeleting}>
+          <button
+            type="button"
+            className="btn btn-label btn-normal"
+            onClick={handleBackToList}
+            disabled={isDeleting}
+          >
             戻る
           </button>
         </div>

@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { PaginationControls } from '../../components/PaginationControls'
+import { IconButton } from '../../components/ui/IconButton'
+import { IconEdit, IconFilter, IconPlus, IconTrash } from '../../components/ui/icons'
 import { currentLocalYear } from '../../lib/date'
 import { clampPage, totalPagesFor } from '../../lib/pagination'
 import { POSTCARD_SEND_OPERATION_ERROR_MESSAGE } from './messages'
@@ -54,10 +56,10 @@ export function PostcardSendManagePage() {
         <div className="address-list-header-actions">
           {tab === 'history' ? (
             <>
-              <Link to="/sends/new" className="address-list-create-button">
-                新規作成
+              <Link to="/sends/new" className="btn btn-icon btn-primary" aria-label="新規作成" title="新規作成">
+                <IconPlus />
               </Link>
-              <Link to="/sends/bulk" className="address-list-filter-toggle">
+              <Link to="/sends/bulk" className="btn btn-label btn-normal">
                 一括登録
               </Link>
             </>
@@ -212,14 +214,13 @@ function HistoryTab({ active }: { active: boolean }) {
   return (
     <>
       <div className="address-list-header-actions" style={{ marginBottom: '0.75rem' }}>
-        <button
-          type="button"
-          className="address-list-filter-toggle"
+        <IconButton
+          label="フィルタ"
           onClick={() => setIsFilterOpen((open) => !open)}
           disabled={isBusy}
         >
-          フィルタ
-        </button>
+          <IconFilter />
+        </IconButton>
       </div>
 
       {isFilterOpen ? (
@@ -388,23 +389,21 @@ function HistoryTab({ active }: { active: boolean }) {
                       {memo.text}
                       {memo.truncated ? '…' : ''}
                     </td>
-                    <td onClick={(e) => e.stopPropagation()}>
-                      <button
-                        type="button"
-                        className="link-button"
+                    <td className="address-list-actions" onClick={(e) => e.stopPropagation()}>
+                      <IconButton
+                        label="編集"
                         disabled={isBusy}
                         onClick={() => navigate(`/sends/${item.id}/edit`)}
                       >
-                        編集
-                      </button>
-                      <button
-                        type="button"
-                        className="link-button"
+                        <IconEdit />
+                      </IconButton>
+                      <IconButton
+                        label="削除"
                         disabled={isBusy}
                         onClick={() => handleDelete(item.id)}
                       >
-                        削除
-                      </button>
+                        <IconTrash />
+                      </IconButton>
                     </td>
                   </tr>
                 )

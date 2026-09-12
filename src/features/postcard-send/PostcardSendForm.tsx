@@ -150,10 +150,10 @@ export function PostcardSendForm({ form, onCancel, submitLabel = '保存' }: Pro
       </fieldset>
 
       <div className="address-form-actions">
-        <button type="button" className="link-button" onClick={onCancel} disabled={isSubmitting}>
+        <button type="button" className="btn btn-label btn-normal" onClick={onCancel} disabled={isSubmitting}>
           キャンセル
         </button>
-        <button type="submit" className="address-list-create-button" disabled={isSubmitting}>
+        <button type="submit" className="btn btn-label btn-primary" disabled={isSubmitting}>
           {isSubmitting ? '保存中…' : submitLabel}
         </button>
       </div>
