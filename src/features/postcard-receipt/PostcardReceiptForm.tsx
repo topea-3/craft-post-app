@@ -123,7 +123,7 @@ export function PostcardReceiptForm({ form, onCancel, submitLabel = '保存' }: 
 
       <section className="address-form-section">
         <h2 className="address-form-section-title">送り主</h2>
-        <fieldset className="address-form-field" disabled={isSubmitting}>
+        <fieldset className="address-form-field address-form-radio-group" disabled={isSubmitting}>
           <legend>紐付け方法</legend>
           <label>
             <input
@@ -224,10 +224,10 @@ export function PostcardReceiptForm({ form, onCancel, submitLabel = '保存' }: 
       ) : null}
 
       <div className="address-form-actions">
-        <button type="button" className="secondary" onClick={onCancel} disabled={isSubmitting}>
+        <button type="button" className="btn btn-label btn-normal" onClick={onCancel} disabled={isSubmitting}>
           キャンセル
         </button>
-        <button type="submit" disabled={isSubmitting}>
+        <button type="submit" className="btn btn-label btn-primary" disabled={isSubmitting}>
           {isSubmitting ? '保存中…' : submitLabel}
         </button>
       </div>

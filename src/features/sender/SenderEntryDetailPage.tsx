@@ -156,18 +156,19 @@ export function SenderEntryDetailPage() {
         <div className="address-detail-header-actions">
           <button
             type="button"
-            className="primary"
+            className="btn btn-label btn-normal"
             onClick={() => {
               navigate(`/senders/${entry.id}/edit`)
             }}
           >
             編集
           </button>
-          <button type="button" onClick={handleArchive}>
+          <button type="button" className="btn btn-label btn-normal" onClick={handleArchive}>
             アーカイブ
           </button>
           <button
             type="button"
+            className="btn btn-label btn-normal"
             onClick={() => {
               navigate('/senders')
             }}

@@ -17,7 +17,9 @@ import {
   PRINT_PRUNE_MESSAGE,
   PRINT_RESOLVE_INVALID_MESSAGE,
   PRINT_SELECT_EMPTY_MESSAGE,
+  PRINT_SELECT_LABELS_PENDING_MESSAGE,
   PRINT_SELECT_MAX_MESSAGE,
+  PRINT_SELECT_NO_OK_ON_PAGE_MESSAGE,
 } from '../messages'
 import {
   excludedAlertLabel,
@@ -37,6 +39,7 @@ export function PrintSelectPage() {
     removeIds,
     applyActiveFilterDiff,
     setExcludedAlerts,
+    setSelectedIds,
     clearDraft,
   } = usePrintJobDraft()
 
@@ -121,9 +124,10 @@ export function PrintSelectPage() {
     }
   }, [items])
 
-  const handleToggle = (id: string, excluded: boolean) => {
+  const handleToggle = (id: string, excluded: boolean, known: boolean) => {
     const checked = selectedIds.includes(id)
-    // 除外行でも既選択なら解除を許可（ラベル遅延到着でロックされるのを防ぐ）
+    // ラベル未解決・除外行でも既選択なら解除を許可（ラベル遅延到着でロックされるのを防ぐ）
+    if (!known && !checked) return
     if (excluded && !checked) return
     if (!checked && selectedIds.length >= MAX_PRINT_SELECTION) {
       setBannerError(PRINT_SELECT_MAX_MESSAGE)
@@ -131,6 +135,65 @@ export function PrintSelectPage() {
     }
     setBannerError(null)
     toggleId(id)
+  }
+
+  const labelsReady =
+    items.length === 0 ||
+    items.every((item) => Object.prototype.hasOwnProperty.call(senderLabels, item.id))
+
+  const pageOkIds = items
+    .filter((item) => {
+      const known = Object.prototype.hasOwnProperty.call(senderLabels, item.id)
+      const senderLabel = senderLabels[item.id]
+      return known && senderLabel !== null
+    })
+    .map((item) => item.id)
+
+  const pageIdSet = new Set(items.map((item) => item.id))
+  const hasSelectionOnPage = selectedIds.some((id) => pageIdSet.has(id))
+  const bulkDisabled = resolving || isLoading
+
+  const handleSelectAllOk = () => {
+    if (bulkDisabled) return
+    if (!labelsReady) {
+      setBannerError(PRINT_SELECT_LABELS_PENDING_MESSAGE)
+      return
+    }
+    if (pageOkIds.length === 0) {
+      setBannerError(PRINT_SELECT_NO_OK_ON_PAGE_MESSAGE)
+      return
+    }
+
+    const notYetSelected = pageOkIds.filter((id) => !selectedIds.includes(id))
+    if (notYetSelected.length === 0) {
+      setBannerError(null)
+      return
+    }
+    const room = MAX_PRINT_SELECTION - selectedIds.length
+    if (room <= 0) {
+      setBannerError(PRINT_SELECT_MAX_MESSAGE)
+      return
+    }
+
+    const toAdd = notYetSelected.slice(0, room)
+    setSelectedIds((prev) => {
+      const seen = new Set(prev)
+      const next = [...prev]
+      for (const id of toAdd) {
+        if (seen.has(id)) continue
+        if (next.length >= MAX_PRINT_SELECTION) break
+        next.push(id)
+        seen.add(id)
+      }
+      return next
+    })
+    setBannerError(notYetSelected.length > room ? PRINT_SELECT_MAX_MESSAGE : null)
+  }
+
+  const handleDeselectPage = () => {
+    if (bulkDisabled) return
+    setBannerError(null)
+    setSelectedIds((prev) => prev.filter((id) => !pageIdSet.has(id)))
   }
 
   const handleCancel = () => {
@@ -190,6 +253,24 @@ export function PrintSelectPage() {
             placeholder="氏名・住所など"
           />
         </label>
+        <div className="print-select-bulk-actions">
+          <button
+            type="button"
+            className="btn btn-label btn-normal"
+            onClick={handleSelectAllOk}
+            disabled={bulkDisabled || !labelsReady}
+          >
+            このページのOKを選択
+          </button>
+          <button
+            type="button"
+            className="btn btn-label btn-normal"
+            onClick={handleDeselectPage}
+            disabled={bulkDisabled || !hasSelectionOnPage}
+          >
+            このページを解除
+          </button>
+        </div>
       </div>
 
       {(pruneMessage || bannerError || (excludedAlerts.length > 0 && !bannerError)) && (
@@ -231,8 +312,8 @@ export function PrintSelectPage() {
                     <input
                       type="checkbox"
                       checked={checked}
-                      disabled={!checked && (excluded || selectedCount >= MAX_PRINT_SELECTION)}
-                      onChange={() => handleToggle(item.id, excluded)}
+                      disabled={!checked && (!known || excluded || selectedCount >= MAX_PRINT_SELECTION)}
+                      onChange={() => handleToggle(item.id, excluded, known)}
                       aria-label={`${formatDisplayName(item.primaryName, item.coRecipients)} を選択`}
                     />
                   </td>
@@ -243,7 +324,7 @@ export function PrintSelectPage() {
                   </td>
                   <td>{formatAddressSingleLine(item.address)}</td>
                   <td>{known ? (senderLabel ?? '（未紐づけ）') : '…'}</td>
-                  <td>{excluded ? '除外' : 'OK'}</td>
+                  <td>{known ? (excluded ? '除外' : 'OK') : '確認中'}</td>
                 </tr>
               )
             })}
@@ -277,12 +358,12 @@ export function PrintSelectPage() {
           />
         </div>
         <div className="print-page-actions">
-          <button type="button" onClick={handleCancel}>
+          <button type="button" className="btn btn-label btn-normal" onClick={handleCancel}>
             キャンセル
           </button>
           <button
             type="button"
-            className="print-primary-button"
+            className="btn btn-label btn-primary print-primary-button"
             onClick={handleProceed}
             disabled={resolving || selectedCount === 0}
           >
