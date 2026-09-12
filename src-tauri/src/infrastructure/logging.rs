@@ -199,30 +199,20 @@ impl ApiLogger {
       }
     };
 
-    let need_writer = {
-      let inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
-      inner.debug_enabled
-    };
-
-    // writer の準備が成功してから状態を更新する（失敗時に debug_enabled だけ残さない）
-    let new_writer = if need_writer {
-      match path.as_ref() {
-        Some(dir) => Some(Self::open_log_writer(dir)?),
-        None => None,
-      }
-    } else {
-      None
-    };
-
     let mut inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
     if inner.debug_enabled {
-      if let Some(writer) = new_writer {
-        inner.log_directory = path;
-        inner.writer = Some(writer);
-      } else {
-        inner.log_directory = None;
-        inner.writer = None;
-        inner.debug_enabled = false;
+      match path.as_ref() {
+        Some(dir) => {
+          // 失敗時は状態を触らない（writer 準備成功後にだけ更新）
+          let writer = Self::open_log_writer(dir)?;
+          inner.log_directory = path;
+          inner.writer = Some(writer);
+        }
+        None => {
+          inner.log_directory = None;
+          inner.writer = None;
+          inner.debug_enabled = false;
+        }
       }
     } else {
       inner.log_directory = path;
@@ -238,31 +228,26 @@ impl ApiLogger {
       return Ok(());
     }
 
+    let mut inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
     if enabled {
-      let dir = {
-        let inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
-        inner.log_directory.clone().ok_or_else(|| {
-          "ログ出力フォルダを指定してください。フォルダを設定してからデバッグモードを有効にしてください。"
-            .to_string()
-        })?
-      };
+      let dir = inner.log_directory.clone().ok_or_else(|| {
+        "ログ出力フォルダを指定してください。フォルダを設定してからデバッグモードを有効にしてください。"
+          .to_string()
+      })?;
       if dir.as_os_str().is_empty() {
         return Err("ログ出力フォルダを指定してください。".to_string());
       }
-      // 作成・canonicalize・再検証が成功してから debug_enabled を立てる
+      // ロック内で作成〜writer 準備まで行い、失敗時は状態を更新しない
       let prepared = prepare_log_directory(dir)?;
       let writer = Self::open_log_writer(&prepared)?;
-      let mut inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
       inner.log_directory = Some(prepared);
       inner.writer = Some(writer);
       inner.debug_enabled = true;
-      drop(inner);
     } else {
-      let mut inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
       inner.writer = None;
       inner.debug_enabled = false;
-      drop(inner);
     }
+    drop(inner);
     self.update_max_level();
     Ok(())
   }
@@ -394,12 +379,25 @@ fn ensure_under_allowed_roots(path: &Path) -> Result<(), String> {
 }
 
 /// 作成後に canonicalize し、許可ルート配下かを再検証する。
+/// 拒否時は、今回新規作成した空ディレクトリがあれば削除する。
 fn prepare_log_directory(path: PathBuf) -> Result<PathBuf, String> {
   let normalized = validate_log_directory(path)?;
+  let existed_before = normalized.exists();
   fs::create_dir_all(&normalized).map_err(|e| format!("ログフォルダを作成できません: {}", e))?;
-  let canonical = normalized
-    .canonicalize()
-    .map_err(|e| format!("ログフォルダを解決できません: {}", e))?;
+
+  let cleanup_if_created = |normalized: &Path, existed_before: bool| {
+    if !existed_before {
+      let _ = fs::remove_dir(normalized);
+    }
+  };
+
+  let canonical = match normalized.canonicalize() {
+    Ok(p) => p,
+    Err(e) => {
+      cleanup_if_created(&normalized, existed_before);
+      return Err(format!("ログフォルダを解決できません: {}", e));
+    }
+  };
 
   let roots = allowed_log_roots()?;
   let under = roots.iter().any(|root| {
@@ -412,6 +410,7 @@ fn prepare_log_directory(path: PathBuf) -> Result<PathBuf, String> {
       .unwrap_or(false)
   });
   if !under {
+    cleanup_if_created(&normalized, existed_before);
     return Err(
       "ログフォルダはユーザープロファイル、AppData、または一時フォルダ配下の絶対パスを指定してください。"
         .to_string(),

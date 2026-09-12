@@ -14,6 +14,7 @@ use crate::domain::sender::sender_entry::SenderEntryId;
 use crate::domain::sender::sender_entry_repository::{SenderEntryRepository, SenderRepositoryError};
 use crate::infrastructure::address::sqlx_address_entry_repository::SqlxAddressEntryRepository;
 use crate::infrastructure::sender::sqlx_sender_entry_repository::SqlxSenderEntryRepository;
+use crate::infrastructure::sql_like::escape_like_pattern;
 
 pub struct SqlxPostcardSendRepository {
   pool: SqlitePool,
@@ -88,20 +89,6 @@ fn sender_display_name_sql(se_alias: &str) -> String {
     r#"TRIM(IFNULL({se}.primary_last, '') || ' ' || IFNULL({se}.primary_first, ''))"#,
     se = se_alias
   )
-}
-
-fn escape_like_pattern(keyword: &str) -> String {
-  let mut escaped = String::with_capacity(keyword.len());
-  for ch in keyword.chars() {
-    match ch {
-      '\\' | '%' | '_' => {
-        escaped.push('\\');
-        escaped.push(ch);
-      }
-      _ => escaped.push(ch),
-    }
-  }
-  format!("%{escaped}%")
 }
 
 fn build_search_where_clause(query: &PostcardSendSearchQuery) -> String {
@@ -755,15 +742,5 @@ impl PostcardSendRepository for SqlxPostcardSendRepository {
       });
     }
     Ok((items, total))
-  }
-}
-
-#[cfg(test)]
-mod escape_tests {
-  use super::escape_like_pattern;
-
-  #[test]
-  fn escapes_like_wildcards() {
-    assert_eq!(escape_like_pattern("a%b_c\\d"), "%a\\%b\\_c\\\\d%");
   }
 }

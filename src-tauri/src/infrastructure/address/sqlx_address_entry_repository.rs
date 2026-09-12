@@ -9,20 +9,7 @@ use crate::domain::address::address_entry_repository::{
   AddressEntryRepository, AddressRepositoryError, AddressSearchQuery, DbAddressEntryRow,
   DbCoRecipientRow, Pagination, SortKey, SortOrder,
 };
-
-fn escape_like_pattern(keyword: &str) -> String {
-  let mut escaped = String::with_capacity(keyword.len());
-  for ch in keyword.chars() {
-    match ch {
-      '\\' | '%' | '_' => {
-        escaped.push('\\');
-        escaped.push(ch);
-      }
-      _ => escaped.push(ch),
-    }
-  }
-  format!("%{escaped}%")
-}
+use crate::infrastructure::sql_like::escape_like_pattern;
 
 fn build_search_where_clause(query: &AddressSearchQuery) -> String {
   let mut s = String::new();
@@ -574,15 +561,5 @@ pub(crate) async fn build_entries_with_co_recipients(
   }
 
   Ok(result)
-}
-
-#[cfg(test)]
-mod escape_like_tests {
-  use super::escape_like_pattern;
-
-  #[test]
-  fn escapes_percent_underscore_and_backslash() {
-    assert_eq!(escape_like_pattern("a%b_c\\d"), "%a\\%b\\_c\\\\d%");
-  }
 }
 
