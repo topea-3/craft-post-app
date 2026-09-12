@@ -261,7 +261,8 @@ a.btn-icon {
   flex-shrink: 0;
 }
 
-.btn-icon.is-active {
+.btn-icon.is-active,
+.btn-label.is-active {
   background-color: rgba(99, 102, 241, 0.22);
   border-color: #818cf8;
 }
@@ -272,6 +273,12 @@ a.btn-icon {
 
 .icon-spinner {
   animation: icon-spin 0.8s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .icon-spinner {
+    animation: none;
+  }
 }
 
 @keyframes icon-spin {

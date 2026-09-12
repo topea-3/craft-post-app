@@ -76,7 +76,7 @@ export function PostcardSendManagePage() {
             aria-controls="postcard-send-history-panel"
             aria-selected={tab === 'history'}
             className={
-              tab === 'history' ? 'btn btn-label btn-primary' : 'btn btn-label btn-normal'
+              tab === 'history' ? 'btn btn-label btn-normal is-active' : 'btn btn-label btn-normal'
             }
             onClick={() => setTab('history')}
           >
@@ -89,7 +89,7 @@ export function PostcardSendManagePage() {
             aria-controls="postcard-send-status-panel"
             aria-selected={tab === 'status'}
             className={
-              tab === 'status' ? 'btn btn-label btn-primary' : 'btn btn-label btn-normal'
+              tab === 'status' ? 'btn btn-label btn-normal is-active' : 'btn btn-label btn-normal'
             }
             onClick={() => setTab('status')}
           >
@@ -219,10 +219,16 @@ function HistoryTab({ active }: { active: boolean }) {
     <>
       <div className="address-list-header-actions" style={{ marginBottom: '0.75rem' }}>
         <IconButton
-          label={isFilterOpen ? 'フィルタを閉じる' : 'フィルタを開く'}
+          label={
+            isFilterOpen
+              ? 'フィルタを閉じる'
+              : isFiltering
+                ? 'フィルタを開く（絞り込み中）'
+                : 'フィルタを開く'
+          }
           aria-expanded={isFilterOpen}
           aria-controls="postcard-send-history-filter"
-          className={isFilterOpen ? 'is-active' : undefined}
+          className={isFilterOpen || isFiltering ? 'is-active' : undefined}
           onClick={() => setIsFilterOpen((open) => !open)}
           disabled={isBusy}
         >
@@ -230,8 +236,11 @@ function HistoryTab({ active }: { active: boolean }) {
         </IconButton>
       </div>
 
-      {isFilterOpen ? (
-        <div className="address-list-filter" id="postcard-send-history-filter">
+      <div
+        className="address-list-filter"
+        id="postcard-send-history-filter"
+        hidden={!isFilterOpen}
+      >
           <label className="address-list-filter-label">
             <span>検索</span>
             <input
@@ -314,8 +323,7 @@ function HistoryTab({ active }: { active: boolean }) {
           >
             条件クリア
           </button>
-        </div>
-      ) : null}
+      </div>
 
       {yearsError ? (
         <p className="address-list-error">

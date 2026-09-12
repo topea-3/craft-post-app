@@ -106,7 +106,7 @@ export function PostcardSendDetailPage() {
             disabled={deleting}
             onClick={handleDelete}
           >
-            削除
+            {deleting ? '削除中…' : '削除'}
           </button>
         </div>
       </header>

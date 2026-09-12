@@ -157,10 +157,16 @@ export function PostcardReceiptListPage() {
         <h1 className="address-list-title">受取履歴一覧</h1>
         <div className="address-list-header-actions">
           <IconButton
-            label={isFilterOpen ? 'フィルタを閉じる' : 'フィルタを開く'}
+            label={
+              isFilterOpen
+                ? 'フィルタを閉じる'
+                : isFiltering
+                  ? 'フィルタを開く（絞り込み中）'
+                  : 'フィルタを開く'
+            }
             aria-expanded={isFilterOpen}
             aria-controls="postcard-receipt-list-filter"
-            className={isFilterOpen ? 'is-active' : undefined}
+            className={isFilterOpen || isFiltering ? 'is-active' : undefined}
             onClick={() => setIsFilterOpen((open) => !open)}
             disabled={isBusy}
           >
@@ -177,8 +183,11 @@ export function PostcardReceiptListPage() {
         </div>
       </div>
 
-      {isFilterOpen ? (
-        <div className="address-list-filter" id="postcard-receipt-list-filter">
+      <div
+        className="address-list-filter"
+        id="postcard-receipt-list-filter"
+        hidden={!isFilterOpen}
+      >
           <label className="address-list-filter-label">
             <span>検索</span>
             <input
@@ -259,8 +268,7 @@ export function PostcardReceiptListPage() {
               条件クリア
             </Button>
           </div>
-        </div>
-      ) : null}
+      </div>
 
       {isLoading ? <p className="address-list-loading">読み込み中です…</p> : null}
       {error ? <p className="address-list-error">一覧の取得に失敗しました: {error}</p> : null}

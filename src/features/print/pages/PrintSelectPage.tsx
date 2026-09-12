@@ -124,9 +124,10 @@ export function PrintSelectPage() {
     }
   }, [items])
 
-  const handleToggle = (id: string, excluded: boolean) => {
+  const handleToggle = (id: string, excluded: boolean, known: boolean) => {
     const checked = selectedIds.includes(id)
-    // 除外行でも既選択なら解除を許可（ラベル遅延到着でロックされるのを防ぐ）
+    // ラベル未解決・除外行でも既選択なら解除を許可（ラベル遅延到着でロックされるのを防ぐ）
+    if (!known && !checked) return
     if (excluded && !checked) return
     if (!checked && selectedIds.length >= MAX_PRINT_SELECTION) {
       setBannerError(PRINT_SELECT_MAX_MESSAGE)
@@ -311,8 +312,8 @@ export function PrintSelectPage() {
                     <input
                       type="checkbox"
                       checked={checked}
-                      disabled={!checked && (excluded || selectedCount >= MAX_PRINT_SELECTION)}
-                      onChange={() => handleToggle(item.id, excluded)}
+                      disabled={!checked && (!known || excluded || selectedCount >= MAX_PRINT_SELECTION)}
+                      onChange={() => handleToggle(item.id, excluded, known)}
                       aria-label={`${formatDisplayName(item.primaryName, item.coRecipients)} を選択`}
                     />
                   </td>
@@ -323,7 +324,7 @@ export function PrintSelectPage() {
                   </td>
                   <td>{formatAddressSingleLine(item.address)}</td>
                   <td>{known ? (senderLabel ?? '（未紐づけ）') : '…'}</td>
-                  <td>{excluded ? '除外' : 'OK'}</td>
+                  <td>{known ? (excluded ? '除外' : 'OK') : '確認中'}</td>
                 </tr>
               )
             })}

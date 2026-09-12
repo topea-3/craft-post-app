@@ -143,11 +143,15 @@ describe('PrintSelectPage bulk selection', () => {
 
     const selectButton = screen.getByRole('button', { name: 'このページのOKを選択' })
     expect(selectButton).toBeDisabled()
+    expect(screen.getByText('確認中')).toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: '山田 太郎 を選択' })).toBeDisabled()
 
     releaseSenderGate()
     await waitFor(() => {
       expect(selectButton).toBeEnabled()
+      expect(screen.getByText('OK')).toBeInTheDocument()
     })
+    expect(screen.getByRole('checkbox', { name: '山田 太郎 を選択' })).toBeEnabled()
     await user.click(selectButton)
     await waitFor(() => {
       expect(screen.getByRole('checkbox', { name: '山田 太郎 を選択' })).toBeChecked()
