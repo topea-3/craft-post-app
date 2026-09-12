@@ -104,9 +104,11 @@ describe('PrintSelectPage bulk selection', () => {
 
   it('disables page OK select while sender labels are unresolved', async () => {
     const user = userEvent.setup()
-    let resolveSender: (() => void) | null = null
+    let releaseSenderGate = () => {}
     const senderGate = new Promise<void>((resolve) => {
-      resolveSender = resolve
+      releaseSenderGate = () => {
+        resolve()
+      }
     })
 
     invokeMock.mockImplementation(async (cmd: string, args?: unknown) => {
@@ -142,7 +144,7 @@ describe('PrintSelectPage bulk selection', () => {
     const selectButton = screen.getByRole('button', { name: 'このページのOKを選択' })
     expect(selectButton).toBeDisabled()
 
-    resolveSender?.()
+    releaseSenderGate()
     await waitFor(() => {
       expect(selectButton).toBeEnabled()
     })
