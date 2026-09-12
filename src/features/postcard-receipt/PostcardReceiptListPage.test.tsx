@@ -81,7 +81,7 @@ describe('PostcardReceiptListPage', () => {
       </MemoryRouter>,
     )
 
-    await user.click(await screen.findByRole('button', { name: 'フィルタ' }))
+    await user.click(await screen.findByRole('button', { name: 'フィルタを開く' }))
     const yearSelect = screen.getByRole('combobox', { name: '受取年' }) as HTMLSelectElement
     await user.selectOptions(yearSelect, '2012')
 
@@ -140,7 +140,7 @@ describe('PostcardReceiptListPage', () => {
       </MemoryRouter>,
     )
 
-    await user.click(await screen.findByRole('button', { name: 'フィルタ' }))
+    await user.click(await screen.findByRole('button', { name: 'フィルタを開く' }))
     const yearSelect = screen.getByRole('combobox', { name: '受取年' }) as HTMLSelectElement
     await user.selectOptions(yearSelect, '2012')
 

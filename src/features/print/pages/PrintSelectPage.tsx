@@ -17,7 +17,9 @@ import {
   PRINT_PRUNE_MESSAGE,
   PRINT_RESOLVE_INVALID_MESSAGE,
   PRINT_SELECT_EMPTY_MESSAGE,
+  PRINT_SELECT_LABELS_PENDING_MESSAGE,
   PRINT_SELECT_MAX_MESSAGE,
+  PRINT_SELECT_NO_OK_ON_PAGE_MESSAGE,
 } from '../messages'
 import {
   excludedAlertLabel,
@@ -134,37 +136,63 @@ export function PrintSelectPage() {
     toggleId(id)
   }
 
-  const handleSelectAllOk = () => {
-    const okIds = items
-      .filter((item) => {
-        const known = Object.prototype.hasOwnProperty.call(senderLabels, item.id)
-        const senderLabel = senderLabels[item.id]
-        return known && senderLabel !== null
-      })
-      .map((item) => item.id)
+  const labelsReady =
+    items.length === 0 ||
+    items.every((item) => Object.prototype.hasOwnProperty.call(senderLabels, item.id))
 
-    if (okIds.length === 0) {
-      setBannerError(null)
+  const pageOkIds = items
+    .filter((item) => {
+      const known = Object.prototype.hasOwnProperty.call(senderLabels, item.id)
+      const senderLabel = senderLabels[item.id]
+      return known && senderLabel !== null
+    })
+    .map((item) => item.id)
+
+  const pageIdSet = new Set(items.map((item) => item.id))
+  const hasSelectionOnPage = selectedIds.some((id) => pageIdSet.has(id))
+  const bulkDisabled = resolving || isLoading
+
+  const handleSelectAllOk = () => {
+    if (bulkDisabled) return
+    if (!labelsReady) {
+      setBannerError(PRINT_SELECT_LABELS_PENDING_MESSAGE)
+      return
+    }
+    if (pageOkIds.length === 0) {
+      setBannerError(PRINT_SELECT_NO_OK_ON_PAGE_MESSAGE)
       return
     }
 
-    const merged = [...selectedIds]
-    for (const id of okIds) {
-      if (merged.includes(id)) continue
-      if (merged.length >= MAX_PRINT_SELECTION) {
-        setBannerError(PRINT_SELECT_MAX_MESSAGE)
-        setSelectedIds(merged)
-        return
-      }
-      merged.push(id)
+    const notYetSelected = pageOkIds.filter((id) => !selectedIds.includes(id))
+    if (notYetSelected.length === 0) {
+      setBannerError(null)
+      return
     }
-    setBannerError(null)
-    setSelectedIds(merged)
+    const room = MAX_PRINT_SELECTION - selectedIds.length
+    if (room <= 0) {
+      setBannerError(PRINT_SELECT_MAX_MESSAGE)
+      return
+    }
+
+    const toAdd = notYetSelected.slice(0, room)
+    setSelectedIds((prev) => {
+      const seen = new Set(prev)
+      const next = [...prev]
+      for (const id of toAdd) {
+        if (seen.has(id)) continue
+        if (next.length >= MAX_PRINT_SELECTION) break
+        next.push(id)
+        seen.add(id)
+      }
+      return next
+    })
+    setBannerError(notYetSelected.length > room ? PRINT_SELECT_MAX_MESSAGE : null)
   }
 
-  const handleDeselectAll = () => {
+  const handleDeselectPage = () => {
+    if (bulkDisabled) return
     setBannerError(null)
-    setSelectedIds([])
+    setSelectedIds((prev) => prev.filter((id) => !pageIdSet.has(id)))
   }
 
   const handleCancel = () => {
@@ -225,11 +253,21 @@ export function PrintSelectPage() {
           />
         </label>
         <div className="print-select-bulk-actions">
-          <button type="button" className="btn btn-label btn-normal" onClick={handleSelectAllOk}>
-            全選択（OKのみ）
+          <button
+            type="button"
+            className="btn btn-label btn-normal"
+            onClick={handleSelectAllOk}
+            disabled={bulkDisabled || !labelsReady}
+          >
+            このページのOKを選択
           </button>
-          <button type="button" className="btn btn-label btn-normal" onClick={handleDeselectAll}>
-            全解除
+          <button
+            type="button"
+            className="btn btn-label btn-normal"
+            onClick={handleDeselectPage}
+            disabled={bulkDisabled || !hasSelectionOnPage}
+          >
+            このページを解除
           </button>
         </div>
       </div>

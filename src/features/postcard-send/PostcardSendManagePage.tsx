@@ -215,7 +215,10 @@ function HistoryTab({ active }: { active: boolean }) {
     <>
       <div className="address-list-header-actions" style={{ marginBottom: '0.75rem' }}>
         <IconButton
-          label="フィルタ"
+          label={isFilterOpen ? 'フィルタを閉じる' : 'フィルタを開く'}
+          aria-expanded={isFilterOpen}
+          aria-controls="postcard-send-history-filter"
+          className={isFilterOpen ? 'is-active' : undefined}
           onClick={() => setIsFilterOpen((open) => !open)}
           disabled={isBusy}
         >
@@ -224,7 +227,7 @@ function HistoryTab({ active }: { active: boolean }) {
       </div>
 
       {isFilterOpen ? (
-        <div className="address-list-filter">
+        <div className="address-list-filter" id="postcard-send-history-filter">
           <label className="address-list-filter-label">
             <span>検索</span>
             <input

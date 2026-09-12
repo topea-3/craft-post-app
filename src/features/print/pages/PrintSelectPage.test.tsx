@@ -5,6 +5,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { invoke } from '@tauri-apps/api/core'
 import { PrintSelectPage } from './PrintSelectPage'
 import type { AddressEntryDto } from '../../address/types'
+import {
+  PRINT_SELECT_LABELS_PENDING_MESSAGE,
+  PRINT_SELECT_NO_OK_ON_PAGE_MESSAGE,
+} from '../messages'
 
 vi.mock('@tauri-apps/api/core', () => ({
   invoke: vi.fn(),
@@ -36,6 +40,15 @@ describe('PrintSelectPage bulk selection', () => {
   beforeEach(() => {
     sessionStorage.clear()
     invokeMock.mockReset()
+  })
+
+  it('selects only OK rows on the current page and clears only that page', async () => {
+    const user = userEvent.setup()
+    sessionStorage.setItem(
+      'printJobDraft',
+      JSON.stringify({ addressEntryIds: ['other-page'] }),
+    )
+
     invokeMock.mockImplementation(async (cmd: string, args?: unknown) => {
       if (cmd === 'search_address_entries') {
         return {
@@ -53,14 +66,11 @@ describe('PrintSelectPage bulk selection', () => {
         return { label: id, archived: false }
       }
       if (cmd === 'filter_active_address_entry_ids') {
-        return (args as { ids: string[] }).ids
+        return (args as { addressEntryIds: string[] }).addressEntryIds
       }
       throw new Error(`unexpected command ${cmd}`)
     })
-  })
 
-  it('selects only OK rows on the current page and can clear all', async () => {
-    const user = userEvent.setup()
     render(
       <MemoryRouter>
         <PrintSelectPage />
@@ -74,20 +84,73 @@ describe('PrintSelectPage bulk selection', () => {
       expect(screen.getByText('（未紐づけ）')).toBeInTheDocument()
     })
 
-    await user.click(screen.getByRole('button', { name: '全選択（OKのみ）' }))
+    await user.click(screen.getByRole('button', { name: 'このページのOKを選択' }))
 
     await waitFor(() => {
       expect(screen.getByRole('checkbox', { name: '山田 太郎 を選択' })).toBeChecked()
       expect(screen.getByRole('checkbox', { name: '佐藤 太郎 を選択' })).toBeChecked()
       expect(screen.getByRole('checkbox', { name: '鈴木 太郎 を選択' })).not.toBeChecked()
     })
-    expect(screen.getByText(/選択: 2 \/ /)).toBeInTheDocument()
+    expect(screen.getByText(/選択: 3 \/ /)).toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: '全解除' }))
+    await user.click(screen.getByRole('button', { name: 'このページを解除' }))
     await waitFor(() => {
       expect(screen.getByRole('checkbox', { name: '山田 太郎 を選択' })).not.toBeChecked()
       expect(screen.getByRole('checkbox', { name: '佐藤 太郎 を選択' })).not.toBeChecked()
     })
-    expect(screen.getByText(/選択: 0 \/ /)).toBeInTheDocument()
+    // other-page の選択は残る
+    expect(screen.getByText(/選択: 1 \/ /)).toBeInTheDocument()
+  })
+
+  it('disables page OK select while sender labels are unresolved', async () => {
+    const user = userEvent.setup()
+    let resolveSender: (() => void) | null = null
+    const senderGate = new Promise<void>((resolve) => {
+      resolveSender = resolve
+    })
+
+    invokeMock.mockImplementation(async (cmd: string, args?: unknown) => {
+      if (cmd === 'search_address_entries') {
+        return {
+          items: [addressDto('a1', '山田')],
+          total: 1,
+        }
+      }
+      if (cmd === 'get_sender_id_by_address_entry_id') {
+        await senderGate
+        return 'sender-a1'
+      }
+      if (cmd === 'get_sender_entry') {
+        return { label: '自宅', archived: false }
+      }
+      if (cmd === 'filter_active_address_entry_ids') {
+        return (args as { addressEntryIds: string[] }).addressEntryIds
+      }
+      throw new Error(`unexpected command ${cmd}`)
+    })
+
+    render(
+      <MemoryRouter>
+        <PrintSelectPage />
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByRole('checkbox', { name: '山田 太郎 を選択' })).toBeInTheDocument()
+    })
+
+    const selectButton = screen.getByRole('button', { name: 'このページのOKを選択' })
+    expect(selectButton).toBeDisabled()
+
+    resolveSender?.()
+    await waitFor(() => {
+      expect(selectButton).toBeEnabled()
+    })
+    await user.click(selectButton)
+    await waitFor(() => {
+      expect(screen.getByRole('checkbox', { name: '山田 太郎 を選択' })).toBeChecked()
+    })
+    expect(screen.queryByText(PRINT_SELECT_LABELS_PENDING_MESSAGE)).not.toBeInTheDocument()
+    expect(screen.queryByText(PRINT_SELECT_NO_OK_ON_PAGE_MESSAGE)).not.toBeInTheDocument()
   })
 })

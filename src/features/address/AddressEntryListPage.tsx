@@ -96,7 +96,13 @@ export function AddressEntryListPage() {
       <div className="address-list-header">
         <h1 className="address-list-title">住所録一覧</h1>
         <div className="address-list-header-actions">
-          <IconButton label="フィルタ" onClick={() => setIsFilterOpen((open) => !open)}>
+          <IconButton
+            label={isFilterOpen ? 'フィルタを閉じる' : 'フィルタを開く'}
+            aria-expanded={isFilterOpen}
+            aria-controls="address-list-filter"
+            className={isFilterOpen ? 'is-active' : undefined}
+            onClick={() => setIsFilterOpen((open) => !open)}
+          >
             <IconFilter />
           </IconButton>
           <IconButton
@@ -112,7 +118,7 @@ export function AddressEntryListPage() {
       </div>
 
       {isFilterOpen && (
-        <div className="address-list-filter">
+        <div className="address-list-filter" id="address-list-filter">
           <label className="address-list-filter-label">
             <span>検索</span>
             <input

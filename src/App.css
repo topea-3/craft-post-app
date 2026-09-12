@@ -261,6 +261,11 @@ a.btn-icon {
   flex-shrink: 0;
 }
 
+.btn-icon.is-active {
+  background-color: rgba(99, 102, 241, 0.22);
+  border-color: #818cf8;
+}
+
 .btn-primary {
   background-color: #4f46e5;
   border-color: #4f46e5;

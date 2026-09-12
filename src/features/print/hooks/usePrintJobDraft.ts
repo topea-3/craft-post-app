@@ -64,11 +64,14 @@ export function usePrintJobDraft() {
   }, [])
 
   const setSelectedIds = useCallback(
-    (ids: string[]) => {
-      setDraft((prev) => ({
-        ...prev,
-        addressEntryIds: ids.slice(0, MAX_PRINT_SELECTION),
-      }))
+    (ids: string[] | ((prev: string[]) => string[])) => {
+      setDraft((prev) => {
+        const nextIds = typeof ids === 'function' ? ids(prev.addressEntryIds) : ids
+        return {
+          ...prev,
+          addressEntryIds: nextIds.slice(0, MAX_PRINT_SELECTION),
+        }
+      })
     },
     [setDraft],
   )

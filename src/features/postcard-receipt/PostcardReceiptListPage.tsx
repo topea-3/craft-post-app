@@ -157,7 +157,10 @@ export function PostcardReceiptListPage() {
         <h1 className="address-list-title">受取履歴一覧</h1>
         <div className="address-list-header-actions">
           <IconButton
-            label="フィルタ"
+            label={isFilterOpen ? 'フィルタを閉じる' : 'フィルタを開く'}
+            aria-expanded={isFilterOpen}
+            aria-controls="postcard-receipt-list-filter"
+            className={isFilterOpen ? 'is-active' : undefined}
             onClick={() => setIsFilterOpen((open) => !open)}
             disabled={isBusy}
           >
@@ -175,7 +178,7 @@ export function PostcardReceiptListPage() {
       </div>
 
       {isFilterOpen ? (
-        <div className="address-list-filter">
+        <div className="address-list-filter" id="postcard-receipt-list-filter">
           <label className="address-list-filter-label">
             <span>検索</span>
             <input
