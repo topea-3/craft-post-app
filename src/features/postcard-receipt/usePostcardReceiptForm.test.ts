@@ -154,8 +154,7 @@ describe('usePostcardReceiptForm', () => {
       category: 'nenga',
       memo: '更新後',
       linkMode: 'displayName',
-      addressEntryId: null,
-      addressEntryDisplayName: null,
+      addressEntries: [],
       senderDisplayName: '田中家',
     }
 

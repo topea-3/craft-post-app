@@ -813,6 +813,20 @@ a.btn-icon {
   font-size: 0.9rem;
 }
 
+.print-type-fixed {
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.print-test-print-info {
+  margin: 0 0 0.75rem;
+  padding: 0.65rem 0.85rem;
+  border: 1px solid #94a3b8;
+  background: #f1f5f9;
+  color: #334155;
+  font-size: 0.9rem;
+}
+
 .print-page-nav {
   display: flex;
   align-items: center;

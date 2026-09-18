@@ -437,9 +437,9 @@ mod tests {
     sqlx::query(
       r#"
         INSERT INTO postcard_receipts (
-          id, address_entry_id, sender_display_name, received_at, category, memo,
+          id, address_entry_id, sender_display_name, received_at, receipt_year, category, memo,
           deleted_at, created_at, updated_at
-        ) VALUES (?, NULL, ?, ?, 'nenga', NULL, NULL, ?, ?)
+        ) VALUES (?, NULL, ?, ?, 2099, 'nenga', NULL, NULL, ?, ?)
       "#,
     )
     .bind(id.to_string())
@@ -991,7 +991,7 @@ mod tests {
     let print_job_id = Uuid::new_v4().to_string();
     let input = CreatePostcardSendsBatchInput {
       print_job_id: print_job_id.clone(),
-      postcard_type: "nenga".to_string(),
+      postcard_type: "mochu".to_string(),
       items: vec![CreatePostcardSendItemDto {
         address_entry_id: address_id.to_string(),
         sender_entry_id: sender_id.clone(),
@@ -1000,12 +1000,14 @@ mod tests {
       }],
     };
 
-    create_postcard_sends_batch_impl(&pool, input.clone())
+    let first = create_postcard_sends_batch_impl(&pool, input.clone())
       .await
       .expect("first batch create");
-    create_postcard_sends_batch_impl(&pool, input)
+    assert!(!first.skipped);
+    let second = create_postcard_sends_batch_impl(&pool, input)
       .await
       .expect("retry should be idempotent Ok");
+    assert!(!second.skipped);
 
     let count: i64 = sqlx::query_scalar(
       "SELECT COUNT(*) FROM postcard_sends WHERE print_job_id = ? AND deleted_at IS NULL",
@@ -1042,6 +1044,50 @@ mod tests {
   }
 
   #[tokio::test]
+  async fn create_postcard_sends_batch_skips_nenga_outside_season() {
+    let pool = setup_pool().await;
+    let address_id = Uuid::new_v4();
+    insert_address_entry(&pool, address_id, false).await;
+    create_sender_entry_impl(&pool, sample_sender_dto("テスト印刷差出人"))
+      .await
+      .expect("create sender");
+    let sender_id = fetch_sender_id_by_label(&pool, "テスト印刷差出人").await;
+
+    let print_job_id = Uuid::new_v4().to_string();
+    let result = create_postcard_sends_batch_impl(
+      &pool,
+      CreatePostcardSendsBatchInput {
+        print_job_id: print_job_id.clone(),
+        postcard_type: "nenga".to_string(),
+        items: vec![CreatePostcardSendItemDto {
+          address_entry_id: address_id.to_string(),
+          sender_entry_id: sender_id.clone(),
+          address_snapshot: sample_address_snapshot(&address_id.to_string()),
+          sender_snapshot: sample_sender_snapshot(&sender_id),
+        }],
+      },
+    )
+    .await
+    .expect("out-of-season nenga should succeed as skip");
+
+    let month = chrono::Datelike::month(&chrono::Local::now().date_naive());
+    if (2..=10).contains(&month) {
+      assert!(result.skipped);
+      assert_eq!(result.reason.as_deref(), Some("test_print"));
+      let count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM postcard_sends WHERE print_job_id = ? AND deleted_at IS NULL",
+      )
+      .bind(&print_job_id)
+      .fetch_one(&pool)
+      .await
+      .unwrap();
+      assert_eq!(count, 0);
+    } else {
+      assert!(!result.skipped);
+    }
+  }
+
+  #[tokio::test]
   async fn create_postcard_sends_batch_dedupes_duplicate_address_in_same_batch() {
     let pool = setup_pool().await;
     let address_id = Uuid::new_v4();
@@ -1060,13 +1106,14 @@ mod tests {
     };
     let input = CreatePostcardSendsBatchInput {
       print_job_id: print_job_id.clone(),
-      postcard_type: "nenga".to_string(),
+      postcard_type: "mochu".to_string(),
       items: vec![item.clone(), item],
     };
 
-    create_postcard_sends_batch_impl(&pool, input)
+    let result = create_postcard_sends_batch_impl(&pool, input)
       .await
       .expect("duplicate address in batch should succeed after dedupe");
+    assert!(!result.skipped);
 
     let count: i64 = sqlx::query_scalar(
       "SELECT COUNT(*) FROM postcard_sends WHERE print_job_id = ? AND deleted_at IS NULL",
@@ -1196,7 +1243,7 @@ mod tests {
       &pool,
       CreatePostcardSendsBatchInput {
         print_job_id: print_job_id.to_string(),
-        postcard_type: "nenga".to_string(),
+        postcard_type: "mochu".to_string(),
         items: vec![CreatePostcardSendItemDto {
           address_entry_id: address_id.to_string(),
           sender_entry_id: sender_id.clone(),

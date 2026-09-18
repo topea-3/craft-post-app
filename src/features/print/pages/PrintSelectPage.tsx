@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { Link, useNavigate } from 'react-router-dom'
 import { PaginationControls } from '../../../components/PaginationControls'
@@ -8,10 +8,18 @@ import {
   formatPostalCode,
 } from '../../address/types'
 import { useAddressEntryList } from '../../address/useAddressEntryList'
-import { filterActiveAddressEntryIds, resolvePrintJobItems } from '../api'
+import {
+  filterActiveAddressEntryIds,
+  listMochuReceiptAddressEntryIds,
+  resolvePrintJobItems,
+} from '../api'
 import { usePrintJobDraft } from '../hooks/usePrintJobDraft'
+import { usePrintPostcardType } from '../hooks/usePrintPostcardType'
+import { useSendYearDecision } from '../hooks/useSendYearDecision'
+import { PrintTestPrintBanner } from '../components/PrintTestPrintBanner'
 import {
   PRINT_EXCLUDED_BANNER,
+  PRINT_MOCHU_STATUS_LABEL,
   PRINT_NO_VALID_ITEMS_MESSAGE,
   PRINT_OPERATION_ERROR_MESSAGE,
   PRINT_PRUNE_MESSAGE,
@@ -32,6 +40,8 @@ const PAGE_SIZE = 20
 
 export function PrintSelectPage() {
   const navigate = useNavigate()
+  const { postcardType } = usePrintPostcardType()
+  const { decision, isTestPrint } = useSendYearDecision(postcardType)
   const {
     selectedIds,
     excludedAlerts,
@@ -48,6 +58,7 @@ export function PrintSelectPage() {
   const [pruneMessage, setPruneMessage] = useState<string | null>(null)
   const [bannerError, setBannerError] = useState<string | null>(null)
   const [senderLabels, setSenderLabels] = useState<Record<string, string | null>>({})
+  const [mochuIds, setMochuIds] = useState<Set<string>>(() => new Set())
   const [resolving, setResolving] = useState(false)
   const pruneDoneRef = useRef(false)
 
@@ -90,6 +101,37 @@ export function PrintSelectPage() {
     // intentionally once on mount
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // 喪中除外: 年賀状かつ送付年が決まっているときのみ
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      if (postcardType !== 'nenga' || decision?.kind !== 'year') {
+        if (!cancelled) setMochuIds(new Set())
+        return
+      }
+      try {
+        const ids = await listMochuReceiptAddressEntryIds(decision.year - 1)
+        if (cancelled) return
+        const set = new Set(ids)
+        setMochuIds(set)
+        // draft に喪中が残っていれば外す
+        setSelectedIds((prev) => {
+          const next = prev.filter((id) => !set.has(id))
+          return next.length === prev.length ? prev : next
+        })
+      } catch (e) {
+        if (cancelled) return
+        console.error('list_mochu_receipt_address_entry_ids failed:', e)
+        setMochuIds(new Set())
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [postcardType, decision, setSelectedIds])
+
+  const mochuIdSet = useMemo(() => mochuIds, [mochuIds])
 
   // Resolve sender link labels for visible rows
   useEffect(() => {
@@ -145,7 +187,8 @@ export function PrintSelectPage() {
     .filter((item) => {
       const known = Object.prototype.hasOwnProperty.call(senderLabels, item.id)
       const senderLabel = senderLabels[item.id]
-      return known && senderLabel !== null
+      const isMochu = mochuIdSet.has(item.id)
+      return known && senderLabel !== null && !isMochu
     })
     .map((item) => item.id)
 
@@ -240,6 +283,8 @@ export function PrintSelectPage() {
         </p>
       </div>
 
+      <PrintTestPrintBanner visible={isTestPrint} />
+
       <div className="print-page-toolbar">
         <label className="print-search-label">
           <span>検索</span>
@@ -304,8 +349,17 @@ export function PrintSelectPage() {
             {items.map((item) => {
               const senderLabel = senderLabels[item.id]
               const known = Object.prototype.hasOwnProperty.call(senderLabels, item.id)
-              const excluded = known && senderLabel === null
+              const isMochu = mochuIdSet.has(item.id)
+              const senderExcluded = known && senderLabel === null
+              const excluded = senderExcluded || isMochu
               const checked = selectedIds.includes(item.id)
+              const statusLabel = !known
+                ? '確認中'
+                : isMochu
+                  ? PRINT_MOCHU_STATUS_LABEL
+                  : senderExcluded
+                    ? '除外'
+                    : 'OK'
               return (
                 <tr key={item.id} className={excluded ? 'print-select-row-excluded' : undefined}>
                   <td>
@@ -324,7 +378,7 @@ export function PrintSelectPage() {
                   </td>
                   <td>{formatAddressSingleLine(item.address)}</td>
                   <td>{known ? (senderLabel ?? '（未紐づけ）') : '…'}</td>
-                  <td>{known ? (excluded ? '除外' : 'OK') : '確認中'}</td>
+                  <td>{statusLabel}</td>
                 </tr>
               )
             })}
@@ -367,7 +421,7 @@ export function PrintSelectPage() {
             onClick={handleProceed}
             disabled={resolving || selectedCount === 0}
           >
-            {resolving ? '確認中…' : 'プレビューへ進む →'}
+            {resolving ? '確認中…' : '確認へ進む →'}
           </button>
         </div>
       </div>

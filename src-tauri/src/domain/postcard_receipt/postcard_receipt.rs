@@ -1,4 +1,4 @@
-use chrono::{DateTime, Local, NaiveDate, Utc};
+use chrono::{DateTime, Datelike, Local, NaiveDate, Utc};
 use uuid::Uuid;
 
 use crate::domain::address::memo::{Memo, MemoError};
@@ -41,6 +41,7 @@ pub struct PostcardReceipt {
   address_entry_id: Option<Uuid>,
   sender_display_name: Option<String>,
   received_at: NaiveDate,
+  receipt_year: i32,
   category: PostcardReceiptCategory,
   memo: Option<Memo>,
   deleted_at: Option<DateTime<Utc>>,
@@ -88,6 +89,7 @@ impl PostcardReceipt {
       address_entry_id,
       sender_display_name: Self::normalize_sender_display_name(sender_display_name),
       received_at,
+      receipt_year: received_at.year(),
       category,
       memo,
       deleted_at: None,
@@ -97,6 +99,7 @@ impl PostcardReceipt {
   }
 
   /// DB 再構成。時刻依存の未来日検証は行わない（TZ/時計変更後も既存行を読めるようにする）。
+  /// `receipt_year` は常に `received_at.year()` から導出する。
   pub fn from_persisted(
     id: PostcardReceiptId,
     address_entry_id: Option<Uuid>,
@@ -114,6 +117,7 @@ impl PostcardReceipt {
       address_entry_id,
       sender_display_name: Self::normalize_sender_display_name(sender_display_name),
       received_at,
+      receipt_year: received_at.year(),
       category,
       memo,
       deleted_at,
@@ -199,6 +203,10 @@ impl PostcardReceipt {
     self.received_at
   }
 
+  pub fn receipt_year(&self) -> i32 {
+    self.receipt_year
+  }
+
   pub fn category(&self) -> PostcardReceiptCategory {
     self.category
   }
@@ -268,6 +276,7 @@ mod tests {
     )
     .expect("local today must be allowed");
     assert_eq!(receipt.received_at(), fixed_today());
+    assert_eq!(receipt.receipt_year(), 2025);
   }
 
   #[test]
@@ -302,6 +311,7 @@ mod tests {
     )
     .expect("persisted future-looking date must load");
     assert_eq!(receipt.received_at(), tomorrow);
+    assert_eq!(receipt.receipt_year(), tomorrow.year());
   }
 
   #[test]
@@ -342,6 +352,7 @@ mod tests {
     )
     .expect("unchanged future-looking date must be allowed on update");
     assert_eq!(receipt.received_at(), tomorrow);
+    assert_eq!(receipt.receipt_year(), tomorrow.year());
   }
 
   #[test]

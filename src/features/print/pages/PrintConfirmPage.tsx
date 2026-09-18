@@ -2,6 +2,9 @@ import { useEffect, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { resolvePrintJobItems } from '../api'
 import { usePrintJobDraft } from '../hooks/usePrintJobDraft'
+import { usePrintPostcardType } from '../hooks/usePrintPostcardType'
+import { useSendYearDecision } from '../hooks/useSendYearDecision'
+import { PrintTestPrintBanner } from '../components/PrintTestPrintBanner'
 import {
   PRINT_NO_VALID_ITEMS_MESSAGE,
   PRINT_OPERATION_ERROR_MESSAGE,
@@ -26,6 +29,8 @@ export function PrintConfirmPage() {
   const location = useLocation()
   const state = (location.state ?? {}) as LocationState
   const { selectedIds, removeIds, setExcludedAlerts, clearDraft } = usePrintJobDraft()
+  const { postcardType } = usePrintPostcardType()
+  const { isTestPrint } = useSendYearDecision(postcardType)
 
   const [items, setItems] = useState<PrintJobItem[]>(state.items ?? [])
   const [excluded, setExcluded] = useState<ExcludedAlert[]>(state.excludedAlerts ?? [])
@@ -103,6 +108,8 @@ export function PrintConfirmPage() {
       <div className="print-page-header">
         <h1 className="print-page-title">印刷内容の確認</h1>
       </div>
+
+      <PrintTestPrintBanner visible={isTestPrint} />
 
       <p>以下の宛名と差出人で印刷します。（差出人の変更はできません）</p>
 

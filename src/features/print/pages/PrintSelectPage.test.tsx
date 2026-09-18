@@ -50,6 +50,12 @@ describe('PrintSelectPage bulk selection', () => {
     )
 
     invokeMock.mockImplementation(async (cmd: string, args?: unknown) => {
+      if (cmd === 'resolve_send_year') {
+        return { kind: 'test_print', year: null }
+      }
+      if (cmd === 'list_mochu_receipt_address_entry_ids') {
+        return []
+      }
       if (cmd === 'search_address_entries') {
         return {
           items: [addressDto('a1', '山田'), addressDto('a2', '佐藤'), addressDto('a3', '鈴木')],
@@ -112,6 +118,12 @@ describe('PrintSelectPage bulk selection', () => {
     })
 
     invokeMock.mockImplementation(async (cmd: string, args?: unknown) => {
+      if (cmd === 'resolve_send_year') {
+        return { kind: 'test_print', year: null }
+      }
+      if (cmd === 'list_mochu_receipt_address_entry_ids') {
+        return []
+      }
       if (cmd === 'search_address_entries') {
         return {
           items: [addressDto('a1', '山田')],
@@ -166,6 +178,12 @@ describe('PrintSelectPage bulk selection', () => {
     sessionStorage.setItem('printJobDraft', JSON.stringify({ addressEntryIds: preselected }))
 
     invokeMock.mockImplementation(async (cmd: string, args?: unknown) => {
+      if (cmd === 'resolve_send_year') {
+        return { kind: 'test_print', year: null }
+      }
+      if (cmd === 'list_mochu_receipt_address_entry_ids') {
+        return []
+      }
       if (cmd === 'search_address_entries') {
         return {
           items: [addressDto('a1', '山田')],

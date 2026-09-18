@@ -57,6 +57,7 @@ export type UsePostcardReceiptFormResult = {
   isDirty: boolean
   setLinkMode: (mode: PostcardReceiptFormValues['linkMode']) => void
   setAddressEntry: (id: string, displayName: string) => void
+  setAddressEntries: (entries: { id: string; displayName: string }[]) => void
   clearAddressEntry: () => void
   updateReceivedAt: (value: string) => void
   updateCategory: (value: PostcardReceiptFormValues['category']) => void
@@ -84,7 +85,7 @@ const validateForm = (
     errors.senderDisplayName = '送り主の表示名を入力してください。'
   }
 
-  if (values.linkMode === 'address' && !values.addressEntryId) {
+  if (values.linkMode === 'address' && values.addressEntries.length === 0) {
     errors.addressEntryId = '住所録から送り主を選択してください。'
   }
 
@@ -98,7 +99,7 @@ const validateForm = (
 
 const usePostcardReceiptFormBase = (
   initialValues: PostcardReceiptFormValues,
-  submitToServer: (dto: PostcardReceiptDtoInput) => Promise<void>,
+  submitToServer: (dto: PostcardReceiptDtoInput, values: PostcardReceiptFormValues) => Promise<void>,
   onSuccess: () => void,
   baselineReceivedAt?: string,
 ): UsePostcardReceiptFormResult => {
@@ -144,7 +145,7 @@ const usePostcardReceiptFormBase = (
     setSubmitting(true)
     try {
       const dto = toPostcardReceiptDtoInput(values)
-      await submitToServer(dto)
+      await submitToServer(dto, values)
       if (cancelledRef.current) {
         return false
       }
@@ -175,8 +176,11 @@ const usePostcardReceiptFormBase = (
     isDirty,
     setLinkMode: (linkMode) => patchValues({ linkMode }),
     setAddressEntry: (addressEntryId, addressEntryDisplayName) =>
-      patchValues({ addressEntryId, addressEntryDisplayName }),
-    clearAddressEntry: () => patchValues({ addressEntryId: null, addressEntryDisplayName: null }),
+      patchValues({
+        addressEntries: [{ id: addressEntryId, displayName: addressEntryDisplayName }],
+      }),
+    setAddressEntries: (addressEntries) => patchValues({ addressEntries }),
+    clearAddressEntry: () => patchValues({ addressEntries: [] }),
     updateReceivedAt: (receivedAt) => patchValues({ receivedAt }),
     updateCategory: (category) => patchValues({ category }),
     updateSenderDisplayName: (senderDisplayName) => patchValues({ senderDisplayName }),
@@ -188,7 +192,19 @@ const usePostcardReceiptFormBase = (
 export function usePostcardReceiptForm(onSuccess: (id: string) => void): UsePostcardReceiptFormResult {
   const initialValues = useMemo(() => createInitialPostcardReceiptFormValues(), [])
   const createdIdRef = useRef<string | null>(null)
-  const submitToServer = useCallback(async (dto: PostcardReceiptDtoInput) => {
+  const submitToServer = useCallback(async (dto: PostcardReceiptDtoInput, values: PostcardReceiptFormValues) => {
+    if (values.linkMode === 'address' && values.addressEntries.length >= 1) {
+      const ids = await invoke<string[]>('create_postcard_receipts_batch', {
+        input: {
+          address_entry_ids: values.addressEntries.map((e) => e.id),
+          received_at: values.receivedAt,
+          category: values.category,
+          memo: values.memo.trim() || null,
+        },
+      })
+      createdIdRef.current = ids[0] ?? null
+      return
+    }
     createdIdRef.current = await invoke<string>('create_postcard_receipt', { dto })
   }, [])
   return usePostcardReceiptFormBase(initialValues, submitToServer, () => {
@@ -204,7 +220,7 @@ export function usePostcardReceiptEditForm(
   onSuccess: () => void,
 ): UsePostcardReceiptFormResult {
   const submitToServer = useCallback(
-    async (dto: PostcardReceiptDtoInput) => {
+    async (dto: PostcardReceiptDtoInput, _values: PostcardReceiptFormValues) => {
       await invoke('update_postcard_receipt', {
         id,
         dto,

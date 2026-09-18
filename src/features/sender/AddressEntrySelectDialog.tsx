@@ -10,12 +10,25 @@ type Props = {
   isOpen: boolean
   excludeIds?: string[]
   onClose: () => void
-  onSelect: (item: AddressEntryListItem) => boolean | Promise<boolean> | void
+  /** 単一選択（従来） */
+  onSelect?: (item: AddressEntryListItem) => boolean | Promise<boolean> | void
+  /** 複数選択モード */
+  mode?: 'single' | 'multi'
+  initialSelectedIds?: string[]
+  onSelectMany?: (items: AddressEntryListItem[]) => void
 }
 
 const PAGE_SIZE = 10
 
-export function AddressEntrySelectDialog({ isOpen, excludeIds = [], onClose, onSelect }: Props) {
+export function AddressEntrySelectDialog({
+  isOpen,
+  excludeIds = [],
+  onClose,
+  onSelect,
+  mode = 'single',
+  initialSelectedIds = [],
+  onSelectMany,
+}: Props) {
   const [keyword, setKeyword] = useState('')
   const [page, setPage] = useState(1)
   const [items, setItems] = useState<AddressEntryListItem[]>([])
@@ -23,6 +36,7 @@ export function AddressEntrySelectDialog({ isOpen, excludeIds = [], onClose, onS
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [selectingId, setSelectingId] = useState<string | null>(null)
+  const [selectedMap, setSelectedMap] = useState<Map<string, AddressEntryListItem>>(() => new Map())
 
   const totalPages = useMemo(() => Math.max(1, Math.ceil(total / PAGE_SIZE)), [total])
   const currentPage = Math.min(page, totalPages)
@@ -31,6 +45,11 @@ export function AddressEntrySelectDialog({ isOpen, excludeIds = [], onClose, onS
     () => items.filter((i) => !excludeSet.has(i.id)),
     [excludeSet, items],
   )
+
+  useEffect(() => {
+    if (!isOpen) return
+    setSelectedMap(new Map())
+  }, [isOpen, initialSelectedIds])
 
   useEffect(() => {
     if (!isOpen) return
@@ -79,7 +98,7 @@ export function AddressEntrySelectDialog({ isOpen, excludeIds = [], onClose, onS
   if (!isOpen) return null
 
   const handleSelect = async (item: AddressEntryListItem) => {
-    if (selectingId) return
+    if (selectingId || !onSelect) return
     setSelectingId(item.id)
     try {
       const shouldClose = await onSelect(item)
@@ -90,6 +109,23 @@ export function AddressEntrySelectDialog({ isOpen, excludeIds = [], onClose, onS
       setSelectingId(null)
     }
   }
+
+  const toggleMulti = (item: AddressEntryListItem) => {
+    setSelectedMap((prev) => {
+      const next = new Map(prev)
+      if (next.has(item.id)) next.delete(item.id)
+      else next.set(item.id, item)
+      return next
+    })
+  }
+
+  const handleConfirmMulti = () => {
+    if (!onSelectMany) return
+    onSelectMany([...selectedMap.values()])
+    onClose()
+  }
+
+  const selectedCount = selectedMap.size
 
   return (
     <div className="dialog-overlay" role="dialog" aria-modal="true">
@@ -113,6 +149,10 @@ export function AddressEntrySelectDialog({ isOpen, excludeIds = [], onClose, onS
             />
           </label>
 
+          {mode === 'multi' ? (
+            <p className="address-list-meta">選択中: {selectedCount} 件</p>
+          ) : null}
+
           {isLoading ? <p className="address-list-loading">読み込み中です…</p> : null}
           {error ? <p className="address-list-error">{error}</p> : null}
 
@@ -124,10 +164,11 @@ export function AddressEntrySelectDialog({ isOpen, excludeIds = [], onClose, onS
             <table className="address-list-table" aria-label="宛名選択テーブル">
               <thead>
                 <tr>
+                  {mode === 'multi' ? <th scope="col">選択</th> : null}
                   <th scope="col">宛名</th>
                   <th scope="col">郵便番号</th>
                   <th scope="col">住所</th>
-                  <th scope="col">操作</th>
+                  {mode === 'single' ? <th scope="col">操作</th> : null}
                 </tr>
               </thead>
               <tbody>
@@ -135,8 +176,19 @@ export function AddressEntrySelectDialog({ isOpen, excludeIds = [], onClose, onS
                   const displayName = formatDisplayName(a.primaryName, a.coRecipients)
                   const postal = formatPostalCode(a.postalCode)
                   const address = formatAddressSingleLine(a.address)
+                  const checked = selectedMap.has(a.id)
                   return (
                     <tr key={a.id} className="address-list-row">
+                      {mode === 'multi' ? (
+                        <td>
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => toggleMulti(a)}
+                            aria-label={`${displayName} を選択`}
+                          />
+                        </td>
+                      ) : null}
                       <td>
                         <span className="address-list-name">{displayName}</span>
                         <span className="address-list-honorific">{a.honorific}</span>
@@ -145,17 +197,19 @@ export function AddressEntrySelectDialog({ isOpen, excludeIds = [], onClose, onS
                       <td className="address-list-address" title={address}>
                         {address}
                       </td>
-                      <td className="address-list-actions">
-                        <button
-                          type="button"
-                          disabled={selectingId !== null}
-                          onClick={() => {
-                            void handleSelect(a)
-                          }}
-                        >
-                          {selectingId === a.id ? '選択中…' : '選択'}
-                        </button>
-                      </td>
+                      {mode === 'single' ? (
+                        <td className="address-list-actions">
+                          <button
+                            type="button"
+                            disabled={selectingId !== null}
+                            onClick={() => {
+                              void handleSelect(a)
+                            }}
+                          >
+                            {selectingId === a.id ? '選択中…' : '選択'}
+                          </button>
+                        </td>
+                      ) : null}
                     </tr>
                   )
                 })}
@@ -169,9 +223,19 @@ export function AddressEntrySelectDialog({ isOpen, excludeIds = [], onClose, onS
             onPrev={() => setPage((p) => Math.max(1, p - 1))}
             onNext={() => setPage((p) => Math.min(totalPages, p + 1))}
           />
+
+          {mode === 'multi' ? (
+            <div className="dialog-footer-actions">
+              <button type="button" className="secondary" onClick={onClose}>
+                キャンセル
+              </button>
+              <button type="button" onClick={handleConfirmMulti} disabled={selectedCount === 0}>
+                選択を確定（{selectedCount}）
+              </button>
+            </div>
+          ) : null}
         </div>
       </div>
     </div>
   )
 }
-

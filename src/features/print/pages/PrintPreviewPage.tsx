@@ -20,11 +20,13 @@ import {
   PRINT_RESNAPSHOT_FAILED_MESSAGE,
   PRINT_RESOLVE_INVALID_MESSAGE,
   PRINT_SEND_FAILED_MESSAGE,
-  PRINT_TYPE_CHANGE_UNSAVED_MESSAGE,
+  PRINT_TEST_PRINT_INFO_MESSAGE,
   PRINT_UNSAVED_LEAVE_MESSAGE,
 } from '../messages'
-import type { ExcludedAlert, PostcardType, PrintJobItem } from '../types'
+import type { ExcludedAlert, PrintJobItem } from '../types'
 import { parseAddressEntriesInvalidError, POSTCARD_TYPE_OPTIONS } from '../types'
+import { PrintTestPrintBanner } from '../components/PrintTestPrintBanner'
+import { useSendYearDecision } from '../hooks/useSendYearDecision'
 
 type LocationState = {
   items?: PrintJobItem[]
@@ -36,7 +38,8 @@ export function PrintPreviewPage() {
   const location = useLocation()
   const state = (location.state ?? {}) as LocationState
   const { selectedIds, removeIds, setExcludedAlerts, clearDraft } = usePrintJobDraft()
-  const { postcardType, setPostcardType } = usePrintPostcardType()
+  const { postcardType } = usePrintPostcardType()
+  const { isTestPrint } = useSendYearDecision(postcardType)
 
   const [items, setItems] = useState<PrintJobItem[]>(state.items ?? [])
   const [pageExcludedAlerts, setPageExcludedAlerts] = useState<ExcludedAlert[]>(
@@ -51,7 +54,7 @@ export function PrintPreviewPage() {
   const [pendingSnapshots, setPendingSnapshots] = useState<PrintJobItem[] | null>(null)
   const [pendingDownloadOnly, setPendingDownloadOnly] = useState(false)
   const pendingPdfRef = useRef<{ save: (name?: string) => void } | null>(null)
-  const pendingTypeRef = useRef<PostcardType | null>(null)
+  const pendingTypeRef = useRef<typeof postcardType | null>(null)
   const printingRef = useRef(false)
   const bypassBlockerRef = useRef(false)
 
@@ -164,15 +167,6 @@ export function PrintPreviewPage() {
     navigate('/addresses')
   }
 
-  const handleTypeChange = (next: PostcardType) => {
-    if (next === postcardType) return
-    if (job.isDirty && !window.confirm(PRINT_TYPE_CHANGE_UNSAVED_MESSAGE)) {
-      return
-    }
-    job.discardDirtyOffsets()
-    setPostcardType(next)
-  }
-
   const handleSavePrefs = async () => {
     const ok = await job.savePrefs()
     if (ok) setStatusMessage(PRINT_PREFS_SAVED_MESSAGE)
@@ -227,12 +221,14 @@ export function PrintPreviewPage() {
         return
       }
 
+      let skippedTestPrint = false
       try {
-        await createPostcardSendsBatch({
+        const batchResult = await createPostcardSendsBatch({
           printJobId,
           postcardType: typeAtStart,
           items: withVisibility,
         })
+        skippedTestPrint = Boolean(batchResult.skipped)
       } catch (sendErr) {
         console.error('create_postcard_sends_batch failed:', sendErr)
         setPendingPrintJobId(printJobId)
@@ -244,7 +240,7 @@ export function PrintPreviewPage() {
         return
       }
 
-      // 送付成功後は保留ジョブを解放してから PDF 保存（save 失敗を送付失敗と誤認しない）
+      // 送付成功（またはテスト印刷スキップ）後は保留ジョブを解放してから PDF 保存
       printJobId = null
       setPendingPrintJobId(null)
       setPendingSnapshots(null)
@@ -253,7 +249,9 @@ export function PrintPreviewPage() {
         pdf.save(`postcard-address-${Date.now()}.pdf`)
         pendingPdfRef.current = null
         setPendingDownloadOnly(false)
-        setStatusMessage(PRINT_COMPLETE_MESSAGE)
+        setStatusMessage(
+          skippedTestPrint ? PRINT_TEST_PRINT_INFO_MESSAGE : PRINT_COMPLETE_MESSAGE,
+        )
       } catch (saveErr) {
         console.error('pdf.save failed after send:', saveErr)
         pendingPdfRef.current = pdf
@@ -333,20 +331,10 @@ export function PrintPreviewPage() {
           ← 戻る
         </button>
         <h1 className="print-page-title">印刷プレビュー</h1>
-        <label className="print-type-select">
-          <span>種別</span>
-          <select
-            value={postcardType}
-            onChange={(e) => handleTypeChange(e.target.value as PostcardType)}
-            disabled={busy || !job.prefsReady || !!pendingPrintJobId || pendingDownloadOnly}
-          >
-            {POSTCARD_TYPE_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value}>
-                {opt.label}
-              </option>
-            ))}
-          </select>
-        </label>
+        <p className="print-type-fixed" aria-label="はがき種別">
+          種別:{' '}
+          {POSTCARD_TYPE_OPTIONS.find((o) => o.value === postcardType)?.label ?? postcardType}
+        </p>
         <button
           type="button"
           onClick={() => job.resetOffsets(job.selectedLayerId ?? undefined)}
@@ -386,6 +374,8 @@ export function PrintPreviewPage() {
           キャンセル
         </button>
       </div>
+
+      <PrintTestPrintBanner visible={isTestPrint} />
 
       {items.length > 1 && (
         <div className="print-page-nav">

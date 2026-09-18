@@ -24,7 +24,10 @@ export const PRINT_UNSAVED_LEAVE_MESSAGE =
   '未保存の位置調整があります。このまま移動しますか？'
 export const PRINT_TYPE_CHANGE_UNSAVED_MESSAGE =
   '未保存の位置調整があります。種別を切り替えますか？（調整は失われます）'
-export const PRINT_PREFS_SAVED_MESSAGE = 'レイアウト調整を保存しました。'
+export const PRINT_PREFS_SAVED_MESSAGE = 'レイアウトを保存しました。'
+export const PRINT_TEST_PRINT_INFO_MESSAGE =
+  '現在はテスト印刷期間です。印刷はできますが、送付履歴は作成されません。'
+export const PRINT_MOCHU_STATUS_LABEL = '喪中'
 export const PRINT_COMPLETE_MESSAGE =
   'PDF を保存しました。必要に応じて PDF ビューアから印刷してください。'
 export const PRINT_EXCLUDED_BANNER = (count: number) =>

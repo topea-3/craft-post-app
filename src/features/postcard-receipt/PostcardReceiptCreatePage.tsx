@@ -36,7 +36,7 @@ export function PostcardReceiptCreatePage() {
           キャンセル
         </button>
       </header>
-      <PostcardReceiptForm form={form} onCancel={handleCancel} />
+      <PostcardReceiptForm form={form} onCancel={handleCancel} allowMultiAddress />
     </div>
   )
 }

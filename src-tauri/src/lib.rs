@@ -36,6 +36,7 @@ use crate::domain::print::postcard_send_repository::{
 };
 use crate::domain::print::postcard_send_source::PostcardSendSource;
 use crate::domain::print::postcard_type::PostcardType;
+use crate::domain::print::send_year::{decide_send_year, SendYearDecision};
 use crate::domain::print::print_layout_preference::PrintLayoutPreference;
 use crate::domain::print::print_layout_preference_repository::PrintLayoutPreferenceRepository;
 use crate::domain::print::print_snapshot::{
@@ -116,6 +117,10 @@ const SEND_CONFLICT_MESSAGE: &str =
 const SEND_INVALID_STATUS_MESSAGE: &str = "status must be 'sent' or 'unsent'";
 const SEND_BATCH_EMPTY_MESSAGE: &str = "items must contain at least 1 entry";
 const SEND_BATCH_TOO_MANY_MESSAGE: &str = "items must not exceed 200 entries";
+const SEND_TEST_PRINT_OUT_OF_SEASON_MESSAGE: &str =
+  "この時期の年賀状送付は登録できません。送付日を 1 月または 11〜12 月にしてください。";
+const RECEIPT_BATCH_EMPTY_MESSAGE: &str = "住所録を 1 件以上選択してください。";
+const RECEIPT_BATCH_DUPLICATE_MESSAGE: &str = "宛名が重複しています。";
 
 fn map_sender_write_error(e: SenderRepositoryError, log_context: &str, fallback_code: &str) -> AppError {
   match e {
@@ -167,13 +172,16 @@ pub fn run() {
       set_api_log_debug_directory,
       set_api_log_debug_enabled,
       create_postcard_receipt,
+      create_postcard_receipts_batch,
       update_postcard_receipt,
       get_postcard_receipt,
       search_postcard_receipts,
       list_postcard_receipt_years,
+      list_mochu_receipt_address_entry_ids,
       delete_postcard_receipt,
       filter_active_address_entry_ids,
       resolve_print_job_items,
+      resolve_send_year,
       build_address_print_snapshot,
       build_sender_print_snapshot,
       list_print_layout_preferences,
@@ -1063,7 +1071,7 @@ async fn validate_active_address_entries(
   Ok(())
 }
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
 pub struct PostcardReceiptDtoInput {
   pub address_entry_id: Option<String>,
   pub sender_display_name: Option<String>,
@@ -1288,6 +1296,71 @@ async fn create_postcard_receipt_impl(
 }
 
 #[tauri::command]
+async fn create_postcard_receipts_batch(
+  pool: State<'_, SqlitePool>,
+  input: CreatePostcardReceiptsBatchInput,
+) -> Result<Vec<String>, String> {
+  create_postcard_receipts_batch_impl(pool.inner(), input).await
+}
+
+async fn create_postcard_receipts_batch_impl(
+  pool: &SqlitePool,
+  input: CreatePostcardReceiptsBatchInput,
+) -> Result<Vec<String>, String> {
+  if input.address_entry_ids.is_empty() {
+    return Err(postcard_command_error(AppError::Validation(
+      RECEIPT_BATCH_EMPTY_MESSAGE.to_string(),
+    )));
+  }
+  if input.address_entry_ids.len() > MAX_PAGE_LIMIT as usize {
+    return Err(postcard_command_error(AppError::Validation(format!(
+      "limit must be between 1 and {}",
+      MAX_PAGE_LIMIT
+    ))));
+  }
+
+  let mut seen = std::collections::HashSet::new();
+  for id in &input.address_entry_ids {
+    if !seen.insert(id.clone()) {
+      return Err(postcard_command_error(AppError::Validation(
+        RECEIPT_BATCH_DUPLICATE_MESSAGE.to_string(),
+      )));
+    }
+  }
+
+  let mut ids = Vec::with_capacity(input.address_entry_ids.len());
+  let repo = SqlxPostcardReceiptRepository::new(pool.clone());
+  for address_id in input.address_entry_ids {
+    let dto = PostcardReceiptDtoInput {
+      address_entry_id: Some(address_id),
+      sender_display_name: None,
+      received_at: input.received_at.clone(),
+      category: input.category.clone(),
+      memo: input.memo.clone(),
+    };
+    let (address_entry_id, sender_display_name, received_at, category, memo) =
+      build_postcard_receipt_values_from_input(pool, dto, None).await?;
+    let receipt = PostcardReceipt::create_new(
+      address_entry_id,
+      sender_display_name,
+      received_at,
+      category,
+      memo,
+    )
+    .map_err(|e| postcard_command_error(map_postcard_receipt_error(e)))?;
+    let id = receipt.id().as_uuid().to_string();
+    repo
+      .create(&receipt, None)
+      .await
+      .map_err(|e| {
+        map_postcard_receipt_write_error(e, "create_postcard_receipts_batch", "RECEIPT_CREATE_FAILED")
+      })?;
+    ids.push(id);
+  }
+  Ok(ids)
+}
+
+#[tauri::command]
 async fn update_postcard_receipt(
   pool: State<'_, SqlitePool>,
   id: String,
@@ -1501,6 +1574,50 @@ async fn list_postcard_receipt_years_impl(pool: &SqlitePool) -> Result<Vec<i32>,
 }
 
 #[tauri::command]
+async fn list_mochu_receipt_address_entry_ids(
+  pool: State<'_, SqlitePool>,
+  receipt_year: i32,
+) -> Result<Vec<String>, String> {
+  list_mochu_receipt_address_entry_ids_impl(pool.inner(), receipt_year).await
+}
+
+async fn list_mochu_receipt_address_entry_ids_impl(
+  pool: &SqlitePool,
+  receipt_year: i32,
+) -> Result<Vec<String>, String> {
+  let repo = SqlxPostcardReceiptRepository::new(pool.clone());
+  let ids = repo
+    .list_mochu_address_entry_ids(receipt_year)
+    .await
+    .map_err(|e| {
+      log::error!("list_mochu_receipt_address_entry_ids failed: {:?}", e);
+      String::from(AppError::Repository("RECEIPT_LIST_MOCHU_FAILED".to_string()))
+    })?;
+  Ok(ids.into_iter().map(|id| id.to_string()).collect())
+}
+
+#[tauri::command]
+async fn resolve_send_year(postcard_type: String) -> Result<ResolveSendYearResult, String> {
+  resolve_send_year_impl(postcard_type).await
+}
+
+async fn resolve_send_year_impl(postcard_type: String) -> Result<ResolveSendYearResult, String> {
+  let postcard_type = PostcardType::from_str(&postcard_type)
+    .map_err(|e| String::from(AppError::Validation(e.to_string())))?;
+  let today = PostcardSend::local_today();
+  Ok(match decide_send_year(postcard_type, today) {
+    SendYearDecision::Year(year) => ResolveSendYearResult {
+      kind: "year".to_string(),
+      year: Some(year),
+    },
+    SendYearDecision::TestPrint => ResolveSendYearResult {
+      kind: "test_print".to_string(),
+      year: None,
+    },
+  })
+}
+
+#[tauri::command]
 async fn delete_postcard_receipt(pool: State<'_, SqlitePool>, id: String) -> Result<(), String> {
   delete_postcard_receipt_impl(pool.inner(), id).await
 }
@@ -1604,6 +1721,29 @@ pub struct CreatePostcardSendsBatchInput {
   /// `"nenga"` | `"mochu"`
   pub postcard_type: String,
   pub items: Vec<CreatePostcardSendItemDto>,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
+pub struct CreatePostcardSendsBatchResult {
+  pub skipped: bool,
+  #[serde(default)]
+  pub reason: Option<String>,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
+pub struct ResolveSendYearResult {
+  pub kind: String,
+  #[serde(default)]
+  pub year: Option<i32>,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
+pub struct CreatePostcardReceiptsBatchInput {
+  pub address_entry_ids: Vec<String>,
+  pub received_at: String,
+  pub category: String,
+  #[serde(default)]
+  pub memo: Option<String>,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
@@ -2193,18 +2333,30 @@ async fn save_print_layout_preferences_impl(
 async fn create_postcard_sends_batch(
   pool: State<'_, SqlitePool>,
   input: CreatePostcardSendsBatchInput,
-) -> Result<(), String> {
+) -> Result<CreatePostcardSendsBatchResult, String> {
   create_postcard_sends_batch_impl(pool.inner(), input).await
 }
 
 async fn create_postcard_sends_batch_impl(
   pool: &SqlitePool,
   input: CreatePostcardSendsBatchInput,
-) -> Result<(), String> {
+) -> Result<CreatePostcardSendsBatchResult, String> {
   let print_job_id = Uuid::parse_str(&input.print_job_id)
     .map_err(|e| String::from(AppError::Validation(e.to_string())))?;
   let postcard_type = PostcardType::from_str(&input.postcard_type)
     .map_err(|e| String::from(AppError::Validation(e.to_string())))?;
+
+  // テスト印刷期間の年賀状は送付履歴を作らない
+  let today = PostcardSend::local_today();
+  if matches!(
+    decide_send_year(postcard_type, today),
+    SendYearDecision::TestPrint
+  ) {
+    return Ok(CreatePostcardSendsBatchResult {
+      skipped: true,
+      reason: Some("test_print".to_string()),
+    });
+  }
 
   if input.items.len() > MAX_PRINT_ADDRESS_ENTRY_IDS {
     return Err(String::from(AppError::Validation(format!(
@@ -2260,7 +2412,10 @@ async fn create_postcard_sends_batch_impl(
 
   let repo = SqlxPostcardSendRepository::new(pool.clone());
   match repo.create_batch(&sends).await {
-    Ok(()) => Ok(()),
+    Ok(()) => Ok(CreatePostcardSendsBatchResult {
+      skipped: false,
+      reason: None,
+    }),
     Err(PostcardSendRepositoryError::Conflict) => {
       // 正しい再試行のみ冪等成功: 要求 ID がすべて既存であること
       let existing = repo
@@ -2279,7 +2434,10 @@ async fn create_postcard_sends_batch_impl(
           .iter()
           .all(|id| existing_set.contains(id))
       {
-        Ok(())
+        Ok(CreatePostcardSendsBatchResult {
+          skipped: false,
+          reason: None,
+        })
       } else {
         Err(String::from(AppError::Repository(
           "PRINT_SEND_CREATE_FAILED".to_string(),
@@ -2299,6 +2457,9 @@ fn map_postcard_send_error(err: PostcardSendError) -> AppError {
   match err {
     PostcardSendError::FutureSentDate => {
       AppError::Validation(SEND_FUTURE_DATE_MESSAGE.to_string())
+    }
+    PostcardSendError::TestPrintOutOfSeason => {
+      AppError::Validation(SEND_TEST_PRINT_OUT_OF_SEASON_MESSAGE.to_string())
     }
     PostcardSendError::InvalidMemo(_) => {
       AppError::Validation(SEND_MEMO_TOO_LONG_MESSAGE.to_string())
