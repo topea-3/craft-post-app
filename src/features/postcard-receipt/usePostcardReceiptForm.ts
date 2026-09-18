@@ -220,7 +220,7 @@ export function usePostcardReceiptEditForm(
   onSuccess: () => void,
 ): UsePostcardReceiptFormResult {
   const submitToServer = useCallback(
-    async (dto: PostcardReceiptDtoInput, _values: PostcardReceiptFormValues) => {
+    async (dto: PostcardReceiptDtoInput) => {
       await invoke('update_postcard_receipt', {
         id,
         dto,
