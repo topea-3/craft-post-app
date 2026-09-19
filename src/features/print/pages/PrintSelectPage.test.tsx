@@ -218,3 +218,110 @@ describe('PrintSelectPage bulk selection', () => {
     expect(screen.getByText(/選択: 200 \/ /)).toBeInTheDocument()
   })
 })
+
+describe('PrintSelectPage mourning gate', () => {
+  beforeEach(() => {
+    sessionStorage.clear()
+    invokeMock.mockReset()
+  })
+
+  function mockNengaYear(opts: {
+    mochuIds?: string[]
+    mochuReject?: boolean
+    items?: AddressEntryDto[]
+  }) {
+    invokeMock.mockImplementation(async (cmd: string, args?: unknown) => {
+      if (cmd === 'resolve_send_year') {
+        return { kind: 'year', year: 2026 }
+      }
+      if (cmd === 'list_mochu_receipt_address_entry_ids') {
+        if (opts.mochuReject) throw new Error('mochu lookup failed')
+        return opts.mochuIds ?? []
+      }
+      if (cmd === 'search_address_entries') {
+        return {
+          items: opts.items ?? [
+            addressDto('a1', '山田'),
+            addressDto('a2', '佐藤'),
+          ],
+          total: opts.items?.length ?? 2,
+        }
+      }
+      if (cmd === 'get_sender_id_by_address_entry_id') {
+        return `sender-${(args as { addressEntryId: string }).addressEntryId}`
+      }
+      if (cmd === 'get_sender_entry') {
+        return { label: '自宅', archived: false }
+      }
+      if (cmd === 'filter_active_address_entry_ids') {
+        return (args as { addressEntryIds: string[] }).addressEntryIds
+      }
+      throw new Error(`unexpected command ${cmd}`)
+    })
+  }
+
+  it('marks mochu rows disabled and excludes them from page OK select', async () => {
+    const user = userEvent.setup()
+    mockNengaYear({ mochuIds: ['a1'] })
+
+    render(
+      <MemoryRouter>
+        <PrintSelectPage />
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText('喪中')).toBeInTheDocument()
+    })
+    const yamada = screen.getByRole('checkbox', { name: '山田 太郎 を選択' })
+    const sato = screen.getByRole('checkbox', { name: '佐藤 太郎 を選択' })
+    expect(yamada).toBeDisabled()
+    expect(sato).toBeEnabled()
+
+    await user.click(screen.getByRole('button', { name: 'このページのOKを選択' }))
+    await waitFor(() => {
+      expect(yamada).not.toBeChecked()
+      expect(sato).toBeChecked()
+    })
+    expect(screen.getByText(/選択: 1 \/ /)).toBeInTheDocument()
+  })
+
+  it('prunes mochu ids from draft after list loads', async () => {
+    sessionStorage.setItem(
+      'printJobDraft',
+      JSON.stringify({ addressEntryIds: ['a1', 'a2'] }),
+    )
+    mockNengaYear({ mochuIds: ['a1'] })
+
+    render(
+      <MemoryRouter>
+        <PrintSelectPage />
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText(/選択: 1 \/ /)).toBeInTheDocument()
+    })
+    expect(screen.getByRole('checkbox', { name: '山田 太郎 を選択' })).not.toBeChecked()
+    expect(screen.getByRole('checkbox', { name: '佐藤 太郎 を選択' })).toBeChecked()
+  })
+
+  it('blocks proceed when mochu list fails', async () => {
+    mockNengaYear({ mochuReject: true })
+
+    render(
+      <MemoryRouter>
+        <PrintSelectPage />
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(
+          '喪中情報の取得に失敗しました。年賀状の選択を続行できません。時間をおいて再度お試しください。',
+        ),
+      ).toBeInTheDocument()
+    })
+    expect(screen.getByRole('button', { name: '確認へ進む →' })).toBeDisabled()
+  })
+})

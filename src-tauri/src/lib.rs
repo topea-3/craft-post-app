@@ -121,6 +121,7 @@ const SEND_TEST_PRINT_OUT_OF_SEASON_MESSAGE: &str =
   "この時期の年賀状送付は登録できません。送付日を 1 月または 11〜12 月にしてください。";
 const RECEIPT_BATCH_EMPTY_MESSAGE: &str = "住所録を 1 件以上選択してください。";
 const RECEIPT_BATCH_DUPLICATE_MESSAGE: &str = "宛名が重複しています。";
+const RECEIPT_BATCH_TOO_MANY_MESSAGE: &str = "一度に登録できるのは 200 件までです。";
 const PRINT_MOCHU_IN_BATCH_MESSAGE: &str =
   "喪中の宛名が含まれているため送付記録を作成できません。印刷対象を見直してください。";
 
@@ -1315,10 +1316,9 @@ async fn create_postcard_receipts_batch_impl(
     )));
   }
   if input.address_entry_ids.len() > MAX_PAGE_LIMIT as usize {
-    return Err(postcard_command_error(AppError::Validation(format!(
-      "limit must be between 1 and {}",
-      MAX_PAGE_LIMIT
-    ))));
+    return Err(postcard_command_error(AppError::Validation(
+      RECEIPT_BATCH_TOO_MANY_MESSAGE.to_string(),
+    )));
   }
 
   let mut seen = std::collections::HashSet::new();

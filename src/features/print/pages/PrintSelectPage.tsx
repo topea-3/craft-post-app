@@ -61,14 +61,21 @@ export function PrintSelectPage() {
   const [bannerError, setBannerError] = useState<string | null>(null)
   const [senderLabels, setSenderLabels] = useState<Record<string, string | null>>({})
   const [mochuIds, setMochuIds] = useState<Set<string>>(() => new Set())
-  const [mochuLoading, setMochuLoading] = useState(false)
+  /** 未取得を ready と誤認しないよう初期 true（fail-closed） */
+  const [mochuLoading, setMochuLoading] = useState(true)
+  const [mochuFetchedYear, setMochuFetchedYear] = useState<number | null>(null)
   const [mochuError, setMochuError] = useState(false)
   const [resolving, setResolving] = useState(false)
   const pruneDoneRef = useRef(false)
 
   const needsMochuGate = postcardType === 'nenga' && decision?.kind === 'year'
   const sendYearReady = decision != null && !sendYearError
-  const mochuReady = !needsMochuGate || (!mochuLoading && !mochuError)
+  const mochuReady =
+    !needsMochuGate ||
+    (!mochuLoading &&
+      !mochuError &&
+      decision?.kind === 'year' &&
+      mochuFetchedYear === decision.year)
   /** 年賀状で送付年／喪中が未確定・失敗の間は選択追加と進行を止める（fail-closed） */
   const mourningGateBlocked = postcardType === 'nenga' && (!sendYearReady || !mochuReady)
 
@@ -121,17 +128,21 @@ export function PrintSelectPage() {
           setMochuIds(new Set())
           setMochuLoading(false)
           setMochuError(false)
+          setMochuFetchedYear(null)
         }
         return
       }
+      const targetYear = decision.year
       setMochuLoading(true)
       setMochuError(false)
+      setMochuFetchedYear(null)
       try {
-        const ids = await listMochuReceiptAddressEntryIds(decision.year - 1)
+        const ids = await listMochuReceiptAddressEntryIds(targetYear - 1)
         if (cancelled) return
         const set = new Set(ids)
         setMochuIds(set)
         setMochuError(false)
+        setMochuFetchedYear(targetYear)
         // draft に喪中が残っていれば外す
         setSelectedIds((prev) => {
           const next = prev.filter((id) => !set.has(id))
@@ -141,6 +152,7 @@ export function PrintSelectPage() {
         if (cancelled) return
         console.error('list_mochu_receipt_address_entry_ids failed:', e)
         setMochuIds(new Set())
+        setMochuFetchedYear(null)
         setMochuError(true)
       } finally {
         if (!cancelled) setMochuLoading(false)
@@ -285,11 +297,14 @@ export function PrintSelectPage() {
       )
       return
     }
-    // 進行直前に喪中 ID を再除外（draft 残存・レース対策）
-    const proceedIds =
-      needsMochuGate && mochuIdSet.size > 0
-        ? selectedIds.filter((id) => !mochuIdSet.has(id))
-        : selectedIds
+    if (needsMochuGate && (decision?.kind !== 'year' || mochuFetchedYear !== decision.year)) {
+      setBannerError(PRINT_SEND_YEAR_PENDING_MESSAGE)
+      return
+    }
+    // 進行直前に喪中 ID を再除外（空 Set＝取得済み 0 件も正しく扱う）
+    const proceedIds = needsMochuGate
+      ? selectedIds.filter((id) => !mochuIdSet.has(id))
+      : selectedIds
     if (proceedIds.length !== selectedIds.length) {
       setSelectedIds(proceedIds)
     }

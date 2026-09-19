@@ -20,6 +20,7 @@ import {
   PRINT_RESNAPSHOT_FAILED_MESSAGE,
   PRINT_RESOLVE_INVALID_MESSAGE,
   PRINT_SEND_FAILED_MESSAGE,
+  PRINT_MOCHU_IN_BATCH_MESSAGE,
   PRINT_TEST_PRINT_INFO_MESSAGE,
   PRINT_UNSAVED_LEAVE_MESSAGE,
 } from '../messages'
@@ -31,6 +32,11 @@ import { useSendYearDecision } from '../hooks/useSendYearDecision'
 type LocationState = {
   items?: PrintJobItem[]
   excludedAlerts?: ExcludedAlert[]
+}
+
+function isMochuSendBatchError(error: unknown): boolean {
+  const text = typeof error === 'string' ? error : String(error ?? '')
+  return text.includes('喪中')
 }
 
 export function PrintPreviewPage() {
@@ -231,6 +237,14 @@ export function PrintPreviewPage() {
         skippedTestPrint = Boolean(batchResult.skipped)
       } catch (sendErr) {
         console.error('create_postcard_sends_batch failed:', sendErr)
+        if (isMochuSendBatchError(sendErr)) {
+          // 再試行しても同じ失敗になるため、保留ジョブにせず対象選択へ戻す案内
+          printJobId = null
+          pendingPdfRef.current = pdf
+          setPendingDownloadOnly(true)
+          setError(PRINT_MOCHU_IN_BATCH_MESSAGE)
+          return
+        }
         setPendingPrintJobId(printJobId)
         setPendingSnapshots(withVisibility)
         pendingTypeRef.current = typeAtStart
@@ -297,6 +311,14 @@ export function PrintPreviewPage() {
       }
     } catch (e) {
       console.error('retry send failed:', e)
+      if (isMochuSendBatchError(e)) {
+        setPendingPrintJobId(null)
+        setPendingSnapshots(null)
+        pendingTypeRef.current = null
+        setPendingDownloadOnly(Boolean(pendingPdfRef.current))
+        setError(PRINT_MOCHU_IN_BATCH_MESSAGE)
+        return
+      }
       setError(PRINT_SEND_FAILED_MESSAGE)
     } finally {
       setBusy(false)
@@ -400,6 +422,22 @@ export function PrintPreviewPage() {
       )}
 
       {error && <p className="print-error">{error}</p>}
+      {error === PRINT_MOCHU_IN_BATCH_MESSAGE && (
+        <p className="print-page-actions">
+          <button
+            type="button"
+            className="btn btn-label btn-normal"
+            onClick={() => {
+              if (!confirmLeaveIfDirty()) return
+              bypassBlockerRef.current = true
+              navigate('/print/select')
+            }}
+            disabled={busy}
+          >
+            対象選択に戻る
+          </button>
+        </p>
+      )}
       {statusMessage && <p className="print-status">{statusMessage}</p>}
       {job.prefsError && <p className="print-error">{job.prefsError}</p>}
       {!job.prefsReady && (

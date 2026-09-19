@@ -103,7 +103,10 @@ export async function resolveSendYear(postcardType: PostcardType): Promise<SendY
   if (raw.kind === 'year' && typeof raw.year === 'number') {
     return { kind: 'year', year: raw.year }
   }
-  return { kind: 'test_print' }
+  if (raw.kind === 'test_print') {
+    return { kind: 'test_print' }
+  }
+  throw new Error(`unexpected resolve_send_year response: kind=${raw.kind}`)
 }
 
 export async function listMochuReceiptAddressEntryIds(receiptYear: number): Promise<string[]> {
