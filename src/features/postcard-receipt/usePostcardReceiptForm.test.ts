@@ -44,7 +44,7 @@ describe('usePostcardReceiptForm', () => {
     expect(ok).toBe(true)
     expect(result.current.errors.memo).toBeUndefined()
     expect(invokeMock).toHaveBeenCalledTimes(1)
-    expect(onSuccess).toHaveBeenCalledWith('receipt-new')
+    expect(onSuccess).toHaveBeenCalledWith('receipt-new', 1)
   })
 
   it('rejects memo that exceeds 1000 unicode characters including emoji', async () => {
@@ -144,7 +144,31 @@ describe('usePostcardReceiptForm', () => {
       resolveInvoke?.()
       await first!
     })
-    expect(onSuccess).toHaveBeenCalledWith('receipt-new')
+    expect(onSuccess).toHaveBeenCalledWith('receipt-new', 1)
+  })
+
+  it('calls onSuccess with created count for batch create', async () => {
+    const onSuccess = vi.fn()
+    invokeMock.mockResolvedValueOnce(['r1', 'r2', 'r3'])
+
+    const { result } = renderHook(() => usePostcardReceiptForm(onSuccess))
+
+    act(() => {
+      result.current.setLinkMode('address')
+      result.current.setAddressEntries([
+        { id: 'a1', displayName: '山田' },
+        { id: 'a2', displayName: '佐藤' },
+        { id: 'a3', displayName: '鈴木' },
+      ])
+    })
+
+    let ok = false
+    await act(async () => {
+      ok = await result.current.submit()
+    })
+
+    expect(ok).toBe(true)
+    expect(onSuccess).toHaveBeenCalledWith('r1', 3)
   })
 
   it('passes expectedUpdatedAt when editing', async () => {
@@ -154,8 +178,7 @@ describe('usePostcardReceiptForm', () => {
       category: 'nenga',
       memo: '更新後',
       linkMode: 'displayName',
-      addressEntryId: null,
-      addressEntryDisplayName: null,
+      addressEntries: [],
       senderDisplayName: '田中家',
     }
 

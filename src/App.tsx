@@ -18,6 +18,7 @@ import { PostcardSendDetailPage } from './features/postcard-send/PostcardSendDet
 import { PostcardSendEditPage } from './features/postcard-send/PostcardSendEditPage'
 import { PostcardSendBulkPage } from './features/postcard-send/PostcardSendBulkPage'
 import { PrintSelectPage } from './features/print/pages/PrintSelectPage'
+import { PrintTypePage } from './features/print/pages/PrintTypePage'
 import { PrintConfirmPage } from './features/print/pages/PrintConfirmPage'
 import { PrintPreviewPage } from './features/print/pages/PrintPreviewPage'
 
@@ -30,7 +31,7 @@ function AppLayout() {
     { to: '/receipts', label: '受取履歴一覧' },
     { to: '/receipts/new', label: '受取履歴新規作成' },
     { to: '/sends', label: '送付履歴' },
-    { to: '/print/select', label: '宛名印刷' },
+    { to: '/print/type', label: '宛名印刷' },
   ]
 
   return (
@@ -81,6 +82,7 @@ const router = createBrowserRouter([
       { path: 'sends/bulk', element: <PostcardSendBulkPage /> },
       { path: 'sends/:id', element: <PostcardSendDetailPage /> },
       { path: 'sends/:id/edit', element: <PostcardSendEditPage /> },
+      { path: 'print/type', element: <PrintTypePage /> },
       { path: 'print/select', element: <PrintSelectPage /> },
       { path: 'print/confirm', element: <PrintConfirmPage /> },
       { path: 'print/preview', element: <PrintPreviewPage /> },

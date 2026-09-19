@@ -3,6 +3,7 @@
 - **画面ID**: `REC002`
 - **画面名**: 受取履歴新規作成
 - **設計書**: `docs/design/postcard-receipt-v1-design.md`
+- **TOP-34**: [mochu-print-exclusion-v1-design.md](../../design/mochu-print-exclusion-v1-design.md) — 種別デフォルト常時年賀状。住所録は複数選択
 
 ---
 
@@ -16,8 +17,8 @@
 
 | 項目名 | UI コンポーネント | 対応ドメイン | 備考 |
 | --- | --- | --- | --- |
-| 受取日 | date input | `receivedAt` | **必須**。未来日不可 |
-| 種別 | セレクト | `category` | **必須**。年賀状 / 喪中はがき / その他 |
+| 受取日 | date input | `receivedAt` | **必須**。未来日不可。保存時に `receipt_year` = 受取日の西暦 |
+| 種別 | セレクト | `category` | **必須**。年賀状 / 喪中はがき / その他。**デフォルト: 年賀状** |
 | メモ | テキストエリア | `memo` | 任意。最大 1000 文字想定 |
 
 #### 1.2 送り主
@@ -25,18 +26,18 @@
 | 項目名 | UI コンポーネント | 対応ドメイン | 備考 |
 | --- | --- | --- | --- |
 | 紐付け方法 | ラジオ | — | 「住所録から選ぶ」/ 「表示名のみ」 |
-| 住所録 | 選択ボタン + 選択結果表示 | `addressEntryId` | active の AddressEntry のみ |
+| 住所録 | 選択ボタン + 選択結果表示 | `addressEntryId`（複数可） | active の AddressEntry のみ。**チェックボックス複数選択** |
 | 表示名 | テキスト入力 | `senderDisplayName` | 未紐付け時 **必須** |
 
-- 「住所録から選ぶ」選択時: AddressEntry 選択ダイアログを表示（既存パターン再利用）
-- 「表示名のみ」選択時: `addressEntryId` は null、`senderDisplayName` を入力
+- 「住所録から選ぶ」選択時: AddressEntry 選択ダイアログ（チェックボックス複数）。住所録 1 件につき受取 1 件を作成
+- 「表示名のみ」選択時: `addressEntryId` は null、`senderDisplayName` を入力（単件）
 
 ---
 
 ### 2. ボタン・アクション
 
 - **キャンセル**: 確認後 → 一覧（`REC001`）
-- **保存**: バリデーション → `create_postcard_receipt` → 詳細（`REC004`）または一覧へ
+- **保存**: バリデーション → 住所録複数時は `create_postcard_receipts_batch`、匿名単件は `create_postcard_receipt` → 詳細（`REC004`）または一覧へ
 
 ---
 
@@ -54,4 +55,5 @@
 ### 4. UX メモ
 
 - 編集画面（`REC003`）とフォームコンポーネント共通化
-- 種別のデフォルト: 「年賀状」（1 月〜2 月想定。固定でなくても可）
+- 種別のデフォルト: **常に「年賀状」**（TOP-34）
+- 住所録から選ぶ: チェックボックス複数選択。1 住所録 = 1 受取（`create_postcard_receipts_batch`）

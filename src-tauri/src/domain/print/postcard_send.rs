@@ -4,6 +4,7 @@ use uuid::Uuid;
 use crate::domain::address::memo::{Memo, MemoError};
 use crate::domain::print::postcard_send_source::PostcardSendSource;
 use crate::domain::print::postcard_type::PostcardType;
+use crate::domain::print::send_year::{decide_send_year, SendYearDecision};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct PostcardSendId(Uuid);
@@ -26,6 +27,10 @@ impl PostcardSendId {
 pub enum PostcardSendError {
   #[error("sent date must not be in the future")]
   FutureSentDate,
+  #[error(
+    "この時期の年賀状送付は登録できません。送付日を 1 月または 11〜12 月にしてください。"
+  )]
+  TestPrintOutOfSeason,
   #[error("invalid memo: {0}")]
   InvalidMemo(#[from] MemoError),
 }
@@ -40,6 +45,7 @@ pub struct PostcardSend {
   address_snapshot: String,
   postcard_type: PostcardType,
   sent_on: NaiveDate,
+  send_year: i32,
   source: PostcardSendSource,
   memo: Option<Memo>,
   created_at: DateTime<Utc>,
@@ -94,6 +100,10 @@ impl PostcardSend {
     today: NaiveDate,
   ) -> Result<Self, PostcardSendError> {
     Self::validate_sent_on_not_future(sent_on, today)?;
+    let send_year = match decide_send_year(postcard_type, sent_on) {
+      SendYearDecision::Year(y) => y,
+      SendYearDecision::TestPrint => return Err(PostcardSendError::TestPrintOutOfSeason),
+    };
     let now = Utc::now();
     Ok(Self {
       id: PostcardSendId::new(),
@@ -104,6 +114,7 @@ impl PostcardSend {
       address_snapshot,
       postcard_type,
       sent_on,
+      send_year,
       source,
       memo,
       created_at: now,
@@ -123,6 +134,7 @@ impl PostcardSend {
     address_snapshot: String,
     postcard_type: PostcardType,
     sent_on: NaiveDate,
+    send_year: i32,
     source: PostcardSendSource,
     memo: Option<Memo>,
     created_at: DateTime<Utc>,
@@ -138,6 +150,7 @@ impl PostcardSend {
       address_snapshot,
       postcard_type,
       sent_on,
+      send_year,
       source,
       memo,
       created_at,
@@ -148,6 +161,7 @@ impl PostcardSend {
 
   /// update 入力境界用: 送付日を変更する場合のみ未来日検証する。
   /// 変更可能なのは `sent_on` / `postcard_type` / `memo` のみ。
+  /// `send_year` は `postcard_type` + `sent_on` から再計算する。
   #[allow(clippy::too_many_arguments)]
   pub fn from_persisted_for_update(
     id: PostcardSendId,
@@ -169,6 +183,10 @@ impl PostcardSend {
     if sent_on != previous_sent_on {
       Self::validate_sent_on_not_future(sent_on, today)?;
     }
+    let send_year = match decide_send_year(postcard_type, sent_on) {
+      SendYearDecision::Year(y) => y,
+      SendYearDecision::TestPrint => return Err(PostcardSendError::TestPrintOutOfSeason),
+    };
     Ok(Self::from_persisted(
       id,
       print_job_id,
@@ -178,6 +196,7 @@ impl PostcardSend {
       address_snapshot,
       postcard_type,
       sent_on,
+      send_year,
       source,
       memo,
       created_at,
@@ -226,6 +245,10 @@ impl PostcardSend {
 
   pub fn sent_on(&self) -> NaiveDate {
     self.sent_on
+  }
+
+  pub fn send_year(&self) -> i32 {
+    self.send_year
   }
 
   pub fn source(&self) -> PostcardSendSource {
@@ -300,6 +323,7 @@ mod tests {
     let sent_on = fixed_today();
     let send = base_create(sent_on, PostcardSendSource::Print, None).expect("create");
     assert_eq!(send.sent_on(), sent_on);
+    assert_eq!(send.send_year(), 2026);
     assert_eq!(send.postcard_type(), PostcardType::Mochu);
     assert_eq!(send.source(), PostcardSendSource::Print);
     assert!(send.memo().is_none());
@@ -318,6 +342,43 @@ mod tests {
   fn create_allows_today() {
     let send = base_create(fixed_today(), PostcardSendSource::Manual, None).expect("today ok");
     assert_eq!(send.sent_on(), fixed_today());
+  }
+
+  #[test]
+  fn create_nenga_rejects_out_of_season() {
+    let err = PostcardSend::create_new_as_of(
+      Uuid::new_v4(),
+      Uuid::new_v4(),
+      Uuid::new_v4(),
+      "{}".to_string(),
+      "{}".to_string(),
+      PostcardType::Nenga,
+      NaiveDate::from_ymd_opt(2026, 6, 15).unwrap(),
+      PostcardSendSource::Manual,
+      None,
+      NaiveDate::from_ymd_opt(2026, 6, 15).unwrap(),
+    )
+    .expect_err("out of season nenga");
+    assert_eq!(err, PostcardSendError::TestPrintOutOfSeason);
+  }
+
+  #[test]
+  fn create_nenga_january_sets_send_year() {
+    let sent_on = NaiveDate::from_ymd_opt(2026, 1, 10).unwrap();
+    let send = PostcardSend::create_new_as_of(
+      Uuid::new_v4(),
+      Uuid::new_v4(),
+      Uuid::new_v4(),
+      "{}".to_string(),
+      "{}".to_string(),
+      PostcardType::Nenga,
+      sent_on,
+      PostcardSendSource::Print,
+      None,
+      fixed_today(),
+    )
+    .expect("january nenga");
+    assert_eq!(send.send_year(), 2026);
   }
 
   #[test]
@@ -346,6 +407,7 @@ mod tests {
       "{}".to_string(),
       PostcardType::Nenga,
       tomorrow,
+      2026,
       PostcardSendSource::Print,
       None,
       Utc::now(),
@@ -353,6 +415,7 @@ mod tests {
       None,
     );
     assert_eq!(send.sent_on(), tomorrow);
+    assert_eq!(send.send_year(), 2026);
   }
 
   #[test]
@@ -401,6 +464,7 @@ mod tests {
     )
     .expect("unchanged future-looking date ok");
     assert_eq!(send.sent_on(), tomorrow);
+    assert_eq!(send.send_year(), 2026);
   }
 
   #[test]

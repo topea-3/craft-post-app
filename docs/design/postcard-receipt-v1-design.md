@@ -179,7 +179,7 @@ CREATE INDEX IF NOT EXISTS idx_postcard_receipts_active_address
 | 条件 | SQL 概要 |
 |------|----------|
 | active のみ | `deleted_at IS NULL` |
-| 年度 | `received_at` が `YYYY-01-01` 〜 `YYYY-12-31` |
+| 年度 | `receipt_year = ?`（TOP-34 以降。旧: `received_at` 範囲） |
 | 種別 | `category = ?` |
 | 相手 | `address_entry_id = ?` |
 | 検索 | `sender_display_name` / `memo` LIKE、または JOIN 先 Address の氏名・住所（search API で OR 結合） |

@@ -85,17 +85,22 @@ mod tests {
 
   async fn seed_receipt(pool: &SqlitePool, address_entry_id: Uuid, received_at: &str) {
     let now = chrono::Utc::now().to_rfc3339();
+    let receipt_year: i32 = received_at
+      .get(0..4)
+      .and_then(|s| s.parse().ok())
+      .unwrap_or(0);
     sqlx::query(
       r#"
         INSERT INTO postcard_receipts (
-          id, address_entry_id, sender_display_name, received_at, category, memo,
+          id, address_entry_id, sender_display_name, received_at, receipt_year, category, memo,
           deleted_at, created_at, updated_at
-        ) VALUES (?, ?, '受取人', ?, 'nenga', NULL, NULL, ?, ?)
+        ) VALUES (?, ?, '受取人', ?, ?, 'nenga', NULL, NULL, ?, ?)
       "#,
     )
     .bind(Uuid::new_v4().to_string())
     .bind(address_entry_id.to_string())
     .bind(received_at)
+    .bind(receipt_year)
     .bind(&now)
     .bind(&now)
     .execute(pool)
@@ -229,7 +234,7 @@ mod tests {
         Uuid::new_v4(),
         sent_id,
         sender_id,
-        NaiveDate::from_ymd_opt(2026, 2, 1).unwrap(),
+        NaiveDate::from_ymd_opt(2026, 1, 15).unwrap(),
         PostcardType::Nenga,
         r#"{"primary_last":"送付","primary_first":"済"}"#,
         r#"{"primary_last":"山田","primary_first":"太郎"}"#,
@@ -325,7 +330,7 @@ mod tests {
         Uuid::new_v4(),
         address_id,
         sender_id,
-        NaiveDate::from_ymd_opt(2024, 6, 1).unwrap(),
+        NaiveDate::from_ymd_opt(2024, 1, 15).unwrap(),
         PostcardType::Nenga,
         r#"{"primary_last":"過去","primary_first":"送付"}"#,
         r#"{"primary_last":"山田","primary_first":"太郎"}"#,
@@ -346,7 +351,7 @@ mod tests {
     assert_eq!(total, 1);
     assert_eq!(
       items[0].last_sent_on,
-      Some(NaiveDate::from_ymd_opt(2024, 6, 1).unwrap())
+      Some(NaiveDate::from_ymd_opt(2024, 1, 15).unwrap())
     );
     assert_eq!(items[0].send_count, 1);
   }
@@ -389,7 +394,7 @@ mod tests {
         Uuid::new_v4(),
         address_id,
         sender_id,
-        NaiveDate::from_ymd_opt(2026, 3, 1).unwrap(),
+        NaiveDate::from_ymd_opt(2026, 1, 5).unwrap(),
         PostcardType::Nenga,
         &address_snapshot,
         r#"{"primary_last":"差出","primary_first":"太郎"}"#,
@@ -450,7 +455,7 @@ mod tests {
         Uuid::new_v4(),
         address_id,
         sender_id,
-        NaiveDate::from_ymd_opt(2026, 3, 2).unwrap(),
+        NaiveDate::from_ymd_opt(2026, 1, 8).unwrap(),
         PostcardType::Nenga,
         r#"{"primary_last":"送付時","primary_first":"太郎"}"#,
         r#"{"primary_last":"差出","primary_first":"太郎"}"#,

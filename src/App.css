@@ -813,6 +813,69 @@ a.btn-icon {
   font-size: 0.9rem;
 }
 
+.print-type-fixed {
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.print-type-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  max-width: 28rem;
+  margin: 0;
+  padding: 1.15rem 1.35rem;
+  border-radius: 0.75rem;
+  border: 1px solid rgba(148, 163, 184, 0.45);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.print-type-panel-title {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+
+.print-type-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  font-size: 0.9rem;
+}
+
+.print-type-field > span:first-child {
+  font-weight: 600;
+  color: #94a3b8;
+  font-size: 0.82rem;
+}
+
+.print-type-field select {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.55rem 0.7rem;
+  border-radius: 0.45rem;
+  border: 1px solid rgba(148, 163, 184, 0.7);
+  font-size: 0.95rem;
+  font-family: inherit;
+  background-color: rgba(15, 23, 42, 0.4);
+  color: inherit;
+}
+
+.print-type-footer {
+  justify-content: flex-end;
+  margin-top: 0.5rem;
+}
+
+.print-test-print-info {
+  margin: 0;
+  padding: 0.65rem 0.85rem;
+  border-radius: 0.5rem;
+  border: 1px solid #94a3b8;
+  background: #f1f5f9;
+  color: #334155;
+  font-size: 0.9rem;
+}
+
 .print-page-nav {
   display: flex;
   align-items: center;

@@ -92,12 +92,38 @@ export type PostcardSendBatchItemInput = {
   sender: SenderPrintSnapshot
 }
 
+export type SendYearDecisionDto =
+  | { kind: 'year'; year: number }
+  | { kind: 'test_print' }
+
+export async function resolveSendYear(postcardType: PostcardType): Promise<SendYearDecisionDto> {
+  const raw = await invoke<{ kind: string; year?: number | null }>('resolve_send_year', {
+    postcardType,
+  })
+  if (raw.kind === 'year' && typeof raw.year === 'number') {
+    return { kind: 'year', year: raw.year }
+  }
+  if (raw.kind === 'test_print') {
+    return { kind: 'test_print' }
+  }
+  throw new Error(`unexpected resolve_send_year response: kind=${raw.kind}`)
+}
+
+export async function listMochuReceiptAddressEntryIds(receiptYear: number): Promise<string[]> {
+  return invoke<string[]>('list_mochu_receipt_address_entry_ids', { receiptYear })
+}
+
+export type CreatePostcardSendsBatchResult = {
+  skipped: boolean
+  reason?: string | null
+}
+
 export async function createPostcardSendsBatch(params: {
   printJobId: string
   postcardType: PostcardType
   items: PostcardSendBatchItemInput[]
-}): Promise<void> {
-  await invoke('create_postcard_sends_batch', {
+}): Promise<CreatePostcardSendsBatchResult> {
+  const result = await invoke<CreatePostcardSendsBatchResult | null>('create_postcard_sends_batch', {
     input: {
       print_job_id: params.printJobId,
       postcard_type: params.postcardType,
@@ -109,6 +135,7 @@ export async function createPostcardSendsBatch(params: {
       })),
     },
   })
+  return result ?? { skipped: false }
 }
 
 /** Re-snapshot all items (all-or-nothing). Throws on any failure. */

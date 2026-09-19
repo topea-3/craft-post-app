@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-  use chrono::NaiveDate;
+  use chrono::{Datelike, NaiveDate};
   use sqlx::SqlitePool;
   use uuid::Uuid;
 
@@ -813,14 +813,15 @@ mod tests {
     sqlx::query(
       r#"
         INSERT INTO postcard_receipts (
-          id, address_entry_id, sender_display_name, received_at, category, memo,
+          id, address_entry_id, sender_display_name, received_at, receipt_year, category, memo,
           deleted_at, created_at, updated_at
-        ) VALUES (?, NULL, ?, ?, 'nenga', NULL, NULL, ?, ?)
+        ) VALUES (?, NULL, ?, ?, ?, 'nenga', NULL, NULL, ?, ?)
       "#,
     )
     .bind(id.to_string())
     .bind("時計ずれ")
     .bind(tomorrow.format("%Y-%m-%d").to_string())
+    .bind(tomorrow.year())
     .bind(&now)
     .bind(&now)
     .execute(&pool)

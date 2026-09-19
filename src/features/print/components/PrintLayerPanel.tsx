@@ -56,7 +56,7 @@ export function PrintLayerPanel({
         onClick={onSavePrefs}
         disabled={savingPrefs || prefsDisabled}
       >
-        {savingPrefs ? '保存中…' : '調整を保存'}
+        {savingPrefs ? '保存中…' : 'レイアウトを保存する'}
       </button>
     </div>
   )

@@ -16,6 +16,8 @@ export const PRINT_RESOLVE_INVALID_MESSAGE =
 export const PRINT_PDF_FAILED_MESSAGE = 'PDF の生成に失敗しました。'
 export const PRINT_SEND_FAILED_MESSAGE =
   'PDF は生成済みですが、送付記録に失敗しました。再試行してください。'
+export const PRINT_MOCHU_IN_BATCH_MESSAGE =
+  '喪中の宛名が含まれているため送付記録を作成できません。印刷対象を見直してください。'
 export const PRINT_PDF_SAVE_FAILED_AFTER_SEND_MESSAGE =
   '送付記録は完了しました。PDF の保存に失敗したので、再ダウンロードしてください。'
 export const PRINT_RESNAPSHOT_FAILED_MESSAGE =
@@ -24,7 +26,14 @@ export const PRINT_UNSAVED_LEAVE_MESSAGE =
   '未保存の位置調整があります。このまま移動しますか？'
 export const PRINT_TYPE_CHANGE_UNSAVED_MESSAGE =
   '未保存の位置調整があります。種別を切り替えますか？（調整は失われます）'
-export const PRINT_PREFS_SAVED_MESSAGE = 'レイアウト調整を保存しました。'
+export const PRINT_PREFS_SAVED_MESSAGE = 'レイアウトを保存しました。'
+export const PRINT_TEST_PRINT_INFO_MESSAGE =
+  '現在はテスト印刷期間です。印刷はできますが、送付履歴は作成されません。'
+export const PRINT_MOCHU_STATUS_LABEL = '喪中'
+export const PRINT_MOCHU_LOAD_FAILED_MESSAGE =
+  '喪中情報の取得に失敗しました。年賀状の選択を続行できません。時間をおいて再度お試しください。'
+export const PRINT_SEND_YEAR_PENDING_MESSAGE =
+  '送付年の確認中です。しばらくしてから再度お試しください。'
 export const PRINT_COMPLETE_MESSAGE =
   'PDF を保存しました。必要に応じて PDF ビューアから印刷してください。'
 export const PRINT_EXCLUDED_BANNER = (count: number) =>
