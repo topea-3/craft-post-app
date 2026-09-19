@@ -7,7 +7,11 @@ export function PostcardReceiptCreatePage() {
   const navigate = useNavigate()
 
   const handleSuccess = useCallback(
-    (id: string) => {
+    (id: string, createdCount: number) => {
+      if (createdCount > 1) {
+        navigate('/receipts')
+        return
+      }
       navigate(`/receipts/${id}`)
     },
     [navigate],

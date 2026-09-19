@@ -558,6 +558,67 @@ impl PostcardReceiptRepository for SqlxPostcardReceiptRepository {
     }
     Ok(ids)
   }
+
+  async fn create_batch(
+    &self,
+    receipts: &[PostcardReceipt],
+  ) -> Result<(), PostcardReceiptRepositoryError> {
+    if receipts.is_empty() {
+      return Ok(());
+    }
+
+    let mut tx = self.pool.begin().await?;
+    let sql = format!(
+      r#"
+        INSERT INTO postcard_receipts (
+          id, address_entry_id, sender_display_name, received_at, receipt_year, category, memo,
+          deleted_at, created_at, updated_at
+        )
+        SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+        WHERE {pred}
+      "#,
+      pred = address_link_predicate_sql_for_create()
+    );
+
+    for receipt in receipts {
+      let id = receipt.id().as_uuid().to_string();
+      let address_entry_id = receipt.address_entry_id().map(|u| u.to_string());
+      let sender_display_name = receipt.sender_display_name().map(str::to_string);
+      let received_at = receipt.received_at().format("%Y-%m-%d").to_string();
+      let receipt_year = receipt.receipt_year();
+      let category = receipt.category().as_str().to_string();
+      let memo = receipt.memo().map(|m| m.text().to_string());
+      let deleted_at = receipt.deleted_at().map(|t| t.to_rfc3339());
+      let created_at = receipt.created_at().to_rfc3339();
+      let updated_at = receipt.updated_at().to_rfc3339();
+
+      let result = sqlx::query(&sql)
+        .bind(&id)
+        .bind(&address_entry_id)
+        .bind(sender_display_name)
+        .bind(received_at)
+        .bind(receipt_year)
+        .bind(category)
+        .bind(memo)
+        .bind(deleted_at)
+        .bind(created_at)
+        .bind(updated_at)
+        .bind(&address_entry_id)
+        .bind(&address_entry_id)
+        .bind(None::<String>)
+        .bind(None::<String>)
+        .execute(&mut *tx)
+        .await?;
+
+      if result.rows_affected() == 0 {
+        drop(tx);
+        return Err(PostcardReceiptRepositoryError::AddressLinkRejected);
+      }
+    }
+
+    tx.commit().await?;
+    Ok(())
+  }
 }
 
 fn bind_search_params<'q>(

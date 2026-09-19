@@ -275,7 +275,7 @@ export function PrintPreviewPage() {
     setError(null)
     const typeForRetry = pendingTypeRef.current ?? postcardType
     try {
-      await createPostcardSendsBatch({
+      const batchResult = await createPostcardSendsBatch({
         printJobId: pendingPrintJobId,
         postcardType: typeForRetry,
         items: pendingSnapshots,
@@ -287,7 +287,9 @@ export function PrintPreviewPage() {
         pendingPdfRef.current?.save(`postcard-address-${Date.now()}.pdf`)
         pendingPdfRef.current = null
         setPendingDownloadOnly(false)
-        setStatusMessage(PRINT_COMPLETE_MESSAGE)
+        setStatusMessage(
+          batchResult.skipped ? PRINT_TEST_PRINT_INFO_MESSAGE : PRINT_COMPLETE_MESSAGE,
+        )
       } catch (saveErr) {
         console.error('pdf.save failed after retry send:', saveErr)
         setPendingDownloadOnly(true)

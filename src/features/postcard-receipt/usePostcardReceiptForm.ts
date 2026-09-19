@@ -189,9 +189,11 @@ const usePostcardReceiptFormBase = (
   }
 }
 
-export function usePostcardReceiptForm(onSuccess: (id: string) => void): UsePostcardReceiptFormResult {
+export function usePostcardReceiptForm(
+  onSuccess: (id: string, createdCount: number) => void,
+): UsePostcardReceiptFormResult {
   const initialValues = useMemo(() => createInitialPostcardReceiptFormValues(), [])
-  const createdIdRef = useRef<string | null>(null)
+  const createdIdsRef = useRef<string[]>([])
   const submitToServer = useCallback(async (dto: PostcardReceiptDtoInput, values: PostcardReceiptFormValues) => {
     if (values.linkMode === 'address' && values.addressEntries.length >= 1) {
       const ids = await invoke<string[]>('create_postcard_receipts_batch', {
@@ -202,14 +204,15 @@ export function usePostcardReceiptForm(onSuccess: (id: string) => void): UsePost
           memo: values.memo.trim() || null,
         },
       })
-      createdIdRef.current = ids[0] ?? null
+      createdIdsRef.current = ids
       return
     }
-    createdIdRef.current = await invoke<string>('create_postcard_receipt', { dto })
+    const id = await invoke<string>('create_postcard_receipt', { dto })
+    createdIdsRef.current = [id]
   }, [])
   return usePostcardReceiptFormBase(initialValues, submitToServer, () => {
-    const id = createdIdRef.current
-    if (id) onSuccess(id)
+    const ids = createdIdsRef.current
+    if (ids.length > 0) onSuccess(ids[0], ids.length)
   })
 }
 

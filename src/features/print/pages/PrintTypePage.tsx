@@ -1,4 +1,5 @@
 import { useNavigate } from 'react-router-dom'
+import { clearPrintJobDraft } from '../hooks/usePrintJobDraft'
 import { usePrintPostcardType } from '../hooks/usePrintPostcardType'
 import { useSendYearDecision } from '../hooks/useSendYearDecision'
 import { PrintTestPrintBanner } from '../components/PrintTestPrintBanner'
@@ -8,7 +9,13 @@ import { POSTCARD_TYPE_OPTIONS, type PostcardType } from '../types'
 export function PrintTypePage() {
   const navigate = useNavigate()
   const { postcardType, setPostcardType } = usePrintPostcardType()
-  const { isTestPrint, error: sendYearError } = useSendYearDecision(postcardType)
+  const { decision, isTestPrint, error: sendYearError } = useSendYearDecision(postcardType)
+  const canProceed = decision != null && !sendYearError
+
+  const handleCancel = () => {
+    clearPrintJobDraft()
+    navigate('/addresses')
+  }
 
   return (
     <div className="print-page">
@@ -47,17 +54,14 @@ export function PrintTypePage() {
 
       <div className="print-page-footer print-type-footer">
         <div className="print-page-actions">
-          <button
-            type="button"
-            className="btn btn-label btn-normal"
-            onClick={() => navigate('/addresses')}
-          >
+          <button type="button" className="btn btn-label btn-normal" onClick={handleCancel}>
             キャンセル
           </button>
           <button
             type="button"
             className="btn btn-label btn-primary print-primary-button"
             onClick={() => navigate('/print/select')}
+            disabled={!canProceed}
           >
             宛名選択画面へ →
           </button>

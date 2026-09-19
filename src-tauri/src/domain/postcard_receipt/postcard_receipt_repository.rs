@@ -172,4 +172,10 @@ pub trait PostcardReceiptRepository {
     &self,
     receipt_year: i32,
   ) -> Result<Vec<Uuid>, PostcardReceiptRepositoryError>;
+
+  /// 複数件を同一トランザクションで INSERT。途中失敗は rollback。
+  async fn create_batch(
+    &self,
+    receipts: &[PostcardReceipt],
+  ) -> Result<(), PostcardReceiptRepositoryError>;
 }

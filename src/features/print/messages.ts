@@ -28,6 +28,10 @@ export const PRINT_PREFS_SAVED_MESSAGE = 'レイアウトを保存しました�
 export const PRINT_TEST_PRINT_INFO_MESSAGE =
   '現在はテスト印刷期間です。印刷はできますが、送付履歴は作成されません。'
 export const PRINT_MOCHU_STATUS_LABEL = '喪中'
+export const PRINT_MOCHU_LOAD_FAILED_MESSAGE =
+  '喪中情報の取得に失敗しました。年賀状の選択を続行できません。時間をおいて再度お試しください。'
+export const PRINT_SEND_YEAR_PENDING_MESSAGE =
+  '送付年の確認中です。しばらくしてから再度お試しください。'
 export const PRINT_COMPLETE_MESSAGE =
   'PDF を保存しました。必要に応じて PDF ビューアから印刷してください。'
 export const PRINT_EXCLUDED_BANNER = (count: number) =>

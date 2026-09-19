@@ -121,6 +121,8 @@ const SEND_TEST_PRINT_OUT_OF_SEASON_MESSAGE: &str =
   "この時期の年賀状送付は登録できません。送付日を 1 月または 11〜12 月にしてください。";
 const RECEIPT_BATCH_EMPTY_MESSAGE: &str = "住所録を 1 件以上選択してください。";
 const RECEIPT_BATCH_DUPLICATE_MESSAGE: &str = "宛名が重複しています。";
+const PRINT_MOCHU_IN_BATCH_MESSAGE: &str =
+  "喪中の宛名が含まれているため送付記録を作成できません。印刷対象を見直してください。";
 
 fn map_sender_write_error(e: SenderRepositoryError, log_context: &str, fallback_code: &str) -> AppError {
   match e {
@@ -1328,11 +1330,11 @@ async fn create_postcard_receipts_batch_impl(
     }
   }
 
-  let mut ids = Vec::with_capacity(input.address_entry_ids.len());
-  let repo = SqlxPostcardReceiptRepository::new(pool.clone());
-  for address_id in input.address_entry_ids {
+  // 先に全件バリデーションしてから一括 INSERT（途中失敗で部分コミットしない）
+  let mut receipts = Vec::with_capacity(input.address_entry_ids.len());
+  for address_id in &input.address_entry_ids {
     let dto = PostcardReceiptDtoInput {
-      address_entry_id: Some(address_id),
+      address_entry_id: Some(address_id.clone()),
       sender_display_name: None,
       received_at: input.received_at.clone(),
       category: input.category.clone(),
@@ -1348,15 +1350,20 @@ async fn create_postcard_receipts_batch_impl(
       memo,
     )
     .map_err(|e| postcard_command_error(map_postcard_receipt_error(e)))?;
-    let id = receipt.id().as_uuid().to_string();
-    repo
-      .create(&receipt, None)
-      .await
-      .map_err(|e| {
-        map_postcard_receipt_write_error(e, "create_postcard_receipts_batch", "RECEIPT_CREATE_FAILED")
-      })?;
-    ids.push(id);
+    receipts.push(receipt);
   }
+
+  let ids: Vec<String> = receipts
+    .iter()
+    .map(|r| r.id().as_uuid().to_string())
+    .collect();
+  let repo = SqlxPostcardReceiptRepository::new(pool.clone());
+  repo
+    .create_batch(&receipts)
+    .await
+    .map_err(|e| {
+      map_postcard_receipt_write_error(e, "create_postcard_receipts_batch", "RECEIPT_CREATE_FAILED")
+    })?;
   Ok(ids)
 }
 
@@ -2334,12 +2341,13 @@ async fn create_postcard_sends_batch(
   pool: State<'_, SqlitePool>,
   input: CreatePostcardSendsBatchInput,
 ) -> Result<CreatePostcardSendsBatchResult, String> {
-  create_postcard_sends_batch_impl(pool.inner(), input).await
+  create_postcard_sends_batch_impl(pool.inner(), input, PostcardSend::local_today()).await
 }
 
 async fn create_postcard_sends_batch_impl(
   pool: &SqlitePool,
   input: CreatePostcardSendsBatchInput,
+  today: chrono::NaiveDate,
 ) -> Result<CreatePostcardSendsBatchResult, String> {
   let print_job_id = Uuid::parse_str(&input.print_job_id)
     .map_err(|e| String::from(AppError::Validation(e.to_string())))?;
@@ -2347,11 +2355,8 @@ async fn create_postcard_sends_batch_impl(
     .map_err(|e| String::from(AppError::Validation(e.to_string())))?;
 
   // テスト印刷期間の年賀状は送付履歴を作らない
-  let today = PostcardSend::local_today();
-  if matches!(
-    decide_send_year(postcard_type, today),
-    SendYearDecision::TestPrint
-  ) {
+  let decision = decide_send_year(postcard_type, today);
+  if matches!(decision, SendYearDecision::TestPrint) {
     return Ok(CreatePostcardSendsBatchResult {
       skipped: true,
       reason: Some("test_print".to_string()),
@@ -2374,6 +2379,29 @@ async fn create_postcard_sends_batch_impl(
     }
   }
 
+  // 防衛: 年賀状かつ送付年決定時は前シーズン喪中宛名を拒否
+  if let (PostcardType::Nenga, SendYearDecision::Year(send_year)) = (postcard_type, decision) {
+    let receipt_repo = SqlxPostcardReceiptRepository::new(pool.clone());
+    let mochu_ids = receipt_repo
+      .list_mochu_address_entry_ids(send_year - 1)
+      .await
+      .map_err(|e| {
+        log::error!("create_postcard_sends_batch mochu lookup failed: {:?}", e);
+        String::from(AppError::Repository("PRINT_SEND_CREATE_FAILED".to_string()))
+      })?;
+    let mochu_set: std::collections::HashSet<Uuid> = mochu_ids.into_iter().collect();
+    for item in &unique_items {
+      let Ok(aid) = Uuid::parse_str(&item.address_entry_id) else {
+        continue;
+      };
+      if mochu_set.contains(&aid) {
+        return Err(postcard_command_error(AppError::Validation(
+          PRINT_MOCHU_IN_BATCH_MESSAGE.to_string(),
+        )));
+      }
+    }
+  }
+
   let mut sends = Vec::with_capacity(unique_items.len());
   for item in unique_items {
     let address_entry_id = Uuid::parse_str(&item.address_entry_id)
@@ -2390,18 +2418,19 @@ async fn create_postcard_sends_batch_impl(
       String::from(AppError::Repository("PRINT_SEND_CREATE_FAILED".to_string()))
     })?;
 
-    // sent_on は create_new 内で Local::now().date_naive()（フロント非送信）
-    // source=print, memo=null
+    // sent_on / 送付年判定は注入した基準日（本番は Local 今日）
     sends.push(
-      PostcardSend::create_new(
+      PostcardSend::create_new_as_of(
         print_job_id,
         address_entry_id,
         sender_entry_id,
         sender_snapshot,
         address_snapshot,
         postcard_type,
+        today,
         PostcardSendSource::Print,
         None,
+        today,
       )
       .map_err(|e| postcard_command_error(map_postcard_send_error(e)))?,
     );

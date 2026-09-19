@@ -16,9 +16,12 @@ type Props = {
   mode?: 'single' | 'multi'
   initialSelectedIds?: string[]
   onSelectMany?: (items: AddressEntryListItem[]) => void
+  /** 複数選択の上限（既定 200） */
+  maxSelection?: number
 }
 
 const PAGE_SIZE = 10
+const DEFAULT_MAX_SELECTION = 200
 
 export function AddressEntrySelectDialog({
   isOpen,
@@ -28,6 +31,7 @@ export function AddressEntrySelectDialog({
   mode = 'single',
   initialSelectedIds = [],
   onSelectMany,
+  maxSelection = DEFAULT_MAX_SELECTION,
 }: Props) {
   const [keyword, setKeyword] = useState('')
   const [page, setPage] = useState(1)
@@ -37,6 +41,7 @@ export function AddressEntrySelectDialog({
   const [error, setError] = useState<string | null>(null)
   const [selectingId, setSelectingId] = useState<string | null>(null)
   const [selectedMap, setSelectedMap] = useState<Map<string, AddressEntryListItem>>(() => new Map())
+  const [selectionLimitMessage, setSelectionLimitMessage] = useState<string | null>(null)
 
   const totalPages = useMemo(() => Math.max(1, Math.ceil(total / PAGE_SIZE)), [total])
   const currentPage = Math.min(page, totalPages)
@@ -45,11 +50,58 @@ export function AddressEntrySelectDialog({
     () => items.filter((i) => !excludeSet.has(i.id)),
     [excludeSet, items],
   )
+  const initialIdKey = initialSelectedIds.join(',')
 
+  // 開いたとき initialSelectedIds を復元（他ページの ID も get_address_entry で補完）
   useEffect(() => {
     if (!isOpen) return
-    setSelectedMap(new Map())
-  }, [isOpen, initialSelectedIds])
+    if (mode !== 'multi') {
+      setSelectedMap(new Map())
+      setSelectionLimitMessage(null)
+      return
+    }
+    let cancelled = false
+    setSelectionLimitMessage(null)
+    if (initialSelectedIds.length === 0) {
+      setSelectedMap(new Map())
+      return
+    }
+    ;(async () => {
+      const next = new Map<string, AddressEntryListItem>()
+      await Promise.all(
+        initialSelectedIds.slice(0, maxSelection).map(async (id) => {
+          try {
+            const dto = await invoke<AddressEntryDto>('get_address_entry', { id })
+            if (!cancelled) next.set(id, fromAddressEntryDto(dto))
+          } catch {
+            // 削除済み等はスキップ
+          }
+        }),
+      )
+      if (!cancelled) setSelectedMap(next)
+    })()
+    return () => {
+      cancelled = true
+    }
+    // initialIdKey で配列内容の変化を検知
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, mode, initialIdKey, maxSelection])
+
+  // 一覧取得後、選択中 ID の行データを最新化
+  useEffect(() => {
+    if (!isOpen || mode !== 'multi') return
+    setSelectedMap((prev) => {
+      if (prev.size === 0) return prev
+      let changed = false
+      const next = new Map(prev)
+      for (const item of items) {
+        if (!next.has(item.id)) continue
+        next.set(item.id, item)
+        changed = true
+      }
+      return changed ? next : prev
+    })
+  }, [items, isOpen, mode])
 
   useEffect(() => {
     if (!isOpen) return
@@ -113,15 +165,24 @@ export function AddressEntrySelectDialog({
   const toggleMulti = (item: AddressEntryListItem) => {
     setSelectedMap((prev) => {
       const next = new Map(prev)
-      if (next.has(item.id)) next.delete(item.id)
-      else next.set(item.id, item)
+      if (next.has(item.id)) {
+        next.delete(item.id)
+        setSelectionLimitMessage(null)
+        return next
+      }
+      if (next.size >= maxSelection) {
+        setSelectionLimitMessage(`最大 ${maxSelection} 件まで選択できます。`)
+        return prev
+      }
+      next.set(item.id, item)
+      setSelectionLimitMessage(null)
       return next
     })
   }
 
   const handleConfirmMulti = () => {
     if (!onSelectMany) return
-    onSelectMany([...selectedMap.values()])
+    onSelectMany([...selectedMap.values()].slice(0, maxSelection))
     onClose()
   }
 
@@ -150,7 +211,14 @@ export function AddressEntrySelectDialog({
           </label>
 
           {mode === 'multi' ? (
-            <p className="address-list-meta">選択中: {selectedCount} 件</p>
+            <p className="address-list-meta">
+              選択中: {selectedCount} / {maxSelection} 件
+            </p>
+          ) : null}
+          {selectionLimitMessage ? (
+            <p className="address-list-error" role="status">
+              {selectionLimitMessage}
+            </p>
           ) : null}
 
           {isLoading ? <p className="address-list-loading">読み込み中です…</p> : null}
