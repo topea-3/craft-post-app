@@ -77,6 +77,8 @@ export function PrintSelectPage() {
   const [targetPruneMessage, setTargetPruneMessage] = useState<string | null>(null)
   const [resolving, setResolving] = useState(false)
   const pruneDoneRef = useRef(false)
+  const selectedIdsRef = useRef(selectedIds)
+  selectedIdsRef.current = selectedIds
 
   const needsMochuGate = postcardType === 'nenga' && decision?.kind === 'year'
   const needsNengaTargetGate = postcardType === 'nenga'
@@ -198,18 +200,14 @@ export function PrintSelectPage() {
       try {
         const ids = await listNengaSendExcludedAddressEntryIds()
         if (cancelled) return
-        const set = new Set(ids)
-        setExcludedTargetIds(set)
+        const excluded = new Set(ids)
+        setExcludedTargetIds(excluded)
         setTargetError(false)
         setTargetReady(true)
-        let removedCount = 0
-        setSelectedIds((prev) => {
-          const next = prev.filter((id) => !set.has(id))
-          removedCount = prev.length - next.length
-          return next.length === prev.length ? prev : next
-        })
-        if (removedCount > 0) {
-          setTargetPruneMessage(PRINT_NENGA_TARGET_PRUNE_MESSAGE(removedCount))
+        const removed = selectedIdsRef.current.filter((id) => excluded.has(id)).length
+        setSelectedIds((prev) => prev.filter((id) => !excluded.has(id)))
+        if (removed > 0) {
+          setTargetPruneMessage(PRINT_NENGA_TARGET_PRUNE_MESSAGE(removed))
         }
       } catch (e) {
         if (cancelled) return

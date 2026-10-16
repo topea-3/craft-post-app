@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { useNavigate } from 'react-router-dom'
 import { PaginationControls } from '../../components/PaginationControls'
 import { Button } from '../../components/ui/Button'
 import {
   ADDRESS_OPERATION_ERROR_MESSAGE,
+  mapNengaTargetInvokeError,
   NENGA_TARGET_REVIEW_CONFIRM_MESSAGE,
   NENGA_TARGET_REVIEW_EMPTY_MESSAGE,
   NENGA_TARGET_REVIEW_LOAD_FAILED_MESSAGE,
@@ -74,9 +75,14 @@ export function NengaTargetReviewPage() {
   const [notice, setNotice] = useState<string | null>(null)
 
   const year = parseReviewYear(yearText)
+  const yearRef = useRef(year)
+  yearRef.current = year
 
   useEffect(() => {
-    if (year == null) return
+    if (year == null) {
+      setIsLoading(false)
+      return
+    }
     let cancelled = false
     ;(async () => {
       try {
@@ -90,7 +96,9 @@ export function NengaTargetReviewPage() {
         console.error('list_nenga_target_review failed:', error)
         setItems([])
         setChecked(new Set())
-        setLoadError(NENGA_TARGET_REVIEW_LOAD_FAILED_MESSAGE)
+        setLoadError(
+          mapNengaTargetInvokeError(error, NENGA_TARGET_REVIEW_LOAD_FAILED_MESSAGE),
+        )
       } finally {
         if (!cancelled) setIsLoading(false)
       }
@@ -158,11 +166,13 @@ export function NengaTargetReviewPage() {
         }
         setNotice(parts.join(''))
       }
-      setIsLoading(true)
-      setReloadKey((key) => key + 1)
+      if (yearRef.current != null) {
+        setIsLoading(true)
+        setReloadKey((key) => key + 1)
+      }
     } catch (error) {
       console.error('disable_nenga_send_targets failed:', error)
-      setNotice(ADDRESS_OPERATION_ERROR_MESSAGE)
+      setNotice(mapNengaTargetInvokeError(error, ADDRESS_OPERATION_ERROR_MESSAGE))
     } finally {
       setIsSubmitting(false)
     }
@@ -190,6 +200,7 @@ export function NengaTargetReviewPage() {
           min={YEAR_MIN}
           max={YEAR_MAX}
           value={yearText}
+          disabled={isSubmitting || isLoading}
           onChange={(e) => handleYearChange(e.target.value)}
         />
       </label>

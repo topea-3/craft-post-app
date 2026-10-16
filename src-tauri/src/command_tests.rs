@@ -1630,7 +1630,52 @@ mod tests {
     let err = list_nenga_target_review_impl(&pool, 1899)
       .await
       .expect_err("year too small");
-    assert!(err.contains("1900 から 2100"));
+    assert_eq!(
+      err,
+      "年賀状年は 1900 から 2100 の範囲で指定してください。"
+    );
+    let err = list_nenga_target_review_impl(&pool, 2101)
+      .await
+      .expect_err("year too large");
+    assert_eq!(
+      err,
+      "年賀状年は 1900 から 2100 の範囲で指定してください。"
+    );
+  }
+
+  #[tokio::test]
+  async fn list_nenga_target_review_rejects_more_than_2000_candidates() {
+    let pool = setup_pool().await;
+    let mut tx = pool.begin().await.unwrap();
+    for _ in 0..2001 {
+      let id = Uuid::new_v4();
+      let now = chrono::Utc::now().to_rfc3339();
+      sqlx::query(
+        r#"
+          INSERT INTO address_entries (
+            id, primary_last, primary_first, primary_kana_last, primary_kana_first,
+            honorific, postal_code, prefecture, city, street, building, memo,
+            archived_at, created_at, updated_at
+          )
+          VALUES (?, '佐藤', '一郎', NULL, NULL, '様', '1234567', '東京都', '千代田区', '1-1-1', NULL, NULL, NULL, ?, ?)
+        "#,
+      )
+      .bind(id.to_string())
+      .bind(&now)
+      .bind(&now)
+      .execute(&mut *tx)
+      .await
+      .unwrap();
+    }
+    tx.commit().await.unwrap();
+
+    let err = list_nenga_target_review_impl(&pool, 2026)
+      .await
+      .expect_err("too many candidates");
+    assert_eq!(
+      err,
+      "候補が 2000 件を超えています。条件を確認してください。"
+    );
   }
 
   #[tokio::test]
@@ -1639,7 +1684,13 @@ mod tests {
     let empty = disable_nenga_send_targets_impl(&pool, vec![])
       .await
       .expect_err("empty");
-    assert!(empty.contains("更新する宛名を選択してください"));
+    assert_eq!(empty, "更新する宛名を選択してください。");
+
+    let too_many: Vec<String> = (0..2001).map(|_| Uuid::new_v4().to_string()).collect();
+    let overflow = disable_nenga_send_targets_impl(&pool, too_many)
+      .await
+      .expect_err("too many ids");
+    assert_eq!(overflow, "一度に更新できるのは 2000 件までです。");
 
     let address_id = Uuid::new_v4();
     insert_address_entry(&pool, address_id, false).await;

@@ -1,9 +1,14 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { invoke } from '@tauri-apps/api/core'
 import { NengaTargetReviewPage } from './NengaTargetReviewPage'
+import {
+  NENGA_TARGET_REVIEW_LOAD_FAILED_MESSAGE,
+  NENGA_TARGET_REVIEW_TOO_MANY_MESSAGE,
+  NENGA_TARGET_YEAR_RANGE_MESSAGE,
+} from './messages'
 
 vi.mock('@tauri-apps/api/core', () => ({
   invoke: vi.fn(),
@@ -71,5 +76,87 @@ describe('NengaTargetReviewPage', () => {
     )
     expect(await screen.findByText('この年賀状年で、送付対象を外す候補はありません。')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '年賀状送付対象外にする' })).toBeDisabled()
+  })
+
+  it('shows updated and skipped counts after disable', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    invokeMock.mockImplementation(async (cmd: string) => {
+      if (cmd === 'list_nenga_target_review') return [reviewItem('a1', '山田')]
+      if (cmd === 'disable_nenga_send_targets') {
+        return { updated_count: 1, skipped_count: 2 }
+      }
+      throw new Error(`unexpected command ${cmd}`)
+    })
+
+    render(
+      <MemoryRouter>
+        <NengaTargetReviewPage />
+      </MemoryRouter>,
+    )
+    await screen.findByRole('checkbox', { name: '山田 太郎 様 を年賀状対象外にする' })
+    await user.click(screen.getByRole('button', { name: '年賀状送付対象外にする' }))
+
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      '1 件を年賀状送付対象外にしました。2 件はすでに対象外かアーカイブ済みのため変更しませんでした。',
+    )
+  })
+
+  it('shows the fixed load failure message and disables the action', async () => {
+    invokeMock.mockRejectedValue('ADDR_NENGA_TARGET_REVIEW_FAILED')
+    render(
+      <MemoryRouter>
+        <NengaTargetReviewPage />
+      </MemoryRouter>,
+    )
+    expect(await screen.findByText(NENGA_TARGET_REVIEW_LOAD_FAILED_MESSAGE)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '年賀状送付対象外にする' })).toBeDisabled()
+  })
+
+  it('shows the design message when more than 2000 candidates are returned', async () => {
+    invokeMock.mockRejectedValue(NENGA_TARGET_REVIEW_TOO_MANY_MESSAGE)
+    render(
+      <MemoryRouter>
+        <NengaTargetReviewPage />
+      </MemoryRouter>,
+    )
+    expect(await screen.findByText(NENGA_TARGET_REVIEW_TOO_MANY_MESSAGE)).toBeInTheDocument()
+    expect(screen.queryByText(NENGA_TARGET_REVIEW_LOAD_FAILED_MESSAGE)).not.toBeInTheDocument()
+  })
+
+  it('does not stay on the loading message when the year is cleared during submit', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    let resolveDisable: (value: { updated_count: number; skipped_count: number }) => void = () => {}
+    const disablePromise = new Promise<{ updated_count: number; skipped_count: number }>(
+      (resolve) => {
+        resolveDisable = resolve
+      },
+    )
+    invokeMock.mockImplementation(async (cmd: string) => {
+      if (cmd === 'list_nenga_target_review') return [reviewItem('a1', '山田')]
+      if (cmd === 'disable_nenga_send_targets') return disablePromise
+      throw new Error(`unexpected command ${cmd}`)
+    })
+
+    render(
+      <MemoryRouter>
+        <NengaTargetReviewPage />
+      </MemoryRouter>,
+    )
+    await screen.findByRole('checkbox', { name: '山田 太郎 様 を年賀状対象外にする' })
+    await user.click(screen.getByRole('button', { name: '年賀状送付対象外にする' }))
+
+    const year = screen.getByRole('spinbutton', { name: '年賀状年' })
+    await waitFor(() => {
+      expect(year).toBeDisabled()
+    })
+    fireEvent.change(year, { target: { value: '' } })
+    resolveDisable({ updated_count: 1, skipped_count: 0 })
+
+    await waitFor(() => {
+      expect(screen.queryByText('読み込み中です…')).not.toBeInTheDocument()
+    })
+    expect(screen.getByText(NENGA_TARGET_YEAR_RANGE_MESSAGE)).toBeInTheDocument()
   })
 })

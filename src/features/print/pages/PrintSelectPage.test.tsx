@@ -409,6 +409,7 @@ describe('PrintSelectPage nenga send target', () => {
 
   it('blocks nenga selection when the excluded list fails', async () => {
     sessionStorage.setItem('printPostcardType', 'nenga')
+    sessionStorage.setItem('printJobDraft', JSON.stringify({ addressEntryIds: ['a1'] }))
     invokeMock.mockImplementation(async (cmd: string) => {
       if (cmd === 'resolve_send_year') return { kind: 'test_print', year: null }
       if (cmd === 'list_mochu_receipt_address_entry_ids') return []
@@ -420,7 +421,7 @@ describe('PrintSelectPage nenga send target', () => {
       }
       if (cmd === 'get_sender_id_by_address_entry_id') return 'sender-a1'
       if (cmd === 'get_sender_entry') return { label: '自宅', archived: false }
-      if (cmd === 'filter_active_address_entry_ids') return []
+      if (cmd === 'filter_active_address_entry_ids') return ['a1']
       throw new Error(`unexpected command ${cmd}`)
     })
     render(
@@ -436,5 +437,57 @@ describe('PrintSelectPage nenga send target', () => {
       ).toBeInTheDocument()
     })
     expect(screen.getByRole('button', { name: 'このページのOKを選択' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '確認へ進む →' })).toBeDisabled()
+  })
+
+  it('keeps proceed disabled while the excluded list is pending when a draft exists', async () => {
+    sessionStorage.setItem('printPostcardType', 'nenga')
+    sessionStorage.setItem('printJobDraft', JSON.stringify({ addressEntryIds: ['a2'] }))
+    let release: (ids: string[]) => void = () => {}
+    const pending = new Promise<string[]>((resolve) => {
+      release = resolve
+    })
+    invokeMock.mockImplementation(async (cmd: string, args?: unknown) => {
+      if (cmd === 'resolve_send_year') return { kind: 'test_print', year: null }
+      if (cmd === 'list_mochu_receipt_address_entry_ids') return []
+      if (cmd === 'list_nenga_send_excluded_address_entry_ids') return pending
+      if (cmd === 'search_address_entries') {
+        return { items: [addressDto('a2', '佐藤')], total: 1 }
+      }
+      if (cmd === 'get_sender_id_by_address_entry_id') {
+        return `sender-${(args as { addressEntryId: string }).addressEntryId}`
+      }
+      if (cmd === 'get_sender_entry') return { label: '自宅', archived: false }
+      if (cmd === 'filter_active_address_entry_ids') {
+        return (args as { addressEntryIds: string[] }).addressEntryIds
+      }
+      throw new Error(`unexpected command ${cmd}`)
+    })
+
+    render(
+      <MemoryRouter>
+        <PrintSelectPage />
+      </MemoryRouter>,
+    )
+    expect(screen.getByRole('button', { name: '確認へ進む →' })).toBeDisabled()
+    release([])
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: '確認へ進む →' })).toBeEnabled()
+    })
+  })
+
+  it('reports how many draft rows were removed as nenga excluded', async () => {
+    sessionStorage.setItem('printJobDraft', JSON.stringify({ addressEntryIds: ['a1', 'a2'] }))
+    mockRows('nenga', ['a1'])
+    render(
+      <MemoryRouter>
+        <PrintSelectPage />
+      </MemoryRouter>,
+    )
+    expect(
+      await screen.findByText('1 件は年賀状送付対象外のため選択から外しました。'),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: '山田 太郎 を選択' })).not.toBeChecked()
+    expect(screen.getByRole('checkbox', { name: '佐藤 太郎 を選択' })).toBeChecked()
   })
 })

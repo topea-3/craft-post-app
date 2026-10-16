@@ -19,3 +19,22 @@ export const NENGA_TARGET_REVIEW_CONFIRM_MESSAGE = (count: number) =>
   `選択した ${count} 件の年賀状送付対象を外します。よろしいですか？`
 export const NENGA_TARGET_YEAR_RANGE_MESSAGE =
   '年賀状年は 1900 から 2100 の範囲で指定してください。'
+export const NENGA_TARGET_REVIEW_TOO_MANY_MESSAGE =
+  '候補が 2000 件を超えています。条件を確認してください。'
+export const NENGA_TARGET_DISABLE_EMPTY_MESSAGE = '更新する宛名を選択してください。'
+export const NENGA_TARGET_DISABLE_TOO_MANY_MESSAGE = '一度に更新できるのは 2000 件までです。'
+
+const NENGA_TARGET_KNOWN_ERROR_MESSAGES = new Set<string>([
+  NENGA_TARGET_YEAR_RANGE_MESSAGE,
+  NENGA_TARGET_REVIEW_TOO_MANY_MESSAGE,
+  NENGA_TARGET_DISABLE_EMPTY_MESSAGE,
+  NENGA_TARGET_DISABLE_TOO_MANY_MESSAGE,
+])
+
+/** 設計で定めた Validation 文言だけをそのまま出し、それ以外は固定メッセージにする。 */
+export function mapNengaTargetInvokeError(error: unknown, fallback: string): string {
+  if (typeof error === 'string' && NENGA_TARGET_KNOWN_ERROR_MESSAGES.has(error)) {
+    return error
+  }
+  return fallback
+}

@@ -748,7 +748,9 @@ async fn list_nenga_target_review_impl(
   year: i32,
 ) -> Result<Vec<NengaTargetReviewItem>, String> {
   if !(NENGA_TARGET_YEAR_MIN..=NENGA_TARGET_YEAR_MAX).contains(&year) {
-    return Err(AppError::Validation(NENGA_TARGET_YEAR_RANGE_MESSAGE.to_string()).to_string());
+    return Err(String::from(AppError::Validation(
+      NENGA_TARGET_YEAR_RANGE_MESSAGE.to_string(),
+    )));
   }
   let repo = SqlxAddressEntryRepository::new(pool.clone());
   let entries = repo
@@ -759,7 +761,9 @@ async fn list_nenga_target_review_impl(
       AppError::Repository("ADDR_NENGA_TARGET_REVIEW_FAILED".to_string())
     })?;
   if entries.len() > NENGA_TARGET_MAX_ROWS as usize {
-    return Err(AppError::Validation(NENGA_TARGET_REVIEW_TOO_MANY_MESSAGE.to_string()).to_string());
+    return Err(String::from(AppError::Validation(
+      NENGA_TARGET_REVIEW_TOO_MANY_MESSAGE.to_string(),
+    )));
   }
   Ok(entries.into_iter().map(nenga_target_review_item_from).collect())
 }
@@ -777,7 +781,9 @@ async fn disable_nenga_send_targets_impl(
   ids: Vec<String>,
 ) -> Result<DisableNengaSendTargetsResult, String> {
   if ids.is_empty() {
-    return Err(AppError::Validation(NENGA_TARGET_DISABLE_EMPTY_MESSAGE.to_string()).to_string());
+    return Err(String::from(AppError::Validation(
+      NENGA_TARGET_DISABLE_EMPTY_MESSAGE.to_string(),
+    )));
   }
 
   let mut seen = std::collections::HashSet::new();
@@ -794,7 +800,9 @@ async fn disable_nenga_send_targets_impl(
     unique_valid.push(id);
   }
   if unique_valid.len() + skipped_invalid as usize > NENGA_TARGET_MAX_ROWS as usize {
-    return Err(AppError::Validation(NENGA_TARGET_DISABLE_TOO_MANY_MESSAGE.to_string()).to_string());
+    return Err(String::from(AppError::Validation(
+      NENGA_TARGET_DISABLE_TOO_MANY_MESSAGE.to_string(),
+    )));
   }
 
   let repo = SqlxAddressEntryRepository::new(pool.clone());
