@@ -41,6 +41,12 @@
 | 建物名・部屋番号| 例: `○○ビル 3F`      | `Address.building`       |
 
 
+#### 1.2.1 年賀状送付対象
+
+- **TOP-35**: [nenga-send-target-v1-design.md](../../design/nenga-send-target-v1-design.md)
+- ラベル: 「年賀状送付対象」
+- 表示: `nengaSendTarget` が ON なら「対象」、OFF なら「対象外」
+
 #### 1.3 メモブロック
 
 - ラベル: 「メモ」

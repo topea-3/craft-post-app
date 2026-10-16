@@ -34,6 +34,7 @@
   - `postalCode` : `PostalCode` 値オブジェクト
   - `address` : `Address` 値オブジェクト
   - `memo` : `Memo` 値オブジェクト（任意）
+  - `nengaSendTarget` : 年賀状送付対象（真偽）。`true` = 対象、`false` = 対象外。新規および既存データの既定は `true`
   - `createdAt` : 作成日時
   - `updatedAt` : 更新日時
   - `archivedAt` : アーカイブ日時（任意）。未設定（`null`）＝有効、設定済み＝論理削除（アーカイブ）済み。将来の履歴参照に備え日時を保持する。
@@ -42,6 +43,7 @@
   - 連名は `coRecipients` として 0 件以上保持できる（例: 夫婦連名、家族連名）。
   - 宛名印字時の表示名は、`primaryName` と `coRecipients` を結合した上で `honorific` を末尾に付与する
     - 例: `["山田 太郎", "山田 花子"] + "様"` → `"山田 太郎・山田 花子 様"`
+  - `nengaSendTarget` が `false` のエントリは、年賀状の印刷対象選択では選べない。喪中はがきの印刷可否には影響しない。見直し一覧と一括更新の契約は [nenga-send-target-v1-design.md](../design/nenga-send-target-v1-design.md)。
   - `archivedAt` が設定されているエントリは通常の一覧からは非表示とする（※「アーカイブ一覧」は将来検討）。
   - 将来、送受信履歴 `PostcardHistory` 側から `AddressEntry` を参照する前提で、  
   物理削除よりも **論理削除（archive）を基本方針** とする。
@@ -166,6 +168,7 @@
   - 住所 2: `Address.building`
   - 都道府県: `Address.prefecture`
   - メモ: `Memo`
+  - 年賀状送付対象: `nengaSendTarget`（チェックボックス。新規の初期値は ON）
 - **入力バリデーション（ドメイン側の考え方）**
   - 必須: 氏名、郵便番号、都道府県、市区町村、町名・番地。
   - 文字数制限: 氏名・住所・メモに上限を設ける。
@@ -229,6 +232,7 @@ address_entries
 - building          TEXT                                   -- 建物名・部屋番号
 
 - memo              TEXT                                   -- 備考
+- nenga_send_target INTEGER NOT NULL DEFAULT 1             -- 年賀状送付対象。1 = 対象、0 = 対象外
 - archived_at       TEXT                                   -- アーカイブ日時（ISO 8601）。NULL = 有効
 - created_at        TEXT    NOT NULL                       -- ISO 8601 形式（例: 2026-03-10T08:34:00+09:00）
 - updated_at        TEXT    NOT NULL                       -- ISO 8601 形式（例: 2026-03-10T08:34:00+09:00）
@@ -245,6 +249,9 @@ CREATE INDEX idx_address_entries_name
 
 CREATE INDEX idx_address_entries_postal_code
     ON address_entries (postal_code);
+
+CREATE INDEX idx_address_entries_active_nenga_send_target
+    ON address_entries (nenga_send_target) WHERE archived_at IS NULL;
 ```
 
 **ドメインとの対応**
@@ -256,6 +263,7 @@ CREATE INDEX idx_address_entries_postal_code
 - `postalCode.value` → `postal_code`
 - `address.prefecture` / `city` / `street` / `building` → 各カラムにマッピング
 - `memo.text` → `memo`
+- `nengaSendTarget` → `nenga_send_target`（1 / 0）
 - `archivedAt` / `createdAt` / `updatedAt` → `archived_at` / `created_at` / `updated_at`
 
 ---
@@ -300,4 +308,5 @@ CREATE INDEX idx_address_co_recipients_entry_order
 | 2026-03-09 | 初版。TOP-15 のたたき台として、住所録ドメインをエンティティ・値オブジェクトで整理。 |
 | 2026-03-09 | v1 の仕様に基づき、テーブル設計（address_entries / address_co_recipients）を追加。 |
 | 2026-04-19 | 論理削除を `archived`（INTEGER）から `archived_at`（TEXT, NULL = 有効）へ変更。アーカイブ時は `updated_at` を更新しない。インデックスは有効行向け部分インデックスに合わせて記載。 |
+| 2026-10-17 | TOP-35。`nengaSendTarget` / `nenga_send_target` を追加。既定は対象（1）。 |
 
