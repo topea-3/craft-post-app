@@ -205,7 +205,10 @@ export function PrintSelectPage() {
         setTargetError(false)
         setTargetReady(true)
         const removed = selectedIdsRef.current.filter((id) => excluded.has(id)).length
-        setSelectedIds((prev) => prev.filter((id) => !excluded.has(id)))
+        setSelectedIds((prev) => {
+          const next = prev.filter((id) => !excluded.has(id))
+          return next.length === prev.length ? prev : next
+        })
         if (removed > 0) {
           setTargetPruneMessage(PRINT_NENGA_TARGET_PRUNE_MESSAGE(removed))
         }

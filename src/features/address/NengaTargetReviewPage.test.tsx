@@ -159,4 +159,60 @@ describe('NengaTargetReviewPage', () => {
     })
     expect(screen.getByText(NENGA_TARGET_YEAR_RANGE_MESSAGE)).toBeInTheDocument()
   })
+
+  it('returns to the first page after a successful disable', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    let listed = false
+    invokeMock.mockImplementation(async (cmd: string) => {
+      if (cmd === 'list_nenga_target_review') {
+        if (!listed) {
+          listed = true
+          return Array.from({ length: 45 }, (_, index) => reviewItem(`a${index}`, `行${index + 1}`))
+        }
+        return Array.from({ length: 25 }, (_, index) => reviewItem(`b${index}`, `残${index + 1}`))
+      }
+      if (cmd === 'disable_nenga_send_targets') {
+        return { updated_count: 45, skipped_count: 0 }
+      }
+      throw new Error(`unexpected command ${cmd}`)
+    })
+
+    render(
+      <MemoryRouter>
+        <NengaTargetReviewPage />
+      </MemoryRouter>,
+    )
+    await screen.findByRole('checkbox', { name: '行1 太郎 様 を年賀状対象外にする' })
+    await user.click(screen.getByRole('button', { name: '次へ' }))
+    await user.click(screen.getByRole('button', { name: '次へ' }))
+    expect(screen.getByText('3 / 3')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: '年賀状送付対象外にする' }))
+    expect(await screen.findByText('1 / 2')).toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: '残1 太郎 様 を年賀状対象外にする' })).toBeInTheDocument()
+  })
+
+  it('reloads the same year after a load failure', async () => {
+    const user = userEvent.setup()
+    let calls = 0
+    invokeMock.mockImplementation(async (cmd: string) => {
+      if (cmd !== 'list_nenga_target_review') throw new Error(`unexpected command ${cmd}`)
+      calls += 1
+      if (calls === 1) throw 'ADDR_NENGA_TARGET_REVIEW_FAILED'
+      return [reviewItem('a1', '山田')]
+    })
+
+    render(
+      <MemoryRouter>
+        <NengaTargetReviewPage />
+      </MemoryRouter>,
+    )
+    expect(await screen.findByText(NENGA_TARGET_REVIEW_LOAD_FAILED_MESSAGE)).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '再読み込み' }))
+    expect(
+      await screen.findByRole('checkbox', { name: '山田 太郎 様 を年賀状対象外にする' }),
+    ).toBeChecked()
+    expect(screen.queryByText(NENGA_TARGET_REVIEW_LOAD_FAILED_MESSAGE)).not.toBeInTheDocument()
+  })
 })

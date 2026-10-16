@@ -146,6 +146,14 @@ export function NengaTargetReviewPage() {
     })
   }
 
+  const handleReload = () => {
+    if (yearRef.current == null || isLoading) return
+    setNotice(null)
+    setLoadError(null)
+    setIsLoading(true)
+    setReloadKey((key) => key + 1)
+  }
+
   const handleDisable = async () => {
     if (checkedCount === 0 || year == null || isSubmitting) return
     const confirmed = window.confirm(NENGA_TARGET_REVIEW_CONFIRM_MESSAGE(checkedCount))
@@ -167,6 +175,7 @@ export function NengaTargetReviewPage() {
         setNotice(parts.join(''))
       }
       if (yearRef.current != null) {
+        setPage(1)
         setIsLoading(true)
         setReloadKey((key) => key + 1)
       }
@@ -207,7 +216,14 @@ export function NengaTargetReviewPage() {
 
       {year == null && <p className="address-list-error">{NENGA_TARGET_YEAR_RANGE_MESSAGE}</p>}
       {notice && <p role="status">{notice}</p>}
-      {loadError && <p className="address-list-error">{loadError}</p>}
+      {loadError && (
+        <div className="address-list-header-actions">
+          <p className="address-list-error">{loadError}</p>
+          <Button type="button" onClick={handleReload} disabled={isLoading || year == null}>
+            再読み込み
+          </Button>
+        </div>
+      )}
       {isLoading && year != null && <p className="address-list-loading">読み込み中です…</p>}
 
       {!isLoading && year != null && !loadError && items.length === 0 && (
