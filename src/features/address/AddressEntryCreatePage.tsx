@@ -32,6 +32,7 @@ export function AddressEntryCreatePage({ onCreated, onCancel }: AddressEntryCrea
     removeCoRecipient,
     updateHonorific,
     updateMemo,
+    updateNengaSendTarget,
     submit,
   } = useAddressEntryForm(handleSuccess)
 
@@ -64,6 +65,7 @@ export function AddressEntryCreatePage({ onCreated, onCancel }: AddressEntryCrea
       onRemoveCoRecipient={removeCoRecipient}
       onChangeHonorific={updateHonorific}
       onChangeMemo={updateMemo}
+      onChangeNengaSendTarget={updateNengaSendTarget}
     />
   )
 }

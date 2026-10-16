@@ -113,6 +113,10 @@ export async function listMochuReceiptAddressEntryIds(receiptYear: number): Prom
   return invoke<string[]>('list_mochu_receipt_address_entry_ids', { receiptYear })
 }
 
+export async function listNengaSendExcludedAddressEntryIds(): Promise<string[]> {
+  return invoke<string[]>('list_nenga_send_excluded_address_entry_ids')
+}
+
 export type CreatePostcardSendsBatchResult = {
   skipped: boolean
   reason?: string | null

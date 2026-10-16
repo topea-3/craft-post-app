@@ -296,6 +296,16 @@ export function AddressEntryDetailPage() {
         </section>
 
         <section className="address-detail-section">
+          <h2 className="address-detail-section-title">年賀状</h2>
+          <dl className="address-detail-grid">
+            <div className="address-detail-row">
+              <dt>年賀状送付対象</dt>
+              <dd>{entry.nengaSendTarget ? '対象' : '対象外'}</dd>
+            </div>
+          </dl>
+        </section>
+
+        <section className="address-detail-section">
           <h2 className="address-detail-section-title">メモ</h2>
           <div className="address-detail-memo">
             {entry.memo && entry.memo.trim()

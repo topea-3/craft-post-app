@@ -11,6 +11,7 @@ import { useAddressEntryList } from '../../address/useAddressEntryList'
 import {
   filterActiveAddressEntryIds,
   listMochuReceiptAddressEntryIds,
+  listNengaSendExcludedAddressEntryIds,
   resolvePrintJobItems,
 } from '../api'
 import { usePrintJobDraft } from '../hooks/usePrintJobDraft'
@@ -21,6 +22,10 @@ import {
   PRINT_EXCLUDED_BANNER,
   PRINT_MOCHU_LOAD_FAILED_MESSAGE,
   PRINT_MOCHU_STATUS_LABEL,
+  PRINT_NENGA_TARGET_EXCLUDED_STATUS_LABEL,
+  PRINT_NENGA_TARGET_LOAD_FAILED_MESSAGE,
+  PRINT_NENGA_TARGET_PENDING_MESSAGE,
+  PRINT_NENGA_TARGET_PRUNE_MESSAGE,
   PRINT_NO_VALID_ITEMS_MESSAGE,
   PRINT_OPERATION_ERROR_MESSAGE,
   PRINT_PRUNE_MESSAGE,
@@ -65,10 +70,16 @@ export function PrintSelectPage() {
   const [mochuLoading, setMochuLoading] = useState(true)
   const [mochuFetchedYear, setMochuFetchedYear] = useState<number | null>(null)
   const [mochuError, setMochuError] = useState(false)
+  const [excludedTargetIds, setExcludedTargetIds] = useState<Set<string>>(() => new Set())
+  const [targetLoading, setTargetLoading] = useState(true)
+  const [targetError, setTargetError] = useState(false)
+  const [targetReady, setTargetReady] = useState(false)
+  const [targetPruneMessage, setTargetPruneMessage] = useState<string | null>(null)
   const [resolving, setResolving] = useState(false)
   const pruneDoneRef = useRef(false)
 
   const needsMochuGate = postcardType === 'nenga' && decision?.kind === 'year'
+  const needsNengaTargetGate = postcardType === 'nenga'
   const sendYearReady = decision != null && !sendYearError
   const mochuReady =
     !needsMochuGate ||
@@ -76,8 +87,12 @@ export function PrintSelectPage() {
       !mochuError &&
       decision?.kind === 'year' &&
       mochuFetchedYear === decision.year)
+  const nengaTargetReady =
+    !needsNengaTargetGate || (!targetLoading && !targetError && targetReady)
   /** 年賀状で送付年／喪中が未確定・失敗の間は選択追加と進行を止める（fail-closed） */
   const mourningGateBlocked = postcardType === 'nenga' && (!sendYearReady || !mochuReady)
+  const nengaTargetBlocked = needsNengaTargetGate && !nengaTargetReady
+  const selectionBlocked = mourningGateBlocked || nengaTargetBlocked
 
   const { items, total, isLoading, error } = useAddressEntryList({
     searchText,
@@ -163,6 +178,54 @@ export function PrintSelectPage() {
     }
   }, [postcardType, decision, setSelectedIds])
 
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      if (postcardType !== 'nenga') {
+        if (!cancelled) {
+          setExcludedTargetIds(new Set())
+          setTargetLoading(false)
+          setTargetError(false)
+          setTargetReady(true)
+          setTargetPruneMessage(null)
+        }
+        return
+      }
+      setTargetLoading(true)
+      setTargetError(false)
+      setTargetReady(false)
+      setTargetPruneMessage(null)
+      try {
+        const ids = await listNengaSendExcludedAddressEntryIds()
+        if (cancelled) return
+        const set = new Set(ids)
+        setExcludedTargetIds(set)
+        setTargetError(false)
+        setTargetReady(true)
+        let removedCount = 0
+        setSelectedIds((prev) => {
+          const next = prev.filter((id) => !set.has(id))
+          removedCount = prev.length - next.length
+          return next.length === prev.length ? prev : next
+        })
+        if (removedCount > 0) {
+          setTargetPruneMessage(PRINT_NENGA_TARGET_PRUNE_MESSAGE(removedCount))
+        }
+      } catch (e) {
+        if (cancelled) return
+        console.error('list_nenga_send_excluded_address_entry_ids failed:', e)
+        setExcludedTargetIds(new Set())
+        setTargetReady(false)
+        setTargetError(true)
+      } finally {
+        if (!cancelled) setTargetLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [postcardType, setSelectedIds])
+
   const mochuIdSet = useMemo(() => mochuIds, [mochuIds])
 
   // Resolve sender link labels for visible rows
@@ -203,13 +266,17 @@ export function PrintSelectPage() {
     // ラベル未解決・除外行でも既選択なら解除を許可（ラベル遅延到着でロックされるのを防ぐ）
     if (!known && !checked) return
     if (excluded && !checked) return
-    if (!checked && mourningGateBlocked) {
+    if (!checked && selectionBlocked) {
       setBannerError(
-        mochuError
-          ? PRINT_MOCHU_LOAD_FAILED_MESSAGE
-          : sendYearError
-            ? PRINT_OPERATION_ERROR_MESSAGE
-            : PRINT_SEND_YEAR_PENDING_MESSAGE,
+        targetError
+          ? PRINT_NENGA_TARGET_LOAD_FAILED_MESSAGE
+          : mochuError
+            ? PRINT_MOCHU_LOAD_FAILED_MESSAGE
+            : nengaTargetBlocked
+              ? PRINT_NENGA_TARGET_PENDING_MESSAGE
+              : sendYearError
+                ? PRINT_OPERATION_ERROR_MESSAGE
+                : PRINT_SEND_YEAR_PENDING_MESSAGE,
       )
       return
     }
@@ -230,13 +297,14 @@ export function PrintSelectPage() {
       const known = Object.prototype.hasOwnProperty.call(senderLabels, item.id)
       const senderLabel = senderLabels[item.id]
       const isMochu = mochuIdSet.has(item.id)
-      return known && senderLabel !== null && !isMochu
+      const isTargetExcluded = excludedTargetIds.has(item.id)
+      return known && senderLabel !== null && !isMochu && !isTargetExcluded
     })
     .map((item) => item.id)
 
   const pageIdSet = new Set(items.map((item) => item.id))
   const hasSelectionOnPage = selectedIds.some((id) => pageIdSet.has(id))
-  const bulkDisabled = resolving || isLoading || mourningGateBlocked
+  const bulkDisabled = resolving || isLoading || selectionBlocked
 
   const handleSelectAllOk = () => {
     if (bulkDisabled) return
@@ -287,13 +355,17 @@ export function PrintSelectPage() {
   }
 
   const handleProceed = async () => {
-    if (mourningGateBlocked) {
+    if (selectionBlocked) {
       setBannerError(
-        mochuError
-          ? PRINT_MOCHU_LOAD_FAILED_MESSAGE
-          : sendYearError
-            ? PRINT_OPERATION_ERROR_MESSAGE
-            : PRINT_SEND_YEAR_PENDING_MESSAGE,
+        targetError
+          ? PRINT_NENGA_TARGET_LOAD_FAILED_MESSAGE
+          : mochuError
+            ? PRINT_MOCHU_LOAD_FAILED_MESSAGE
+            : nengaTargetBlocked
+              ? PRINT_NENGA_TARGET_PENDING_MESSAGE
+              : sendYearError
+                ? PRINT_OPERATION_ERROR_MESSAGE
+                : PRINT_SEND_YEAR_PENDING_MESSAGE,
       )
       return
     }
@@ -302,11 +374,18 @@ export function PrintSelectPage() {
       return
     }
     // 進行直前に喪中 ID を再除外（空 Set＝取得済み 0 件も正しく扱う）
-    const proceedIds = needsMochuGate
+    const withoutMochu = needsMochuGate
       ? selectedIds.filter((id) => !mochuIdSet.has(id))
       : selectedIds
+    const proceedIds = needsNengaTargetGate
+      ? withoutMochu.filter((id) => !excludedTargetIds.has(id))
+      : withoutMochu
     if (proceedIds.length !== selectedIds.length) {
       setSelectedIds(proceedIds)
+      const removedForTarget = withoutMochu.length - proceedIds.length
+      if (removedForTarget > 0) {
+        setTargetPruneMessage(PRINT_NENGA_TARGET_PRUNE_MESSAGE(removedForTarget))
+      }
     }
     if (proceedIds.length === 0) {
       setBannerError(PRINT_SELECT_EMPTY_MESSAGE)
@@ -382,16 +461,24 @@ export function PrintSelectPage() {
       </div>
 
       {(pruneMessage ||
+        targetPruneMessage ||
         bannerError ||
         mochuError ||
+        targetError ||
         sendYearError ||
-        (excludedAlerts.length > 0 && !bannerError && !mochuError && !sendYearError)) && (
+        (excludedAlerts.length > 0 &&
+          !bannerError &&
+          !mochuError &&
+          !targetError &&
+          !sendYearError)) && (
         <div className="print-alert" role="status">
           {pruneMessage && <p>{pruneMessage}</p>}
+          {targetPruneMessage && <p>{targetPruneMessage}</p>}
           {mochuError && <p>{PRINT_MOCHU_LOAD_FAILED_MESSAGE}</p>}
-          {sendYearError && !mochuError && <p>{PRINT_OPERATION_ERROR_MESSAGE}</p>}
+          {targetError && <p>{PRINT_NENGA_TARGET_LOAD_FAILED_MESSAGE}</p>}
+          {sendYearError && !mochuError && !targetError && <p>{PRINT_OPERATION_ERROR_MESSAGE}</p>}
           {bannerError && <p>{bannerError}</p>}
-          {!bannerError && !mochuError && !sendYearError && excludedAlerts.length > 0 && (
+          {!bannerError && !mochuError && !targetError && !sendYearError && excludedAlerts.length > 0 && (
             <p>
               {PRINT_EXCLUDED_BANNER(excludedAlerts.length)}
               <Link to="/addresses">住所録で差出人を紐づけてから再選択 →</Link>
@@ -419,19 +506,22 @@ export function PrintSelectPage() {
               const senderLabel = senderLabels[item.id]
               const known = Object.prototype.hasOwnProperty.call(senderLabels, item.id)
               const isMochu = mochuIdSet.has(item.id)
+              const isTargetExcluded = excludedTargetIds.has(item.id)
               const senderExcluded = known && senderLabel === null
-              const excluded = senderExcluded || isMochu
+              const excluded = senderExcluded || isMochu || isTargetExcluded
               const checked = selectedIds.includes(item.id)
-              const statusLabel =
-                mourningGateBlocked && needsMochuGate && (mochuLoading || !sendYearReady)
-                  ? '確認中'
-                  : !known
-                    ? '確認中'
-                    : isMochu
-                      ? PRINT_MOCHU_STATUS_LABEL
-                      : senderExcluded
-                        ? '除外'
-                        : 'OK'
+              const gatesLoading =
+                (needsMochuGate && (mochuLoading || !sendYearReady)) ||
+                (needsNengaTargetGate && (targetLoading || targetError))
+              const statusLabel = gatesLoading || !known
+                ? '確認中'
+                : isMochu
+                  ? PRINT_MOCHU_STATUS_LABEL
+                  : isTargetExcluded
+                    ? PRINT_NENGA_TARGET_EXCLUDED_STATUS_LABEL
+                    : senderExcluded
+                      ? '除外'
+                      : 'OK'
               return (
                 <tr key={item.id} className={excluded ? 'print-select-row-excluded' : undefined}>
                   <td>
@@ -442,7 +532,7 @@ export function PrintSelectPage() {
                         !checked &&
                         (!known ||
                           excluded ||
-                          mourningGateBlocked ||
+                          selectionBlocked ||
                           selectedCount >= MAX_PRINT_SELECTION)
                       }
                       onChange={() => handleToggle(item.id, excluded, known)}
@@ -497,7 +587,7 @@ export function PrintSelectPage() {
             type="button"
             className="btn btn-label btn-primary print-primary-button"
             onClick={handleProceed}
-            disabled={resolving || selectedCount === 0 || mourningGateBlocked}
+            disabled={resolving || selectedCount === 0 || selectionBlocked}
           >
             {resolving ? '確認中…' : '確認へ進む →'}
           </button>

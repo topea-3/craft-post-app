@@ -33,7 +33,7 @@ mod tests {
     let primary = PersonName::new(last.into(), "太郎".into(), None, None).unwrap();
     let postal = PostalCode::new("1234567").unwrap();
     let addr = Address::new("東京都".into(), "渋谷区".into(), "1-1-1".into(), None).unwrap();
-    let entry = AddressEntry::create_new(primary, vec![], Honorific::Sama, postal, addr, None);
+    let entry = AddressEntry::create_new(primary, vec![], Honorific::Sama, postal, addr, None, true);
     let id = entry.id().as_uuid();
     SqlxAddressEntryRepository::new(pool.clone())
       .create(&entry)
@@ -53,7 +53,7 @@ mod tests {
     let co = PersonName::new(last.into(), co_first.into(), None, None).unwrap();
     let postal = PostalCode::new("1234567").unwrap();
     let addr = Address::new("東京都".into(), "渋谷区".into(), street.into(), None).unwrap();
-    let entry = AddressEntry::create_new(primary, vec![co], honorific, postal, addr, None);
+    let entry = AddressEntry::create_new(primary, vec![co], honorific, postal, addr, None, true);
     let id = entry.id().as_uuid();
     SqlxAddressEntryRepository::new(pool.clone())
       .create(&entry)
@@ -475,7 +475,7 @@ mod tests {
       Some("○○ビル".into()),
     )
     .unwrap();
-    let entry = AddressEntry::create_new(primary, vec![co], Honorific::Sama, postal, addr, None);
+    let entry = AddressEntry::create_new(primary, vec![co], Honorific::Sama, postal, addr, None, true);
     let address_id = entry.id().as_uuid();
     let expected_display = entry.display_full_recipient();
     let expected_address = entry.address().to_single_line();

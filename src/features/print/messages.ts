@@ -32,6 +32,13 @@ export const PRINT_TEST_PRINT_INFO_MESSAGE =
 export const PRINT_MOCHU_STATUS_LABEL = '喪中'
 export const PRINT_MOCHU_LOAD_FAILED_MESSAGE =
   '喪中情報の取得に失敗しました。年賀状の選択を続行できません。時間をおいて再度お試しください。'
+export const PRINT_NENGA_TARGET_EXCLUDED_STATUS_LABEL = '対象外'
+export const PRINT_NENGA_TARGET_LOAD_FAILED_MESSAGE =
+  '年賀状送付対象の取得に失敗しました。年賀状の選択を続行できません。時間をおいて再度お試しください。'
+export const PRINT_NENGA_TARGET_PENDING_MESSAGE =
+  '年賀状送付対象の確認中です。しばらくしてから再度お試しください。'
+export const PRINT_NENGA_TARGET_PRUNE_MESSAGE = (count: number) =>
+  `${count} 件は年賀状送付対象外のため選択から外しました。`
 export const PRINT_SEND_YEAR_PENDING_MESSAGE =
   '送付年の確認中です。しばらくしてから再度お試しください。'
 export const PRINT_COMPLETE_MESSAGE =

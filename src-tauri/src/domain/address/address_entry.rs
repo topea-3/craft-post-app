@@ -47,6 +47,7 @@ pub struct AddressEntry {
   postal_code: PostalCode,
   address: Address,
   memo: Option<Memo>,
+  nenga_send_target: bool,
   archived_at: Option<DateTime<Utc>>,
   created_at: DateTime<Utc>,
   updated_at: DateTime<Utc>,
@@ -68,6 +69,7 @@ impl AddressEntry {
     postal_code: PostalCode,
     address: Address,
     memo: Option<Memo>,
+    nenga_send_target: bool,
   ) -> Self {
     let now = Utc::now();
     Self {
@@ -78,6 +80,7 @@ impl AddressEntry {
       postal_code,
       address,
       memo,
+      nenga_send_target,
       archived_at: None,
       created_at: now,
       updated_at: now,
@@ -93,6 +96,7 @@ impl AddressEntry {
     postal_code: PostalCode,
     address: Address,
     memo: Option<Memo>,
+    nenga_send_target: bool,
     archived_at: Option<DateTime<Utc>>,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
@@ -105,6 +109,7 @@ impl AddressEntry {
       postal_code,
       address,
       memo,
+      nenga_send_target,
       archived_at,
       created_at,
       updated_at,
@@ -137,6 +142,11 @@ impl AddressEntry {
 
   pub fn memo(&self) -> Option<&Memo> {
     self.memo.as_ref()
+  }
+
+  /// 年賀状の送付対象。`false` の宛名は年賀状印刷で選べない。
+  pub fn nenga_send_target(&self) -> bool {
+    self.nenga_send_target
   }
 
   pub fn archived(&self) -> bool {
@@ -211,6 +221,7 @@ mod tests {
       postal,
       addr,
       memo,
+      true,
     )
   }
 
@@ -231,6 +242,24 @@ mod tests {
     assert!(entry.archived());
     assert_eq!(entry.updated_at(), before);
     assert!(entry.archived_at().is_some());
+    assert!(entry.nenga_send_target());
+  }
+
+  #[test]
+  fn create_new_keeps_explicit_nenga_send_target() {
+    let primary = PersonName::new("佐藤".into(), "花子".into(), None, None).unwrap();
+    let postal = PostalCode::new("1234567").unwrap();
+    let addr = Address::new("東京都".into(), "渋谷区".into(), "1-1".into(), None).unwrap();
+    let entry = AddressEntry::create_new(
+      primary,
+      vec![],
+      Honorific::Sama,
+      postal,
+      addr,
+      None,
+      false,
+    );
+    assert!(!entry.nenga_send_target());
   }
 }
 
