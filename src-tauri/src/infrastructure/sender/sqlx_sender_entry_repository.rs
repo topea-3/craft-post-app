@@ -302,6 +302,7 @@ impl SenderEntryRepository for SqlxSenderEntryRepository {
           ae.street,
           ae.building,
           ae.memo,
+          ae.nenga_send_target,
           ae.archived_at,
           ae.created_at,
           ae.updated_at

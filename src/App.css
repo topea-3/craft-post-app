@@ -120,6 +120,23 @@
   font-size: 0.9rem;
 }
 
+.field-checkbox {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 0.5rem;
+  width: fit-content;
+  max-width: 100%;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.field-checkbox input[type='checkbox'] {
+  width: auto;
+  margin: 0;
+  flex-shrink: 0;
+}
+
 .field-required {
   margin-left: 0.25rem;
   color: #e11d48;

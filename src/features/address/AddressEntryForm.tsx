@@ -25,6 +25,7 @@ type Props = {
   onRemoveCoRecipient: (index: number) => void
   onChangeHonorific: (value: string) => void
   onChangeMemo: (value: string) => void
+  onChangeNengaSendTarget: (value: boolean) => void
 }
 
 export function AddressEntryForm({
@@ -41,6 +42,7 @@ export function AddressEntryForm({
   onRemoveCoRecipient,
   onChangeHonorific,
   onChangeMemo,
+  onChangeNengaSendTarget,
 }: Props) {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -83,6 +85,20 @@ export function AddressEntryForm({
 
       <FormSection title="メモ">
         <MemoField value={values.memo ?? ''} error={errors.memo} onChange={onChangeMemo} />
+      </FormSection>
+
+      <FormSection
+        title="年賀状"
+        description="外すと、年賀状の印刷対象に選べなくなります。"
+      >
+        <label className="field-checkbox">
+          <input
+            type="checkbox"
+            checked={values.nengaSendTarget}
+            onChange={(e) => onChangeNengaSendTarget(e.target.checked)}
+          />
+          <span>年賀状送付対象</span>
+        </label>
       </FormSection>
 
       <div className="form-footer">

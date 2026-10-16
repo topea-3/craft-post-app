@@ -4,6 +4,7 @@ import { AddressEntryCreatePage } from './features/address/AddressEntryCreatePag
 import { AddressEntryListPage } from './features/address/AddressEntryListPage'
 import { AddressEntryDetailPage } from './features/address/AddressEntryDetailPage'
 import { AddressEntryEditPage } from './features/address/AddressEntryEditPage'
+import { NengaTargetReviewPage } from './features/address/NengaTargetReviewPage'
 import { SenderEntryCreatePage } from './features/sender/SenderEntryCreatePage'
 import { SenderEntryListPage } from './features/sender/SenderEntryListPage'
 import { SenderEntryDetailPage } from './features/sender/SenderEntryDetailPage'
@@ -67,6 +68,7 @@ const router = createBrowserRouter([
       { index: true, element: <AddressEntryListPage /> },
       { path: 'addresses', element: <AddressEntryListPage /> },
       { path: 'addresses/new', element: <AddressEntryCreatePage /> },
+      { path: 'addresses/nenga-target-review', element: <NengaTargetReviewPage /> },
       { path: 'addresses/:id', element: <AddressEntryDetailPage /> },
       { path: 'addresses/:id/edit', element: <AddressEntryEditPage /> },
       { path: 'senders', element: <SenderEntryListPage /> },

@@ -13,7 +13,7 @@ use crate::domain::postcard_receipt::postcard_receipt_repository::{
   PostcardReceiptWithContext, SortOrder,
 };
 use crate::infrastructure::address::sqlx_address_entry_repository::{
-  build_entries_with_co_recipients, SqlxAddressEntryRepository,
+  build_entries_with_co_recipients, ADDRESS_ENTRY_SELECT_LIST, SqlxAddressEntryRepository,
 };
 use crate::infrastructure::sql_like::escape_like_pattern;
 
@@ -190,14 +190,7 @@ async fn load_address_contexts_batch(
       .collect::<Vec<_>>()
       .join(",");
     let sql = format!(
-      r#"
-        SELECT
-          id, primary_last, primary_first, primary_kana_last, primary_kana_first,
-          honorific, postal_code, prefecture, city, street, building, memo,
-          archived_at, created_at, updated_at
-        FROM address_entries
-        WHERE id IN ({placeholders})
-      "#
+      "SELECT {ADDRESS_ENTRY_SELECT_LIST} FROM address_entries WHERE id IN ({placeholders})"
     );
     let mut q = sqlx::query(&sql);
     for id in chunk {

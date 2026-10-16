@@ -64,6 +64,7 @@ export function AddressEntryEditPage() {
           honorific: d.honorific,
           address: d.address,
           memo: d.memo,
+          nengaSendTarget: d.nengaSendTarget,
         })
         setError(null)
       } catch (error) {
@@ -129,6 +130,7 @@ export function AddressEntryEditPage() {
     removeCoRecipient,
     updateHonorific,
     updateMemo,
+    updateNengaSendTarget,
     submit,
   } = useAddressEntryEditForm(
     id ?? '',
@@ -277,6 +279,7 @@ export function AddressEntryEditPage() {
           onRemoveCoRecipient={removeCoRecipient}
           onChangeHonorific={updateHonorific}
           onChangeMemo={updateMemo}
+          onChangeNengaSendTarget={updateNengaSendTarget}
         />
 
         <FormSection title="差出人の紐づけ">

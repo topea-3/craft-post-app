@@ -124,6 +124,17 @@ const RECEIPT_BATCH_DUPLICATE_MESSAGE: &str = "宛名が重複しています。
 const RECEIPT_BATCH_TOO_MANY_MESSAGE: &str = "一度に登録できるのは 200 件までです。";
 const PRINT_MOCHU_IN_BATCH_MESSAGE: &str =
   "喪中の宛名が含まれているため送付記録を作成できません。印刷対象を見直してください。";
+const PRINT_NENGA_TARGET_IN_BATCH_MESSAGE: &str =
+  "年賀状送付対象外の宛名が含まれています。印刷対象から外してください。";
+const NENGA_TARGET_YEAR_MIN: i32 = 1900;
+const NENGA_TARGET_YEAR_MAX: i32 = 2100;
+const NENGA_TARGET_MAX_ROWS: i64 = 2000;
+const NENGA_TARGET_YEAR_RANGE_MESSAGE: &str =
+  "年賀状年は 1900 から 2100 の範囲で指定してください。";
+const NENGA_TARGET_REVIEW_TOO_MANY_MESSAGE: &str =
+  "候補が 2000 件を超えています。条件を確認してください。";
+const NENGA_TARGET_DISABLE_EMPTY_MESSAGE: &str = "更新する宛名を選択してください。";
+const NENGA_TARGET_DISABLE_TOO_MANY_MESSAGE: &str = "一度に更新できるのは 2000 件までです。";
 
 fn map_sender_write_error(e: SenderRepositoryError, log_context: &str, fallback_code: &str) -> AppError {
   match e {
@@ -162,6 +173,9 @@ pub fn run() {
       search_address_entries,
       archive_address_entry,
       get_address_entry,
+      list_nenga_target_review,
+      disable_nenga_send_targets,
+      list_nenga_send_excluded_address_entry_ids,
       create_sender_entry,
       update_sender_entry,
       list_sender_entries,
@@ -262,6 +276,7 @@ pub struct AddressEntryDtoInput {
   pub postal_code: String,
   pub address: AddressDto,
   pub memo: Option<String>,
+  pub nenga_send_target: bool,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
@@ -273,6 +288,7 @@ pub struct AddressEntryDto {
   pub postal_code: String,
   pub address: AddressDto,
   pub memo: Option<String>,
+  pub nenga_send_target: bool,
   pub archived: bool,
   pub created_at: String,
   pub updated_at: String,
@@ -361,6 +377,7 @@ impl TryFrom<AddressEntryDtoInput> for AddressEntry {
       postal,
       addr,
       memo,
+      value.nenga_send_target,
     ))
   }
 }
@@ -398,6 +415,7 @@ impl From<AddressEntry> for AddressEntryDto {
         building: addr.building().map(|s| s.to_string()),
       },
       memo,
+      nenga_send_target: entry.nenga_send_target(),
       archived: entry.archived(),
       created_at: entry.created_at().to_rfc3339(),
       updated_at: entry.updated_at().to_rfc3339(),
@@ -546,6 +564,7 @@ async fn update_address_entry(
     new_values.postal_code().clone(),
     new_values.address().clone(),
     new_values.memo().cloned(),
+    new_values.nenga_send_target(),
     existing.archived_at(),
     existing.created_at(),
     now,
@@ -686,6 +705,141 @@ async fn get_address_entry(
     .ok_or_else(|| AppError::Validation("address entry not found".to_string()).to_string())?;
 
   Ok(AddressEntryDto::from(entry))
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+pub struct NengaTargetReviewItem {
+  pub id: String,
+  pub primary_name: PersonNameDto,
+  pub co_recipients: Vec<PersonNameDto>,
+  pub honorific: String,
+  pub postal_code: String,
+  pub address: AddressDto,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+pub struct DisableNengaSendTargetsResult {
+  pub updated_count: i64,
+  pub skipped_count: i64,
+}
+
+fn nenga_target_review_item_from(entry: AddressEntry) -> NengaTargetReviewItem {
+  let dto = AddressEntryDto::from(entry);
+  NengaTargetReviewItem {
+    id: dto.id,
+    primary_name: dto.primary_name,
+    co_recipients: dto.co_recipients,
+    honorific: dto.honorific,
+    postal_code: dto.postal_code,
+    address: dto.address,
+  }
+}
+
+#[tauri::command]
+async fn list_nenga_target_review(
+  pool: State<'_, SqlitePool>,
+  year: i32,
+) -> Result<Vec<NengaTargetReviewItem>, String> {
+  list_nenga_target_review_impl(pool.inner(), year).await
+}
+
+async fn list_nenga_target_review_impl(
+  pool: &SqlitePool,
+  year: i32,
+) -> Result<Vec<NengaTargetReviewItem>, String> {
+  if !(NENGA_TARGET_YEAR_MIN..=NENGA_TARGET_YEAR_MAX).contains(&year) {
+    return Err(String::from(AppError::Validation(
+      NENGA_TARGET_YEAR_RANGE_MESSAGE.to_string(),
+    )));
+  }
+  let repo = SqlxAddressEntryRepository::new(pool.clone());
+  let entries = repo
+    .list_nenga_target_review(year, NENGA_TARGET_MAX_ROWS + 1)
+    .await
+    .map_err(|e| {
+      log::error!("list_nenga_target_review failed: {:?}", e);
+      AppError::Repository("ADDR_NENGA_TARGET_REVIEW_FAILED".to_string())
+    })?;
+  if entries.len() > NENGA_TARGET_MAX_ROWS as usize {
+    return Err(String::from(AppError::Validation(
+      NENGA_TARGET_REVIEW_TOO_MANY_MESSAGE.to_string(),
+    )));
+  }
+  Ok(entries.into_iter().map(nenga_target_review_item_from).collect())
+}
+
+#[tauri::command]
+async fn disable_nenga_send_targets(
+  pool: State<'_, SqlitePool>,
+  ids: Vec<String>,
+) -> Result<DisableNengaSendTargetsResult, String> {
+  disable_nenga_send_targets_impl(pool.inner(), ids).await
+}
+
+async fn disable_nenga_send_targets_impl(
+  pool: &SqlitePool,
+  ids: Vec<String>,
+) -> Result<DisableNengaSendTargetsResult, String> {
+  if ids.is_empty() {
+    return Err(String::from(AppError::Validation(
+      NENGA_TARGET_DISABLE_EMPTY_MESSAGE.to_string(),
+    )));
+  }
+
+  let mut seen = std::collections::HashSet::new();
+  let mut unique_valid = Vec::new();
+  let mut skipped_invalid = 0i64;
+  for id in ids {
+    if !seen.insert(id.clone()) {
+      continue;
+    }
+    if Uuid::parse_str(&id).is_err() {
+      skipped_invalid += 1;
+      continue;
+    }
+    unique_valid.push(id);
+  }
+  if unique_valid.len() + skipped_invalid as usize > NENGA_TARGET_MAX_ROWS as usize {
+    return Err(String::from(AppError::Validation(
+      NENGA_TARGET_DISABLE_TOO_MANY_MESSAGE.to_string(),
+    )));
+  }
+
+  let repo = SqlxAddressEntryRepository::new(pool.clone());
+  let updated_at = Utc::now().to_rfc3339();
+  let updated_count = repo
+    .disable_nenga_send_targets(&unique_valid, &updated_at)
+    .await
+    .map_err(|e| {
+      log::error!("disable_nenga_send_targets failed: {:?}", e);
+      AppError::Repository("ADDR_NENGA_TARGET_DISABLE_FAILED".to_string())
+    })?;
+  let skipped_count = skipped_invalid + unique_valid.len() as i64 - updated_count;
+  Ok(DisableNengaSendTargetsResult {
+    updated_count,
+    skipped_count,
+  })
+}
+
+#[tauri::command]
+async fn list_nenga_send_excluded_address_entry_ids(
+  pool: State<'_, SqlitePool>,
+) -> Result<Vec<String>, String> {
+  list_nenga_send_excluded_address_entry_ids_impl(pool.inner()).await
+}
+
+async fn list_nenga_send_excluded_address_entry_ids_impl(
+  pool: &SqlitePool,
+) -> Result<Vec<String>, String> {
+  let repo = SqlxAddressEntryRepository::new(pool.clone());
+  let ids = repo
+    .list_nenga_send_excluded_ids(true)
+    .await
+    .map_err(|e| {
+      log::error!("list_nenga_send_excluded_address_entry_ids failed: {:?}", e);
+      AppError::Repository("ADDR_NENGA_TARGET_LIST_EXCLUDED_FAILED".to_string())
+    })?;
+  Ok(ids.into_iter().map(|id| id.to_string()).collect())
 }
 
 #[tauri::command]
@@ -2007,7 +2161,9 @@ async fn resolve_print_job_items_impl(
   pool: &SqlitePool,
   address_entry_ids: Vec<String>,
 ) -> Result<ResolvePrintJobItemsResult, String> {
-  use crate::infrastructure::address::sqlx_address_entry_repository::build_entries_with_co_recipients;
+  use crate::infrastructure::address::sqlx_address_entry_repository::{
+    build_entries_with_co_recipients, ADDRESS_ENTRY_SELECT_LIST,
+  };
 
   let address_entry_ids = truncate_print_ids(address_entry_ids);
   let sender_repo = SqlxSenderEntryRepository::new(pool.clone());
@@ -2034,14 +2190,7 @@ async fn resolve_print_job_items_impl(
         .collect::<Vec<_>>()
         .join(",");
       let sql = format!(
-        r#"
-          SELECT
-            id, primary_last, primary_first, primary_kana_last, primary_kana_first,
-            honorific, postal_code, prefecture, city, street, building, memo,
-            archived_at, created_at, updated_at
-          FROM address_entries
-          WHERE id IN ({placeholders})
-        "#
+        "SELECT {ADDRESS_ENTRY_SELECT_LIST} FROM address_entries WHERE id IN ({placeholders})"
       );
       let mut q = sqlx::query(&sql);
       for id in chunk {
@@ -2397,6 +2546,26 @@ async fn create_postcard_sends_batch_impl(
       if mochu_set.contains(&aid) {
         return Err(postcard_command_error(AppError::Validation(
           PRINT_MOCHU_IN_BATCH_MESSAGE.to_string(),
+        )));
+      }
+    }
+
+    let address_repo = SqlxAddressEntryRepository::new(pool.clone());
+    let excluded_ids = address_repo
+      .list_nenga_send_excluded_ids(false)
+      .await
+      .map_err(|e| {
+        log::error!("create_postcard_sends_batch nenga target lookup failed: {:?}", e);
+        String::from(AppError::Repository("PRINT_SEND_CREATE_FAILED".to_string()))
+      })?;
+    let excluded_set: std::collections::HashSet<Uuid> = excluded_ids.into_iter().collect();
+    for item in &unique_items {
+      let Ok(aid) = Uuid::parse_str(&item.address_entry_id) else {
+        continue;
+      };
+      if excluded_set.contains(&aid) {
+        return Err(postcard_command_error(AppError::Validation(
+          PRINT_NENGA_TARGET_IN_BATCH_MESSAGE.to_string(),
         )));
       }
     }
