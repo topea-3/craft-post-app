@@ -141,6 +141,8 @@ describe('BackupPage', () => {
 
     await user.click(screen.getByRole('button', { name: 'バックアップを保存' }))
     const overlay = await screen.findByRole('alertdialog', { name: '処理しています' })
+    expect(screen.getByRole('button', { name: 'バックアップを保存' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'バックアップファイルを選択' })).toBeDisabled()
     expect(overlay.parentElement).toBe(document.body)
     expect(document.querySelector('.app-layout')).toHaveAttribute('inert')
     await user.tab()
@@ -149,6 +151,52 @@ describe('BackupPage', () => {
     resolveSave(inspection)
     await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument())
     expect(document.querySelector('.app-layout')).not.toHaveAttribute('inert')
+  })
+
+  it('does not create a backup when another operation starts while the save dialog is open', async () => {
+    const user = userEvent.setup()
+    let releaseDialog: (path: string | null) => void = () => {}
+    const saveDialog = vi.fn(
+      () =>
+        new Promise<string | null>((resolve) => {
+          releaseDialog = resolve
+        }),
+    )
+    invokeMock.mockImplementation(() => new Promise(() => {}))
+    render(
+      <BackupPage
+        saveDialog={saveDialog}
+        openDialog={async () => 'D:/during-dialog.cpbak'}
+        now={new Date(2026, 9, 17, 9, 0, 5)}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'バックアップを保存' }))
+    await waitFor(() => expect(saveDialog).toHaveBeenCalled())
+    await user.click(screen.getByRole('button', { name: 'バックアップファイルを選択' }))
+    expect(await screen.findByRole('alertdialog', { name: '確認しています' })).toBeInTheDocument()
+    releaseDialog('D:/backup.cpbak')
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'バックアップを保存' })).toBeDisabled())
+    expect(invokeMock).not.toHaveBeenCalledWith('create_backup', expect.anything())
+  })
+
+  it('does not start a second password inspect while the first is running', async () => {
+    const user = userEvent.setup()
+    invokeMock
+      .mockRejectedValueOnce(
+        JSON.stringify({ code: 'password_required', message: 'このバックアップはパスワードで保護されています。' }),
+      )
+      .mockImplementationOnce(() => new Promise(() => {}))
+    render(<BackupPage openDialog={async () => 'D:/locked.cpbak'} />)
+
+    await user.click(screen.getByRole('button', { name: 'バックアップファイルを選択' }))
+    await user.type(await screen.findByLabelText('復元パスワード'), 'secret-pass')
+    await user.click(screen.getByRole('button', { name: '内容を確認' }))
+
+    expect(await screen.findByRole('alertdialog', { name: '確認しています' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '内容を確認' })).toBeDisabled()
+    expect(invokeMock).toHaveBeenCalledTimes(2)
   })
 
   it('does not offer restore when the backup schema is too new', async () => {

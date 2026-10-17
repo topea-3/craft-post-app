@@ -65,7 +65,13 @@ export function BackupPage({
   const [restoreCode, setRestoreCode] = useState<string | null>(null)
   const [confirmed, setConfirmed] = useState(false)
   const [phase, setPhase] = useState<BusyPhase>('idle')
+  const phaseRef = useRef<BusyPhase>('idle')
   const overlayRef = useRef<HTMLDivElement>(null)
+
+  const setBusy = (next: BusyPhase) => {
+    phaseRef.current = next
+    setPhase(next)
+  }
 
   useEffect(() => {
     if (!notice) return
@@ -102,7 +108,7 @@ export function BackupPage({
   }
 
   const inspectFile = async (path: string, passwordValue: string | null) => {
-    setPhase('inspect')
+    setBusy('inspect')
     try {
       const result = await invoke<BackupInspection>('inspect_backup', {
         sourcePath: path,
@@ -120,7 +126,7 @@ export function BackupPage({
       setNeedsPassword(parsed.code === 'password_required' || parsed.code === 'password_invalid')
       if (parsed.code === 'password_invalid') setRestorePassword('')
     } finally {
-      setPhase('idle')
+      setBusy('idle')
     }
   }
 
@@ -134,7 +140,7 @@ export function BackupPage({
   }
 
   const handleSave = async () => {
-    if (phase !== 'idle') return
+    if (phaseRef.current !== 'idle') return
     setSaveError(null)
     setSaveMessage(null)
     if (protect && !passwordsMatch(password, confirmPassword)) {
@@ -149,8 +155,8 @@ export function BackupPage({
       }
     }
     const selected = await saveDialog(defaultBackupFileName(now ?? new Date()))
-    if (!selected || phase !== 'idle') return
-    setPhase('working')
+    if (!selected || phaseRef.current !== 'idle') return
+    setBusy('working')
     try {
       await invoke('create_backup', {
         destinationPath: selected,
@@ -160,28 +166,28 @@ export function BackupPage({
     } catch (error) {
       setSaveError(parseBackupError(error).message)
     } finally {
-      setPhase('idle')
+      setBusy('idle')
     }
   }
 
   const handlePick = async () => {
-    if (phase !== 'idle') return
+    if (phaseRef.current !== 'idle') return
     const selected = await openDialog()
-    if (!selected || phase !== 'idle') return
+    if (!selected || phaseRef.current !== 'idle') return
     resetRestoreSelection()
     setSourcePath(selected)
     await inspectFile(selected, null)
   }
 
   const handleInspectWithPassword = async () => {
-    if (!sourcePath) return
+    if (phaseRef.current !== 'idle' || !sourcePath) return
     await inspectFile(sourcePath, restorePassword.normalize('NFC'))
   }
 
   const handleRestore = async () => {
-    if (phase !== 'idle') return
+    if (phaseRef.current !== 'idle') return
     if (!sourcePath || !inspection || restoreCode === 'schema_too_new') return
-    setPhase('working')
+    setBusy('working')
     try {
       await invoke('restore_backup', {
         sourcePath,
@@ -193,7 +199,7 @@ export function BackupPage({
       const parsed = parseBackupError(error)
       setRestoreCode(parsed.code)
       setRestoreError(parsed.message)
-      setPhase('idle')
+      setBusy('idle')
     }
   }
 
@@ -245,14 +251,24 @@ export function BackupPage({
         )}
         {saveError ? <p className="form-error-banner">{saveError}</p> : null}
         {saveMessage ? <p>{saveMessage}</p> : null}
-        <button type="button" className="btn btn-label btn-primary" onClick={() => void handleSave()}>
+        <button
+          type="button"
+          className="btn btn-label btn-primary"
+          disabled={phase !== 'idle'}
+          onClick={() => void handleSave()}
+        >
           バックアップを保存
         </button>
       </section>
 
       <section className="form-section">
         <h3 className="form-section-title">バックアップから復元</h3>
-        <button type="button" className="btn btn-label btn-normal" onClick={() => void handlePick()}>
+        <button
+          type="button"
+          className="btn btn-label btn-normal"
+          disabled={phase !== 'idle'}
+          onClick={() => void handlePick()}
+        >
           バックアップファイルを選択
         </button>
         {sourcePath ? <p>選択中: {sourcePath}</p> : null}
@@ -267,7 +283,12 @@ export function BackupPage({
                 onChange={(event) => setRestorePassword(event.target.value)}
               />
             </label>
-            <button type="button" className="btn btn-label btn-normal" onClick={() => void handleInspectWithPassword()}>
+            <button
+              type="button"
+              className="btn btn-label btn-normal"
+              disabled={phase !== 'idle'}
+              onClick={() => void handleInspectWithPassword()}
+            >
               内容を確認
             </button>
           </>
@@ -314,7 +335,7 @@ export function BackupPage({
             <button
               type="button"
               className="btn btn-label btn-primary"
-              disabled={!confirmed}
+              disabled={phase !== 'idle' || !confirmed}
               onClick={() => void handleRestore()}
             >
               復元する
