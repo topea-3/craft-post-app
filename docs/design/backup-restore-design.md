@@ -77,7 +77,7 @@
 - バックアップ、リストア、内容確認のあいだは、サイドメニューを含む画面全体を操作不能にする
 - `VACUUM INTO`、Argon2id、AES-256-GCM、SHA-256 は `spawn_blocking` で実行し、tokio のランタイムを占有しない。バックアップとリストアは write lock を保持したまま
 - コンテナの上限は 512 MiB。作成側も読み取り側も超えたファイルは残さない。マニフェスト JSON の上限は 64 KiB
-- 復号とハッシュは一時ファイルへストリームする。平文と暗号文を同時にメモリへ全量載せない。GCM のタグが一致するまで、その一時ファイルを本文として採用しない
+- 復号とハッシュは一時ファイルへストリームする。verify に書くのは DB バイトだけで、マニフェストはメモリ上の JSON に留める。平文ボディと暗号文を同時にメモリへ全量載せない。GCM のタグが一致するまで、その一時ファイルを SQLite として開かない
 - 個人情報は端末の外へ送らない。保護しないファイルは、保存先の OS 権限だけに依存する
 - 開発用 identifier（`com.topea.craftpost.dev`）と本番（`com.topea.craftpost`）の DB は別ファイルである。`.cpbak` はスキーマが互換ならどちらへも復元できる
 
@@ -106,7 +106,7 @@
 | コマンド | `State<'_, SqlitePool>` を各コマンドが直接受ける | `AppDb` の read guard を、クエリが終わるまで保持する形に変える |
 | ファイルダイアログ | `tauri-plugin-dialog` は未導入。PDF は WebView のダウンロード | 保存・選択ダイアログと capability を追加する |
 | 画面 | サイドメニューにバックアップが無い | `/settings/backup` を追加する |
-| 印刷の画面状態 | `sessionStorage` の `printJobDraft` と `printPostcardType`。`reload` では残る | 復元成功時に `sessionStorage.clear()` してから reload する |
+| 印刷の画面状態 | `sessionStorage` の `printJobDraft` と `printPostcardType`。`reload` では残る | 復元成功時に `sessionStorage.clear()` し、`craftPostRestoreNotice=ok` だけ書き戻してから reload する |
 | 最新スキーマ | `0009_add_nenga_send_target.sql` | 互換判定はファイル名の固定値ではなく、バイナリに含まれるマイグレータの最大 version |
 
 ### ギャップ
@@ -194,7 +194,7 @@
 
 判定は次の順で、最初に一致したエラーを返す。
 
-1. コンテナが 512 MiB を超える → `unsupported_format`
+1. コンテナが 512 MiB を超える → `unsupported_format`。サイズは `metadata().len()` で先に見る。`read_to_end` しない
 2. magic が `CPBK` でない、または 48 バイトに満たない → `not_backup`
 3. `format_version` が 1 でない、または未知の flag bit がある → `unsupported_format`
 4. 暗号化フラグがあるとき、memory / iterations / parallelism が 19456 / 2 / 1 でない、または salt か nonce が全 0 → `unsupported_format`。KDF も復号もしない
@@ -202,11 +202,11 @@
 6. 暗号化フラグがありパスワードが無い → `password_required`（復号しない）
 7. 暗号化フラグがあり GCM が失敗 → `password_invalid`（パスワード違いと破損を区別しない）
 8. 暗号化フラグが無くパスワードが渡されている → `password_unexpected`。`unsupported_format` にはしない
-9. `manifest_len`（u32）を先に読む。64 KiB を超える、または残りバイトより大きいときは、本文を確保せず `unsupported_format`。JSON として読めない、必須キー不足、`formatVersion` 不一致、`dbFileName` 不一致も `unsupported_format`
-10. SHA-256 不一致、または DB 先頭が `SQLite format 3\0` でない → `checksum_mismatch`（復号に成功したあとも同じ）。SHA-256 は `spawn_blocking`。手順 7 のタグ検証が終わるまで、一時ファイルを SQLite として開かない
-11. 検証済みの平文を `{app_data}/craft_post.db.verify` で開く。read-only（`immutable`）、拡張機能オフ、`PRAGMA trusted_schema=OFF`、`SQLITE_DBCONFIG_DEFENSIVE`。`sqlite_master` で `_sqlx_migrations` の type が `table` であることを確認し、違えば `unsupported_format`。読む SQL は `SELECT MAX(version) FROM _sqlx_migrations WHERE success = 1` だけ。成功行が無い、またはマニフェストの `schemaVersion` と違う → `unsupported_format`。オープンに失敗した壊れたファイルも `unsupported_format`。マイグレーションはしない。`ignore_missing` は使わない。判定後、inspect は verify を削除する
-12. その実 version がアプリの最新より大きい → `schema_too_new`。verify は削除する。稼働中 DB は変更しない
-13. 実 version がアプリ以下 → 受理。`inspect_backup` は verify を削除して終わる。`restore_backup` は verify を `{app_data}/craft_post.db.incoming` にリネームしてからマイグレーションと置換を行う
+9. `manifest_len`（u32）を先に読む。64 KiB を超える、または残りバイトより大きいときは、本文を確保せず `unsupported_format`。マニフェスト JSON はメモリ上だけに持つ。verify には書かない。JSON として読めない、必須キー不足、`formatVersion` 不一致、`dbFileName` 不一致も `unsupported_format`
+10. 残りの DB バイトだけを `{app_data}/craft_post.db.verify` へストリームし、同時に SHA-256 する（`spawn_blocking`）。復号ストリーム全体は書かない。書き込みハンドルを閉じ、`fsync`（Windows は `FlushFileBuffers`）してから、先頭が `SQLite format 3\0` であることとハッシュが `dbSha256` と一致することを見る。違えば `checksum_mismatch`。手順 7 のタグ検証とこの `fsync` が終わるまで SQLite として開かない
+11. `fsync` 済みの verify を read-only（`immutable`）で開く。拡張機能オフ、`PRAGMA trusted_schema=OFF`、`SQLITE_DBCONFIG_DEFENSIVE`。許可する SQL は次の 2 本だけ。`SELECT type FROM sqlite_master WHERE name = '_sqlx_migrations'` の type が `table` でない、`SELECT MAX(version) FROM _sqlx_migrations WHERE success = 1` の成功行が無い、またはマニフェストの `schemaVersion` と違う → `unsupported_format`。オープンに失敗した壊れたファイルも `unsupported_format`。マイグレーションはしない。`ignore_missing` は使わない。この節では verify を削除もリネームもしない
+12. その実 version がアプリの最新より大きい → `schema_too_new`。稼働中 DB は変更しない。verify の削除は呼び出し側（5.2.4 / 5.2.6）
+13. 実 version がアプリ以下 → 受理。削除と incoming へのリネームは呼び出し側が行う
 
 #### 5.1.4 パス
 
@@ -232,6 +232,8 @@ Rust がファイルを読み書きする。DB バイトは WebView に渡さな
 ```rust
 pub struct AppDb {
     inner: tokio::sync::RwLock<SqlitePool>,
+    /// inspect と restore が `craft_post.db.verify` を同時に書かないためのロック。静的変数には置かない。
+    verify: tokio::sync::Mutex<()>,
 }
 ```
 
@@ -239,7 +241,7 @@ pub struct AppDb {
 - 各コマンドは `State<'_, AppDb>` を受け、`with_read` で read guard をクエリ完了まで保持する。既存の `*_impl(pool: &SqlitePool)` はそのまま呼ぶ。3 秒待ちをコマンドごとに書かない
 - バックアップとリストア以外の DB コマンドは `with_read` が 3 秒で取れなければ、`AppError::Validation` の平文「他の処理がデータベースを使用中です。しばらくしてから再度実行してください。」を返す。JSON にはしない
 - バックアップとリストアは write lock を取る。30 秒以内に取れなければ `BackupError` の `busy`
-- `inspect_backup` は write lock を取らない。`craft_post.db.verify` 用の mutex だけを取り、他の DB コマンドは止めない
+- `inspect_backup` は write lock を取らない。`AppDb.verify` だけを取り、他の DB コマンドは止めない。verify 用 mutex を `AppDb` の外の静的変数にも置かない
 - `VACUUM INTO`、Argon2id、AES-256-GCM、SHA-256 は `spawn_blocking` で実行する。バックアップとリストアは lock を持ったまま
 - Tauri の `manage` は差し替えできないため、プールの入れ替えは `AppDb` の内側だけで行う
 - プールを閉じたあとに開き直すときは `create_if_missing(false)`。ファイルが無いのに空の DB を作らない
@@ -293,7 +295,7 @@ type BackupInspection = {
 5. スナップショットの SHA-256 と、`_sqlx_migrations` の実 version を読む。SHA-256 は `spawn_blocking`。ここでのオープンはアプリ自身のスナップショットであり、5.1.3 の外部ファイル用制限は掛けない。マニフェストを作る
 6. コンテナを `{destination}.partial` に書く。`.partial` は保存先と同じディレクトリに置く。暗号化は `spawn_blocking` で行う。salt または nonce が全 0 なら作り直す。3 回続けて全 0、または乱数に失敗したらファイルを残さず `io`
 7. 書き終えた `.partial` が 512 MiB を超えていたら、`.partial` とスナップショットを削除し、`unsupported_format`（「バックアップが大きすぎます。」）を返す。保存先は置き換えない
-8. `.partial` を `fsync` する（Windows は `FlushFileBuffers`）。そのあと保存先へ置換する。既存の `.cpbak` は先に削除しない。Unix は `rename` の上書き。Windows は `MoveFileExW` の `MOVEFILE_REPLACE_EXISTING`。失敗したら保存先の旧内容を残し、`.partial` だけ削除する
+8. `.partial` を `fsync` する（Windows は `FlushFileBuffers`）。そのあと保存先へ置換する。既存の `.cpbak` は先に削除しない。Unix は `rename` の上書きに加え、置換後に親ディレクトリも `fsync` する。Windows は `MoveFileExW` の `MOVEFILE_REPLACE_EXISTING`。失敗したら保存先の旧内容を残し、`.partial` だけ削除する
 9. スナップショットファイルを削除する
 10. lock を放す
 
@@ -301,10 +303,10 @@ type BackupInspection = {
 
 #### 5.2.4 リストア手順
 
-1. write lock
-2. verify 用 mutex を取る。コンテナを読み、5.1.3 で検証する。平文は `{app_data}/craft_post.db.verify` だけに書く。復号とハッシュはそこへストリームする。不合格なら稼働中 DB はそのまま。verify を削除し、mutex を放す
-3. 受理した verify を `{app_data}/craft_post.db.incoming` にリネームする。別ボリュームへのリネームにしない。メモリへ載せ直さない。リネーム後に mutex を放す
-4. incoming だけを別プールで開く。拡張機能オフ、`PRAGMA trusted_schema=OFF`、`SQLITE_DBCONFIG_DEFENSIVE`。マイグレーションは書き込むので read-only にはしない。失敗したら incoming を削除し、稼働中プールは開いたまま返す
+1. `AppDb.verify` を取る。write lock はまだ取らない。内容確認が verify を使っているあいだ、リストアはここで待ち、稼働中 DB は止めない
+2. 5.1.3 で検証する。verify に書くのは DB バイトだけ。不合格なら稼働中 DB はそのまま。verify を削除し、mutex を放す。write lock は取っていない
+3. 受理したら write lock を取る（30 秒、取れなければ verify を削除して mutex を放し `busy`）。verify を `{app_data}/craft_post.db.incoming` にリネームする。別ボリュームへのリネームにしない。メモリへ載せ直さない。リネームに失敗したら verify を削除し、write lock と mutex を放す。稼働中 DB は変えない。成功したら mutex を放す
+4. incoming を開く前に、`sqlite_master` の `type = 'trigger'` が 1 件でもあれば `unsupported_format` とし、incoming を削除する。稼働中プールは開いたまま。現行マイグレーション（0001〜0009）はトリガーを作らない。トリガーが無ければ incoming を別プールで開く。拡張機能オフ、`PRAGMA trusted_schema=OFF`、`SQLITE_DBCONFIG_DEFENSIVE`。マイグレーションは `UPDATE` を含むため read-only にはしない。失敗したら incoming を削除し、稼働中プールは開いたまま返す
 5. incoming プールを閉じる
 6. 稼働中プールを `close` する
 7. `craft_post.db-journal` / `craft_post.db-wal` / `craft_post.db-shm` があれば削除する
@@ -340,9 +342,9 @@ type BackupInspection = {
 
 `inspect_backup` は 5.2.3 でも 5.2.4 でもない。契約は次のとおり。
 
-1. `craft_post.db.verify` 用の mutex を取る。AppDb の write lock は取らない
-2. 平文の出力先は `{app_data}/craft_post.db.verify` だけ。incoming には書かない
-3. 5.1.3 で検証する。GCM のタグが通るまで SQLite として開かない
+1. `AppDb.verify` を取る。write lock は取らない
+2. 出力先は `{app_data}/craft_post.db.verify` だけ。書くのは DB バイトだけで、マニフェスト JSON は書かない。incoming には書かない
+3. 5.1.3 で検証する。GCM のタグと verify の `fsync` が終わるまで SQLite として開かない
 4. 成功でも失敗でも、戻る前に verify を削除する。プロセスが落ちた分は 5.2.5 が削除する
 5. mutex を放す
 
@@ -460,6 +462,9 @@ Rust の一時ディレクトリで行う。UI の見た目より、ファイル
 | `_sqlx_migrations` が VIEW、またはヘッダ通過後に壊れている | `unsupported_format`。稼働中 DB は変わらない |
 | inspect の失敗、および verify を残したままの起動 | `craft_post.db.verify` は残らない |
 | 保護チェックをオフにして保存 | パスワードは `null`。隠した欄の値は送らない |
+| 平文および暗号の往復 | verify の先頭は `SQLite format 3\0`。`{` で始まるマニフェストは verify に残らない |
+| inspect の成功と失敗 | 戻ったあと `craft_post.db.verify` は残らない |
+| incoming にトリガーがある | `unsupported_format`。incoming は残らない。稼働中 DB は変わらない |
 
 フロントは次を見る。
 
