@@ -52,16 +52,33 @@ describe('BackupPage', () => {
     render(<BackupPage saveDialog={saveDialog} now={new Date(2026, 9, 17, 9, 0, 1)} />)
 
     await user.click(screen.getByRole('checkbox', { name: 'パスワードで保護する' }))
-    await user.type(screen.getByLabelText('パスワード'), '\u304C')
-    await user.type(screen.getByLabelText('パスワード（確認）'), '\u304B\u3099')
+    await user.type(screen.getByLabelText('パスワード'), '\u304C'.repeat(8))
+    await user.type(screen.getByLabelText('パスワード（確認）'), '\u304B\u3099'.repeat(8))
     await user.click(screen.getByRole('button', { name: 'バックアップを保存' }))
 
     await waitFor(() => {
       expect(invokeMock).toHaveBeenCalledWith('create_backup', {
         destinationPath: 'D:/backup.cpbak',
-        password: '\u304C',
+        password: '\u304C'.repeat(8),
       })
     })
+  })
+
+  it('does not open the save dialog when a protected password is empty or shorter than 8 characters', async () => {
+    const user = userEvent.setup()
+    const saveDialog = vi.fn()
+    render(<BackupPage saveDialog={saveDialog} now={new Date(2026, 9, 17, 9, 0, 3)} />)
+
+    await user.click(screen.getByRole('checkbox', { name: 'パスワードで保護する' }))
+    await user.click(screen.getByRole('button', { name: 'バックアップを保存' }))
+    expect(screen.getByText('パスワードは 8 文字以上 128 文字以内で入力してください。')).toBeInTheDocument()
+
+    await user.type(screen.getByLabelText('パスワード'), '1234567')
+    await user.type(screen.getByLabelText('パスワード（確認）'), '1234567')
+    await user.click(screen.getByRole('button', { name: 'バックアップを保存' }))
+
+    expect(saveDialog).not.toHaveBeenCalled()
+    expect(invokeMock).not.toHaveBeenCalled()
   })
 
   it('sends null and drops hidden password fields when protection is turned off', async () => {
@@ -104,6 +121,51 @@ describe('BackupPage', () => {
     await waitFor(() => {
       expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
     })
+  })
+
+  it('keeps the sidebar inert and the overlay focused while a backup is running', async () => {
+    const user = userEvent.setup()
+    let resolveSave: (value: unknown) => void = () => {}
+    invokeMock.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveSave = resolve
+        }),
+    )
+    render(
+      <div className="app-layout">
+        <a href="/addresses">住所録一覧</a>
+        <BackupPage saveDialog={async () => 'D:/busy.cpbak'} now={new Date(2026, 9, 17, 9, 0, 4)} />
+      </div>,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'バックアップを保存' }))
+    const overlay = await screen.findByRole('alertdialog', { name: '処理しています' })
+    expect(overlay.parentElement).toBe(document.body)
+    expect(document.querySelector('.app-layout')).toHaveAttribute('inert')
+    await user.tab()
+    expect(screen.getByRole('link', { name: '住所録一覧' })).not.toHaveFocus()
+    expect(overlay).toHaveFocus()
+    resolveSave(inspection)
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument())
+    expect(document.querySelector('.app-layout')).not.toHaveAttribute('inert')
+  })
+
+  it('does not offer restore when the backup schema is too new', async () => {
+    const user = userEvent.setup()
+    invokeMock.mockRejectedValueOnce(
+      JSON.stringify({
+        code: 'schema_too_new',
+        message: 'このバックアップは新しいバージョンのアプリで作成されています。アプリを更新してから復元してください。',
+      }),
+    )
+    render(<BackupPage openDialog={async () => 'D:/future.cpbak'} />)
+
+    await user.click(screen.getByRole('button', { name: 'バックアップファイルを選択' }))
+    expect(
+      await screen.findByText('このバックアップは新しいバージョンのアプリで作成されています。アプリを更新してから復元してください。'),
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '復元する' })).not.toBeInTheDocument()
   })
 
   it('clears the password and confirmation checkbox when another file is chosen', async () => {
@@ -188,7 +250,9 @@ describe('BackupPage', () => {
   it('shows the restore notice once and then removes the key', async () => {
     sessionStorage.setItem('craftPostRestoreNotice', 'ok')
     render(<BackupPage />)
-    expect(screen.getByText('バックアップから復元しました。')).toBeInTheDocument()
+    const notice = screen.getByText('バックアップから復元しました。')
+    expect(notice).toHaveClass('form-success-banner')
+    expect(notice).not.toHaveClass('form-error-banner')
     await waitFor(() => expect(sessionStorage.getItem('craftPostRestoreNotice')).toBeNull())
   })
 })

@@ -65,7 +65,7 @@ pub async fn create_backup(
   }
 
   let partial = partial_path(&destination);
-  let written = write_snapshot(&snapshot, &partial, password.as_ref().map(|value| value.as_str())).await;
+  let written = write_snapshot(&snapshot, &partial, password).await;
   if let Err(error) = written {
     let _ = fs::remove_file(&snapshot);
     let _ = fs::remove_file(&partial);
@@ -233,12 +233,12 @@ async fn restore_backup_inner(
 async fn write_snapshot(
   snapshot: &Path,
   partial: &Path,
-  password: Option<&str>,
+  password: Option<Zeroizing<String>>,
 ) -> Result<BackupInspection, BackupError> {
   let snapshot_path = snapshot.to_path_buf();
   let partial_path = partial.to_path_buf();
-  let password = password.map(str::to_string);
   let inspection = tokio::task::spawn_blocking(move || {
+    let encrypted = password.is_some();
     let hash = container::hash_file(&snapshot_path)?;
     let identity = sqlite_raw::read_own_schema(&snapshot_path)?;
     let manifest = Manifest {
@@ -249,7 +249,12 @@ async fn write_snapshot(
       db_file_name: "craft_post.db".to_string(),
       db_sha256: hash,
     };
-    container::write_container(&snapshot_path, &partial_path, &manifest, password.as_deref())?;
+    container::write_container(
+      &snapshot_path,
+      &partial_path,
+      &manifest,
+      password.as_ref().map(|value| value.as_str()),
+    )?;
     let byte_size = fs::metadata(&partial_path).map_err(|_| BackupError::io())?.len();
     if byte_size > MAX_CONTAINER_BYTES {
       return Err(BackupError::too_large());
@@ -258,7 +263,7 @@ async fn write_snapshot(
       created_at: manifest.created_at,
       app_version: manifest.app_version,
       schema_version: manifest.schema_version,
-      encrypted: password.is_some(),
+      encrypted,
       byte_size,
     })
   })
@@ -279,7 +284,7 @@ async fn reopen_live(
   guard: &mut OwnedRwLockWriteGuard<SqlitePool>,
   db_path: &Path,
 ) -> Result<(), BackupError> {
-  let pool = open_pool(db_path, false).await.map_err(|_| BackupError::io())?;
+  let pool = open_pool(db_path, false).await.map_err(|_| BackupError::reopen_failed())?;
   let closed = std::mem::replace(&mut **guard, pool);
   closed.close().await;
   Ok(())

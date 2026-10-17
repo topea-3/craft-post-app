@@ -23,6 +23,14 @@ export function passwordsMatch(password: string, confirm: string): boolean {
   return password.normalize('NFC') === confirm.normalize('NFC')
 }
 
+export function passwordPolicyError(password: string): string | null {
+  const scalars = [...password.normalize('NFC')].length
+  if (scalars < 8 || scalars > 128) {
+    return 'パスワードは 8 文字以上 128 文字以内で入力してください。'
+  }
+  return null
+}
+
 export function parseBackupError(error: unknown): BackupErrorBody {
   const text = errorText(error)
   try {

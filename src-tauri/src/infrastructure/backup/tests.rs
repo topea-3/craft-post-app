@@ -358,6 +358,10 @@ async fn schema_too_new_and_view_and_trigger_do_not_replace_the_database() {
   let trigger_backup = dir.join("trigger.cpbak");
   pack_sqlite(&trigger_db, &trigger_backup, None, None);
   assert_eq!(
+    code_of(ops::inspect_backup(&live, trigger_backup.clone(), None).await),
+    "unsupported_format"
+  );
+  assert_eq!(
     code_of(ops::restore_backup(live.clone(), trigger_backup, None).await),
     "unsupported_format"
   );

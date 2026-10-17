@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { invoke } from '@tauri-apps/api/core'
 import { open, save } from '@tauri-apps/plugin-dialog'
 import {
@@ -6,6 +7,7 @@ import {
   RESTORE_NOTICE_KEY,
   defaultBackupFileName,
   parseBackupError,
+  passwordPolicyError,
   passwordsMatch,
   prepareRestoreReload,
   type BackupInspection,
@@ -63,12 +65,32 @@ export function BackupPage({
   const [restoreCode, setRestoreCode] = useState<string | null>(null)
   const [confirmed, setConfirmed] = useState(false)
   const [phase, setPhase] = useState<BusyPhase>('idle')
+  const overlayRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    if (notice) sessionStorage.removeItem(RESTORE_NOTICE_KEY)
+    if (!notice) return
+    const timer = window.setTimeout(() => sessionStorage.removeItem(RESTORE_NOTICE_KEY), 0)
+    return () => window.clearTimeout(timer)
   }, [notice])
 
   const busyLabel = phase === 'inspect' ? '確認しています' : phase === 'working' ? '処理しています' : null
+
+  useEffect(() => {
+    if (!busyLabel) return
+    const layout = document.querySelector('.app-layout')
+    layout?.setAttribute('inert', '')
+    overlayRef.current?.focus()
+    const trapKeys = (event: KeyboardEvent) => {
+      if (event.key !== 'Tab' && event.key !== 'Escape') return
+      event.preventDefault()
+      overlayRef.current?.focus()
+    }
+    document.addEventListener('keydown', trapKeys)
+    return () => {
+      layout?.removeAttribute('inert')
+      document.removeEventListener('keydown', trapKeys)
+    }
+  }, [busyLabel])
 
   const resetRestoreSelection = () => {
     setInspection(null)
@@ -112,14 +134,22 @@ export function BackupPage({
   }
 
   const handleSave = async () => {
+    if (phase !== 'idle') return
     setSaveError(null)
     setSaveMessage(null)
     if (protect && !passwordsMatch(password, confirmPassword)) {
       setSaveError('確認用パスワードが一致しません。')
       return
     }
+    if (protect) {
+      const policyError = passwordPolicyError(password)
+      if (policyError) {
+        setSaveError(policyError)
+        return
+      }
+    }
     const selected = await saveDialog(defaultBackupFileName(now ?? new Date()))
-    if (!selected) return
+    if (!selected || phase !== 'idle') return
     setPhase('working')
     try {
       await invoke('create_backup', {
@@ -135,8 +165,9 @@ export function BackupPage({
   }
 
   const handlePick = async () => {
+    if (phase !== 'idle') return
     const selected = await openDialog()
-    if (!selected) return
+    if (!selected || phase !== 'idle') return
     resetRestoreSelection()
     setSourcePath(selected)
     await inspectFile(selected, null)
@@ -148,6 +179,7 @@ export function BackupPage({
   }
 
   const handleRestore = async () => {
+    if (phase !== 'idle') return
     if (!sourcePath || !inspection || restoreCode === 'schema_too_new') return
     setPhase('working')
     try {
@@ -168,7 +200,7 @@ export function BackupPage({
   return (
     <section className="backup-page">
       <h2 className="form-section-title">バックアップ</h2>
-      {notice ? <p className="form-error-banner">{notice}</p> : null}
+      {notice ? <p className="form-success-banner">{notice}</p> : null}
 
       <section className="form-section">
         <h3 className="form-section-title">バックアップを作成</h3>
@@ -186,11 +218,13 @@ export function BackupPage({
         {protect ? (
           <>
             <p>パスワードを忘れると、このバックアップからは復元できません。</p>
+            <p>8 文字以上 128 文字以内で入力してください。</p>
             <label className="field-label">
               パスワード
               <input
                 type="password"
                 value={password}
+                maxLength={128}
                 aria-label="パスワード"
                 onChange={(event) => setPassword(event.target.value)}
               />
@@ -200,6 +234,7 @@ export function BackupPage({
               <input
                 type="password"
                 value={confirmPassword}
+                maxLength={128}
                 aria-label="パスワード（確認）"
                 onChange={(event) => setConfirmPassword(event.target.value)}
               />
@@ -288,11 +323,21 @@ export function BackupPage({
         ) : null}
       </section>
 
-      {busyLabel ? (
-        <div className="backup-block-overlay" role="alertdialog" aria-modal="true" aria-label={busyLabel}>
-          <p>{busyLabel}</p>
-        </div>
-      ) : null}
+      {busyLabel
+        ? createPortal(
+            <div
+              ref={overlayRef}
+              tabIndex={-1}
+              className="backup-block-overlay"
+              role="alertdialog"
+              aria-modal="true"
+              aria-label={busyLabel}
+            >
+              <p>{busyLabel}</p>
+            </div>,
+            document.body,
+          )
+        : null}
     </section>
   )
 }

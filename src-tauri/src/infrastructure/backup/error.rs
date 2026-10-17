@@ -99,4 +99,11 @@ impl BackupError {
       message: "ファイルを読み書きできませんでした。".to_string(),
     }
   }
+
+  pub fn reopen_failed() -> Self {
+    Self {
+      code: "io",
+      message: "データベースを開き直せませんでした。アプリを再起動してください。".to_string(),
+    }
+  }
 }

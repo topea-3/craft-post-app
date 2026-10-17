@@ -63,8 +63,9 @@ pub fn replace_file(partial: &Path, destination: &Path) -> Result<(), BackupErro
   {
     fs::rename(partial, destination).map_err(|_| BackupError::io())?;
     if let Some(parent) = destination.parent() {
-      let dir = File::open(parent).map_err(|_| BackupError::io())?;
-      dir.sync_all().map_err(|_| BackupError::io())?;
+      if let Err(error) = sync_parent(parent) {
+        log::warn!("replaced backup file but directory sync failed: {error}");
+      }
     }
   }
   Ok(())
@@ -123,6 +124,12 @@ fn paths_equal(left: &Path, right: &Path) -> bool {
   {
     left == right
   }
+}
+
+#[cfg(not(windows))]
+fn sync_parent(parent: &Path) -> Result<(), std::io::Error> {
+  let dir = File::open(parent)?;
+  dir.sync_all()
 }
 
 #[cfg(windows)]

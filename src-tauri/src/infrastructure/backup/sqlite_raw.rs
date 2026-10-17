@@ -101,9 +101,8 @@ pub fn read_own_schema(path: &Path) -> Result<MigrationIdentity, BackupError> {
 
 pub fn has_trigger(path: &Path) -> Result<bool, BackupError> {
   let connection = open_restricted(path)?;
-  let sql = CString::new("SELECT COUNT(*) FROM sqlite_master WHERE type = 'trigger'").map_err(|_| BackupError::io())?;
-  let count = query_i64(connection.db, sql.as_ptr())?.unwrap_or(0);
-  Ok(count > 0)
+  let sql = CString::new("SELECT 1 FROM sqlite_master WHERE type = 'trigger' LIMIT 1").map_err(|_| BackupError::io())?;
+  Ok(query_i64(connection.db, sql.as_ptr())?.is_some())
 }
 
 struct RawDb {

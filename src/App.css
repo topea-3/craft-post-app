@@ -359,6 +359,14 @@ a.btn-icon {
   font-size: 0.9rem;
 }
 
+.form-success-banner {
+  padding: 0.75rem 1rem;
+  border-radius: 0.5rem;
+  background-color: rgba(22, 163, 74, 0.15);
+  border: 1px solid rgba(22, 163, 74, 0.7);
+  font-size: 0.9rem;
+}
+
 .address-list-container {
   display: flex;
   flex-direction: column;

@@ -173,6 +173,9 @@ pub fn read_container(
   if identity.schema_version != manifest.schema_version {
     return Err(BackupError::unsupported_format());
   }
+  if sqlite_raw::has_trigger(verify_path)? {
+    return Err(BackupError::unsupported_format());
+  }
   if identity.schema_version > latest_schema {
     return Err(BackupError::schema_too_new());
   }
