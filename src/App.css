@@ -359,6 +359,14 @@ a.btn-icon {
   font-size: 0.9rem;
 }
 
+.form-success-banner {
+  padding: 0.75rem 1rem;
+  border-radius: 0.5rem;
+  background-color: rgba(22, 163, 74, 0.15);
+  border: 1px solid rgba(22, 163, 74, 0.7);
+  font-size: 0.9rem;
+}
+
 .address-list-container {
   display: flex;
   flex-direction: column;
@@ -1348,6 +1356,45 @@ a.btn-icon {
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 0.75rem;
+}
+
+.backup-page {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.backup-inspection {
+  display: grid;
+  gap: 0.35rem;
+  margin: 0;
+}
+
+.backup-inspection div {
+  display: grid;
+  grid-template-columns: 10rem minmax(0, 1fr);
+  gap: 0.5rem;
+}
+
+.backup-inspection dt {
+  margin: 0;
+  color: #94a3b8;
+}
+
+.backup-inspection dd {
+  margin: 0;
+}
+
+.backup-block-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(15, 23, 42, 0.72);
+  color: #f8fafc;
+  font-size: 1.1rem;
 }
 
 @media (prefers-color-scheme: light) {

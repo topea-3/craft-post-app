@@ -1,4 +1,5 @@
 pub mod db;
+pub mod backup;
 pub mod address;
 pub mod postcard_receipt;
 pub mod print;

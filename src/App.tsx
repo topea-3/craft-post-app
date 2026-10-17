@@ -22,6 +22,7 @@ import { PrintSelectPage } from './features/print/pages/PrintSelectPage'
 import { PrintTypePage } from './features/print/pages/PrintTypePage'
 import { PrintConfirmPage } from './features/print/pages/PrintConfirmPage'
 import { PrintPreviewPage } from './features/print/pages/PrintPreviewPage'
+import { BackupPage } from './features/backup/BackupPage'
 
 function AppLayout() {
   const navigationItems = [
@@ -33,6 +34,7 @@ function AppLayout() {
     { to: '/receipts/new', label: '受取履歴新規作成' },
     { to: '/sends', label: '送付履歴' },
     { to: '/print/type', label: '宛名印刷' },
+    { to: '/settings/backup', label: 'バックアップ' },
   ]
 
   return (
@@ -88,6 +90,7 @@ const router = createBrowserRouter([
       { path: 'print/select', element: <PrintSelectPage /> },
       { path: 'print/confirm', element: <PrintConfirmPage /> },
       { path: 'print/preview', element: <PrintPreviewPage /> },
+      { path: 'settings/backup', element: <BackupPage /> },
     ],
   },
 ])
