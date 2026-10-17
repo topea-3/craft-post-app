@@ -58,22 +58,26 @@
 | FR-02 | スナップショットは `VACUUM INTO` で作る。開いている接続からのファイルコピーはしない |
 | FR-03 | 成果物は 1 ファイル。拡張子は `.cpbak`。既定のファイル名は `craft-post-backup-YYYYMMDD-HHMMSS.cpbak`（端末ローカル時刻） |
 | FR-04 | パスワード保護はチェック式。オフのときは平文コンテナ。オンのときはパスワード必須 |
-| FR-05 | パスワードは Unicode スカラー 8 以上 128 以下。作成時は確認入力と一致すること。空文字では保護しない。KDF 前に NFC 正規化する |
-| FR-06 | 保護時の暗号は Argon2id + AES-256-GCM。パラメータはファイルヘッダに書く |
-| FR-07 | 保存先はユーザーが保存ダイアログで選ぶ。拡張子が `.cpbak` でないパス、稼働中 DB、復元用の一時ファイルは拒否する |
-| FR-08 | リストアはファイル選択後に内容（作成日時、作成元アプリのバージョン、パスワード保護の有無）を見せ、確認チェックのあとでだけ実行する |
+| FR-05 | パスワードは先に NFC 正規化し、そのあとの Unicode スカラー数が 8 以上 128 以下。空文字では保護しない。作成画面の確認も、比較の前に両方を NFC 正規化する |
+| FR-06 | 保護時の暗号は Argon2id（version `0x13`）+ AES-256-GCM。v1 が読む KDF パラメータは書き込み値（19456 KiB / 2 / 1）だけ。タグは暗号文の末尾 16 バイト |
+| FR-07 | 保存先はユーザーが保存ダイアログで選ぶ。未作成パスは親ディレクトリを canonicalize してファイル名を結合してから、稼働中 DB と復元用一時ファイルを拒否する |
+| FR-08 | リストアはファイル選択後に、作成日時、アプリのバージョン、スキーマ、サイズ、パスワード保護の有無を見せ、確認チェックのあとでだけ実行する |
 | FR-09 | リストアは現在の DB をバックアップの内容で置き換える。マージしない |
-| FR-10 | バックアップの `schemaVersion` が、実行中アプリに含まれる最新マイグレーションより新しいときは置き換えない |
-| FR-11 | `schemaVersion` がアプリと同じか古いときは、稼働中 DB を触る前に一時ファイルへ前方マイグレーションし、成功したときだけ置き換える。同じ version では追加の適用は無い |
+| FR-10 | マニフェストではなく、バックアップ内 `_sqlx_migrations` の実 version がアプリの最新より新しいときは置き換えない。マニフェストと実 version が違えば拒否する |
+| FR-11 | 実 version がアプリと同じか古いときは、稼働中 DB を触る前に検証済みの一時ファイルへ前方マイグレーションし、成功したときだけ置き換える。同じ version では追加の適用は無い |
 | FR-12 | 置き換えに失敗したとき、または起動時に中断跡があるときは、置換前の DB に戻す |
-| FR-13 | 復元成功後は画面の状態を捨て、アプリを再読み込みする |
+| FR-13 | 復元成功後、`reload` の前に `sessionStorage.clear()` する。現行の `printJobDraft` と `printPostcardType` を含む。その後に再読み込みする |
 | FR-14 | パスワードとファイル本文はログに出さない |
 
 ### 非機能要件
 
 - オフライン完結。ネットワークは使わない
-- バックアップとリストアは同時に 1 つ。他の DB コマンドが read lock を持っているときは、write lock を最大 30 秒待ち、取れなければ `busy`
-- コンテナの上限は 512 MiB。マニフェスト JSON の上限は 64 KiB
+- バックアップとリストアは同時に 1 つ。write lock は 30 秒まで待ち、取れなければ `busy`
+- その他の DB コマンドは read lock を 3 秒まで待つ。バックアップまたはリストアが write lock を持っているときは、操作の完了まで待たず平文で同じ文言を返す
+- 実行中はサイドメニューを含む画面全体を操作不能にする
+- `VACUUM INTO`、Argon2id、AES-256-GCM は `spawn_blocking` で実行し、tokio のランタイムを占有しない。write lock は保持したまま
+- コンテナの上限は 512 MiB。作成側も読み取り側も超えたファイルは残さない。マニフェスト JSON の上限は 64 KiB
+- 復号とハッシュは一時ファイルへストリームする。平文と暗号文を同時にメモリへ全量載せない。GCM のタグが一致するまで、その一時ファイルを本文として採用しない
 - 個人情報は端末の外へ送らない。保護しないファイルは、保存先の OS 権限だけに依存する
 - 開発用 identifier（`com.topea.craftpost.dev`）と本番（`com.topea.craftpost`）の DB は別ファイルである。`.cpbak` はスキーマが互換ならどちらへも復元できる
 
@@ -102,6 +106,7 @@
 | コマンド | `State<'_, SqlitePool>` を各コマンドが直接受ける | `AppDb` の read guard を、クエリが終わるまで保持する形に変える |
 | ファイルダイアログ | `tauri-plugin-dialog` は未導入。PDF は WebView のダウンロード | 保存・選択ダイアログと capability を追加する |
 | 画面 | サイドメニューにバックアップが無い | `/settings/backup` を追加する |
+| 印刷の画面状態 | `sessionStorage` の `printJobDraft` と `printPostcardType`。`reload` では残る | 復元成功時に `sessionStorage.clear()` してから reload する |
 | 最新スキーマ | `0009_add_nenga_send_target.sql` | 互換判定はファイル名の固定値ではなく、バイナリに含まれるマイグレータの最大 version |
 
 ### ギャップ
@@ -150,14 +155,14 @@
 
 | 項目 | 値 |
 |------|-----|
-| KDF | Argon2id |
-| salt | OS の乱数 16 バイト（ファイルごと） |
-| memory | 19456 KiB（19 MiB） |
-| iterations | 2 |
-| parallelism | 1 |
+| KDF | Argon2id。version は `0x13` 固定 |
+| salt | OS の乱数 16 バイト（ファイルごと）。全 0 は書き込まない。乱数が失敗したらファイルを作らず `io` |
+| memory | 19456 KiB（19 MiB）。v1 の読み取りはこれだけ |
+| iterations | 2。v1 の読み取りはこれだけ |
+| parallelism | 1。v1 の読み取りはこれだけ |
 | key | 32 バイト |
-| 暗号 | AES-256-GCM |
-| nonce | OS の乱数 12 バイト（ファイルごと） |
+| 暗号 | AES-256-GCM。タグは暗号文の末尾 16 バイト（`ciphertext \|\| tag`） |
+| nonce | OS の乱数 12 バイト（ファイルごと）。全 0 は書き込まない |
 
 #### 5.1.2 マニフェスト
 
@@ -178,7 +183,7 @@
 |------|------|
 | `formatVersion` | `1`。ヘッダの `format_version` と一致する |
 | `appVersion` | `CARGO_PKG_VERSION`。空でなく 32 文字以内。互換判定には使わない |
-| `schemaVersion` | `_sqlx_migrations` の `success = 1` の最大 `version`。1 以上 |
+| `schemaVersion` | スナップショットの `_sqlx_migrations` で `success = 1` の最大 `version`。1 以上。読み取り時は実テーブルの値と一致しなければならない |
 | `createdAt` | 端末ローカルオフセット付き RFC3339 |
 | `dbFileName` | `craft_post.db` 固定 |
 | `dbSha256` | DB バイト列の SHA-256。小文字 hex 64 文字 |
@@ -192,24 +197,27 @@
 1. コンテナが 512 MiB を超える → `unsupported_format`
 2. magic が `CPBK` でない、または 48 バイトに満たない → `not_backup`
 3. `format_version` が 1 でない、または未知の flag bit がある → `unsupported_format`
-4. 暗号化フラグがありパスワードが無い → `password_required`（復号しない）
-5. 暗号化フラグがあり GCM が失敗 → `password_invalid`（パスワード違いと破損を区別しない）
-6. 暗号化フラグが無くパスワードが渡されている → `unsupported_format`
-7. マニフェスト長が 64 KiB を超える、JSON として読めない、必須キー不足、`formatVersion` 不一致、`dbFileName` 不一致、成功したマイグレーションが無い → `unsupported_format`
-8. SHA-256 不一致、または DB 先頭が `SQLite format 3\0` でない → `checksum_mismatch`（復号に成功したあとも同じ）
-9. `schemaVersion` がアプリの最新より大きい → `schema_too_new`。稼働中 DB は変更しない
-10. `schemaVersion` がアプリ以下 → 受理。`inspect_backup` はここで終わり、ファイルも稼働中 DB も変更しない。`restore_backup` だけが、このあと一時ファイルへ書いてマイグレーションしてから置換する
+4. 暗号化フラグがあるとき、memory / iterations / parallelism が 19456 / 2 / 1 でない、または salt か nonce が全 0 → `unsupported_format`。KDF も復号もしない
+5. 暗号化フラグが無いとき、salt、nonce、memory、iterations、parallelism のいずれかが 0 でない → `unsupported_format`
+6. 暗号化フラグがありパスワードが無い → `password_required`（復号しない）
+7. 暗号化フラグがあり GCM が失敗 → `password_invalid`（パスワード違いと破損を区別しない）
+8. 暗号化フラグが無くパスワードが渡されている → `password_unexpected`。`unsupported_format` にはしない
+9. マニフェスト長が 64 KiB を超える、JSON として読めない、必須キー不足、`formatVersion` 不一致、`dbFileName` 不一致 → `unsupported_format`
+10. SHA-256 不一致、または DB 先頭が `SQLite format 3\0` でない → `checksum_mismatch`（復号に成功したあとも同じ）
+11. 検証済みの DB バイトを一時ファイルで開き、`_sqlx_migrations` の `success = 1` の最大 `version` を読む。成功行が無い、またはマニフェストの `schemaVersion` と違う → `unsupported_format`。一時ファイルは削除する。マイグレーションはしない。`ignore_missing` は使わない
+12. その実 version がアプリの最新より大きい → `schema_too_new`。一時ファイルは削除する。稼働中 DB は変更しない
+13. 実 version がアプリ以下 → 受理。`inspect_backup` は一時ファイルを削除して終わる。`restore_backup` はその平文一時ファイルを残し、incoming へリネームしてからマイグレーションと置換を行う
 
 #### 5.1.4 パス
 
-拒否するパス（canonicalize 後）:
+保存ダイアログの新規パスは、まだファイルが無い。そのパス自体を `canonicalize` しない。
 
-- 稼働中の `craft_post.db`
-- 同じディレクトリの `craft_post.db.incoming` / `craft_post.db.pre-restore` / `craft_post.backup-snapshot.db`
-- ディレクトリ
-- 拡張子が `.cpbak` でないもの（大文字小文字は区別しない）
+1. 親ディレクトリが存在し、ディレクトリである。親が無ければ `io`
+2. 親を `canonicalize` し、最後の成分（ファイル名）を結合する。ファイル自体は未作成でよい
+3. その絶対パスを、稼働中 `craft_post.db` と、同じディレクトリの `craft_post.db.incoming` / `craft_post.db.pre-restore` / `craft_post.backup-snapshot.db` の `canonicalize` 結果と比較する。一致したら `invalid_path`
+4. 拡張子は最後の成分だけを、大文字小文字を区別せず `.cpbak` と比較する。`foo.cpbak.partial` は拒否する
 
-それ以外の、ユーザーがダイアログで選んだ絶対パスは許可する。USB や別フォルダへ出せる。
+それ以外の、ユーザーがダイアログで選んだ絶対パスは許可する。USB や別フォルダへ出せる。Windows の短い名前やジャンクションは、比較の両側を canonicalize したパスで揃える。
 
 ### 5.2 API / Tauri コマンド
 
@@ -227,12 +235,15 @@ pub struct AppDb {
 
 - 起動時に今の `init_pool` の結果を入れる。`app.manage` する型は `SqlitePool` から `AppDb` に変える
 - 各コマンドは `State<'_, AppDb>` を受け、read guard をクエリ完了まで保持する。既存の `*_impl(pool: &SqlitePool)` はそのまま呼ぶ
-- バックアップとリストアは write lock を取る。30 秒以内に取れなければ `busy`
+- バックアップとリストア以外の DB コマンドは read lock を 3 秒まで待つ。取れなければ `AppError::Validation` の平文「他の処理がデータベースを使用中です。しばらくしてから再度実行してください。」を返す。JSON にはしない
+- バックアップとリストアは write lock を取る。30 秒以内に取れなければ `BackupError` の `busy`
+- `VACUUM INTO`、Argon2id、AES-256-GCM は lock を持ったまま `spawn_blocking` で実行する
 - Tauri の `manage` は差し替えできないため、プールの入れ替えは `AppDb` の内側だけで行う
+- プールを閉じたあとに開き直すときは `create_if_missing(false)`。ファイルが無いのに空の DB を作らない
 
 #### 5.2.2 コマンド
 
-エラーは `Err` の文字列に JSON を入れる。フロントは `JSON.parse` し、失敗時は文字列をそのまま表示する。
+この 3 コマンドは `AppError` を使わない。専用の `BackupError { code, message }` を JSON 文字列で `Err` に載せる。他コマンドは従来どおり `AppError`（Validation は平文、Repository はコード）のまま。バックアップ画面だけ JSON を解釈し、失敗時は `message` を表示する。
 
 ```json
 { "code": "password_required", "message": "このバックアップはパスワードで保護されています。" }
@@ -242,9 +253,10 @@ pub struct AppDb {
 |------|---------|
 | `password_required` | このバックアップはパスワードで保護されています。 |
 | `password_invalid` | パスワードが違うか、ファイルが壊れています。 |
+| `password_unexpected` | このバックアップはパスワードで保護されていません。 |
 | `password_policy` | パスワードは 8 文字以上 128 文字以内で入力してください。 |
 | `not_backup` | Craft Post のバックアップファイルではありません。 |
-| `unsupported_format` | このバックアップ形式には対応していません。 |
+| `unsupported_format` | このバックアップ形式には対応していません。大きすぎるときだけ「バックアップが大きすぎます。」 |
 | `schema_too_new` | このバックアップは新しいバージョンのアプリで作成されています。アプリを更新してから復元してください。 |
 | `checksum_mismatch` | バックアップファイルが壊れています。 |
 | `busy` | 他の処理がデータベースを使用中です。しばらくしてから再度実行してください。 |
@@ -272,44 +284,54 @@ type BackupInspection = {
 #### 5.2.3 バックアップ手順
 
 1. write lock
-2. パスワードを検証（null なら平文。Some なら FR-05）
-3. 保存先を検証。親ディレクトリが無ければ `io`（ダイアログが選んだ既存フォルダだけを使う）
-4. `{app_data}/craft_post.backup-snapshot.db` が残っていれば削除し、`VACUUM INTO` で作る。トランザクションの中では実行しない。パスはアプリが決めたものだけを使い、SQL 文字列では単一引用符を二重にする。その接続の `busy_timeout` は 5 秒。`SQLITE_BUSY` は `busy` として返し、稼働中 DB は変更しない
-5. スナップショットの SHA-256 と `schemaVersion` を読み、マニフェストを作る
-6. コンテナを `{destination}.partial` に書く。暗号化する場合はここで行う
-7. 既存の保存先があれば置き換えてリネームする
-8. スナップショットファイルを削除する
-9. lock を放す
+2. パスワードを検証する。null なら平文。Some なら NFC 正規化のあとスカラー数を数える（FR-05）
+3. 保存先を 5.1.4 で検証する。親ディレクトリが無ければ `io`
+4. `{app_data}/craft_post.backup-snapshot.db` が残っていれば削除し、`VACUUM INTO` を `spawn_blocking` で作る。トランザクションの中では実行しない。パスはアプリが決めたものだけを使い、SQL 文字列では単一引用符を二重にする。その接続の `busy_timeout` は 5 秒。`SQLITE_BUSY` は `busy` として返し、稼働中 DB は変更しない
+5. スナップショットの SHA-256 と、`_sqlx_migrations` の実 version を読み、マニフェストを作る
+6. コンテナを `{destination}.partial` に書く。`.partial` は保存先と同じディレクトリに置く。暗号化は `spawn_blocking` で行う。salt または nonce が全 0 なら作り直し、乱数に失敗したら `io`
+7. 書き終えた `.partial` が 512 MiB を超えていたら、`.partial` とスナップショットを削除し、`unsupported_format`（「バックアップが大きすぎます。」）を返す。保存先は置き換えない
+8. `.partial` を保存先へ置換する。既存の `.cpbak` は先に削除しない。Unix は `rename` の上書き。Windows は `MoveFileExW` の `MOVEFILE_REPLACE_EXISTING`。失敗したら保存先の旧内容を残し、`.partial` だけ削除する
+9. スナップショットファイルを削除する
+10. lock を放す
 
 手順 4 以降の失敗では稼働中 DB を変更しない。`.partial` とスナップショットは削除する。
 
 #### 5.2.4 リストア手順
 
 1. write lock
-2. コンテナを読み、5.1.3 で検証する。不合格なら稼働中 DB はそのまま
-3. 平文 DB を `{app_data}/craft_post.db.incoming` に書く
+2. コンテナを読み、5.1.3 で検証する。復号とハッシュは一時ファイルへストリームする。不合格なら稼働中 DB はそのまま。一時ファイルは削除する
+3. 受理した平文一時ファイルを `{app_data}/craft_post.db.incoming` にリネームする。一時ファイルは最初から AppData に作り、別ボリュームへのリネームにしない。メモリへ載せ直さない
 4. incoming だけを別プールで開き、マイグレーションする。失敗したら incoming を削除し、稼働中プールは開いたまま返す
 5. incoming プールを閉じる
 6. 稼働中プールを `close` する
 7. `craft_post.db-journal` / `craft_post.db-wal` / `craft_post.db-shm` があれば削除する
 8. `craft_post.db` を `craft_post.db.pre-restore` にリネームする
 9. incoming を `craft_post.db` にリネームする
-10. 新しいプールを開いてマイグレーションする（ここでは追加適用が無い想定）
+10. 新しいプールを `create_if_missing(false)` で開いてマイグレーションする（ここでは追加適用が無い想定）
 11. 成功したら `pre-restore` を削除し、`AppDb` の中身を新しいプールにする
-12. 失敗したら `pre-restore` を `craft_post.db` に戻して開き直し、エラーを返す
+
+手順 6 以降で失敗したときは、空の DB を作らない。開き直しは `create_if_missing(false)`。
+
+| 失敗した時点 | ファイル | AppDb |
+|--------------|----------|-------|
+| 手順 4（incoming のマイグレーション） | incoming を削除する。稼働中ファイルはそのまま | 稼働中プールは閉じない |
+| 手順 6 のあと、手順 8 の前（稼働中ファイルは元の場所。`pre-restore` は無い） | サイドカーを消したあとの元ファイルを残す | 元パスを開き直して入れ直す。開けなければエラーを返し、空ファイルは作らない |
+| 手順 9（稼働中ファイルが無く、`pre-restore` と incoming がある） | `pre-restore` を `craft_post.db` に戻す。incoming は削除する | 戻したファイルを開いて入れ直す |
+| 手順 10（新しいファイルが稼働中の位置にあり、`pre-restore` がある） | 新しいファイルを退け、`pre-restore` を `craft_post.db` に戻す | 戻したファイルを開いて入れ直す。開けなければエラーを返し、空ファイルは作らない |
+| 手順 11 で `pre-restore` の削除だけ失敗 | 新しい DB が稼働中の位置にある。`pre-restore` が残る | 新しいプールは入ったまま。復元は成功。次回起動の「両方ある」で新しい DB が開けば `pre-restore` を消す |
 
 #### 5.2.5 起動時の中断回復
 
-`init_pool` の前に、AppData 上で次を行う。
+`init_pool` の `create_if_missing(true)` は、下の回復が終わったあと、`craft_post.db` も `pre-restore` も無いときだけ使う。回復で開くときは `create_if_missing(false)`。現行の `infrastructure/db.rs` は常に `create_if_missing(true)` なので、回復と新規作成を同じ呼び出しにまとめない。
 
 | 状態 | 動作 |
 |------|------|
-| `craft_post.db` も `pre-restore` も無い | 従来どおり `create_if_missing` で新規作成する |
-| `craft_post.db` が無く、`pre-restore` がある | `pre-restore` を `craft_post.db` に戻す |
-| 両方ある | `craft_post.db` を開いてマイグレーションする。成功したら `pre-restore` を削除する。失敗したら `pre-restore` に戻して開き直す |
+| `craft_post.db` も `pre-restore` も無い | このときだけ `create_if_missing(true)` で新規作成する |
+| `craft_post.db` が無く、`pre-restore` がある | `pre-restore` を `craft_post.db` に戻してから、`create_if_missing(false)` で開く |
+| 両方ある | `craft_post.db` を `create_if_missing(false)` で開いてマイグレーションする。成功したら `pre-restore` を削除する。失敗したら `pre-restore` に戻して開き直す |
 | 上の判定のあと、`craft_post.db.incoming` または `craft_post.backup-snapshot.db` がある | 削除する |
 
-戻した DB も開けないときは起動を失敗させる。空の DB を新規作成して取り繕わない。
+戻した DB も開けないときは起動を失敗させる。空の DB を新規作成して取り繕わない。`pre-restore` があるあいだは `create_if_missing` で新しい空ファイルを作らない。
 
 ### 5.3 フロントエンド
 
@@ -321,7 +343,8 @@ type BackupInspection = {
 
 - 説明: 住所録、差出人、送受信履歴、印刷レイアウトを 1 つのファイルに保存する
 - チェック「パスワードで保護する」。オフが初期値
-- オンのときだけ「パスワード」「パスワード（確認）」を出す
+- オフのあいだは「保護しないファイルには住所などの個人情報が平文で入ります。」を出す
+- オンのときだけ「パスワード」「パスワード（確認）」を出す。併せて「パスワードを忘れると、このバックアップからは復元できません。」を出す
 - 「バックアップを保存」で保存ダイアログを開く。既定名は 5.1 のタイムスタンプ
 - ダイアログをキャンセルしたら何もしない
 - 成功メッセージ: 「バックアップを保存しました」と保存したパス
@@ -329,17 +352,19 @@ type BackupInspection = {
 **バックアップから復元**
 
 - 「バックアップファイルを選択」。フィルタは `Craft Post バックアップ (*.cpbak)`
+- 別ファイルを選び直したときは、直前の inspect 結果、パスワード、確認チェック、エラー表示を捨ててから、新しいファイルをパスワード `null` で inspect する
 - 選択直後の `inspect_backup` はパスワード `null` で呼ぶ。フロントはヘッダを自分で読まない
 - 結果が `password_required` のときだけ、パスワード欄と「内容を確認」を出す。再呼び出しではそのパスワードを渡す
-- inspect 成功で、作成日時（`ja-JP` のローカル表示）、アプリのバージョン、保護の有無を表示する
-- 警告: 「現在の住所録・差出人・送受信履歴・印刷レイアウトは、このバックアップの内容で完全に置き換わります。置き換え後は元に戻せません。必要なら先に現在のデータをバックアップしてください。」
+- `password_invalid` のときは選択中のファイルを維持し、パスワード欄だけ空にする。「内容を確認」で再試行できる
+- inspect 成功で、作成日時（`ja-JP` のローカル表示）、アプリのバージョン、スキーマ（`schemaVersion`）、サイズ（`byteSize`）、保護の有無を表示する
+- 警告: 「現在の住所録・差出人・送受信履歴・印刷レイアウトは、このバックアップの内容で完全に置き換わります。置き換え後は元に戻せません。未保存の入力と、印刷画面の選択も破棄されます。必要なら先に現在のデータをバックアップしてください。」
 - チェック「現在のデータをこのバックアップで置き換える」がオンのときだけ「復元する」を押せる
 - `schema_too_new` のときは理由を出し、「復元する」は出さない
-- 成功後に `window.location.reload()` する
+- 成功後、`sessionStorage.clear()` してから `window.location.reload()` する
 
-どちらかを実行中は、両方のボタンを無効にし、ページ内に「処理しています」を出す。
+どちらかを実行中は、サイドメニューを含む画面全体を操作不能にし、「処理しています」を出す。バックアップ画面のボタンを無効にするだけでは足りない。
 
-確認用パスワードの不一致はフロントだけで止め、メッセージは「確認用パスワードが一致しません。」とする。Rust は受け取った 1 本の長さだけを検証する。
+確認用パスワードの不一致はフロントだけで止め、メッセージは「確認用パスワードが一致しません。」とする。比較の前に両方を NFC 正規化する。Rust は渡された 1 本を、NFC のあとスカラー数で検証する。
 
 ### 5.4 フロー
 
@@ -353,14 +378,14 @@ flowchart TD
   F --> E
   G[ファイルを選択] --> H{暗号化?}
   H -->|はい| I[パスワードを受け取る]
-  H -->|いいえ| J[マニフェストと SHA-256 を検証]
+  H -->|いいえ| J[マニフェスト、SHA-256、実 schema を検証]
   I --> J
-  J --> K{schemaVersion はアプリ以下?}
+  J --> K{実 schema はアプリ以下?}
   K -->|いいえ| L[拒否。稼働中 DB は維持]
   K -->|はい| M[ユーザーが全置換を確認]
   M --> N[一時ファイルでマイグレーション]
   N --> O[稼働中 DB と置換]
-  O --> P[画面を再読み込み]
+  O --> P[sessionStorage を消して再読み込み]
 ```
 
 ---
@@ -370,17 +395,17 @@ flowchart TD
 | 状況 | 動作 |
 |------|------|
 | 新規インストール直後（マイグレーション済みの空 DB） | バックアップも復元もできる |
-| 保存先に同名ファイルがある | ダイアログの上書き確認に従う。Rust は `.partial` を書いてからリネームする |
+| 保存先に同名ファイルがある | ダイアログの上書き確認に従う。Rust は `.partial` から OS の置換付き rename で置き換える。失敗時は旧ファイルを残す |
 | 別ボリュームへの保存 | `.partial` は保存先と同じディレクトリに作り、同一ボリュームでリネームする |
 | 復元中にプロセスが落ちる | 5.2.5 で `pre-restore` か新しい DB のどちらか一方に戻す |
 | 保存中にプロセスが落ち、保存先に `.partial` が残る | 起動時には消さない。作成処理が失敗して戻るときだけ削除する |
 | パスワード保護されたファイルに、保護なしとして復元しようとした | `password_required`。DB は変えない |
-| 保護されていないファイルなのにパスワードを渡した | `unsupported_format`。黙って無視しない。画面の初回 inspect は常に `null` なので、この経路は再呼び出しの誤りである |
+| 保護されていないファイルなのにパスワードを渡した | `password_unexpected`。黙って無視しない。画面の初回 inspect は常に `null` なので、この経路は再呼び出しの誤りである |
 | 開発用 DB のバックアップを本番へ復元 | スキーマが互換なら許可する |
-| 復元のあと、開いていた編集画面の未保存入力 | reload で捨てる。復元前の警告で足りる |
+| 復元のあと、開いていた編集画面の未保存入力と印刷下書き | 警告のあと、`sessionStorage.clear()` してから reload する。`printJobDraft` は残さない |
 | ディスク不足 | `io`。スナップショットと `.partial` と incoming は削除し、稼働中 DB は維持する |
 | コンテナが SQLite ではない | `checksum_mismatch` または magic 不一致 |
-| バックアップ取得中に他画面が保存した | write lock で DB コマンドを待たせる。スナップショットはその時点の全内容 |
+| バックアップまたはリストアの実行中に他画面が保存した | 画面全体は操作不能。すでに飛んだ DB コマンドは read lock を 3 秒待って平文で失敗する。スナップショットは write lock 取得後の内容 |
 
 ---
 
@@ -403,8 +428,23 @@ Rust の一時ディレクトリで行う。UI の見た目より、ファイル
 | 置換後のオープン失敗 | `pre-restore` の内容に戻る |
 | 起動時に `craft_post.db` が無く `pre-restore` だけがある | 起動後の DB は `pre-restore` の内容 |
 | `VACUUM INTO` の直前に insert した行 | バックアップに含まれる |
+| memory / iterations / parallelism が 19456 / 2 / 1 でない | `unsupported_format`。KDF も復号もしない |
+| 暗号化で salt または nonce が全 0、非暗号化で KDF フィールドが 0 でない | `unsupported_format` |
+| 未作成の保存先 | 親の canonicalize にファイル名を結合したパスで受理する |
+| 既存 `.cpbak` への置換が失敗 | 旧ファイルが残る。`.partial` は残らない |
+| マニフェストの `schemaVersion` だけ新しい、またはだけ古い | `unsupported_format`。稼働中 DB は変わらない |
+| 実 version がアプリより新しい | `schema_too_new`。DB は変わらない |
+| close のあと、稼働中ファイルのリネーム前に失敗 | 現行の行が残る。AppDb は元ファイルを開き直す。空 DB は作らない |
+| `pre-restore` がある | `create_if_missing` で空ファイルを作らない |
+| 作成したコンテナが 512 MiB を超える | `.partial` を残さず `unsupported_format`。保存先の旧ファイルがあれば残る |
+| 平文ファイルにパスワードを渡す | `password_unexpected` |
 
-フロントは、パスワード確認の不一致でコマンドを呼ばないこと、復元成功で reload すること、をコンポーネントテストで見る。
+フロントは次を見る。
+
+- パスワード確認の不一致（NFC 前の差を含む）ではコマンドを呼ばない
+- 復元成功で `printJobDraft` と `printPostcardType` が消え、その後に reload する
+- ファイルを選び直すと、パスワードと確認チェックが初期化される
+- 誤パスワードのあと、同じファイルで再入力できる
 
 ---
 
