@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
 use sqlx::{Row, SqlitePool};
+use crate::infrastructure::db::AppDb;
 use tauri::{Manager, State};
 use uuid::Uuid;
 
@@ -151,6 +152,7 @@ fn map_sender_write_error(e: SenderRepositoryError, log_context: &str, fallback_
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   tauri::Builder::default()
+    .plugin(tauri_plugin_dialog::init())
     .setup(|app| {
       let api_logger = crate::infrastructure::logging::init_api_logger().map_err(|msg| {
         Box::new(std::io::Error::new(std::io::ErrorKind::Other, msg)) as Box<dyn std::error::Error>
@@ -159,10 +161,10 @@ pub fn run() {
 
       // SQLite プールを初期化してアプリ全体で共有する。
       let handle = app.handle();
-      let pool = tauri::async_runtime::block_on(async {
-        crate::infrastructure::db::init_pool(&handle).await
+      let db = tauri::async_runtime::block_on(async {
+        crate::infrastructure::db::init_app_db(&handle).await
       })?;
-      app.manage(pool);
+      app.manage(db);
 
       Ok(())
     })
@@ -211,6 +213,9 @@ pub fn run() {
       update_postcard_send,
       delete_postcard_send,
       search_send_status,
+      crate::infrastructure::backup::commands::create_backup,
+      crate::infrastructure::backup::commands::inspect_backup,
+      crate::infrastructure::backup::commands::restore_backup,
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");
@@ -514,12 +519,13 @@ impl From<SenderEntry> for SenderEntryDto {
 
 #[tauri::command]
 async fn create_address_entry(
-  pool: State<'_, SqlitePool>,
+  pool: State<'_, AppDb>,
   dto: AddressEntryDtoInput,
 ) -> Result<(), String> {
+  let pool = pool.read().await?;
   let entry =
     AddressEntry::try_from(dto).map_err::<String, _>(|e| e.into()).map_err(|e| e.to_string())?;
-  let repo = SqlxAddressEntryRepository::new(pool.inner().clone());
+  let repo = SqlxAddressEntryRepository::new(pool.clone());
 
   repo
     .create(&entry)
@@ -533,14 +539,15 @@ async fn create_address_entry(
 
 #[tauri::command]
 async fn update_address_entry(
-  pool: State<'_, SqlitePool>,
+  pool: State<'_, AppDb>,
   id: String,
   dto: AddressEntryDtoInput,
 ) -> Result<(), String> {
+  let pool = pool.read().await?;
   let uuid =
     Uuid::parse_str(&id).map_err(|e| AppError::Validation(e.to_string()).to_string())?;
   let id = AddressEntryId::from_uuid(uuid);
-  let repo = SqlxAddressEntryRepository::new(pool.inner().clone());
+  let repo = SqlxAddressEntryRepository::new(pool.clone());
 
   // 既存エントリを取得し、created_at / archived_at を維持する。
   let existing = repo
@@ -582,10 +589,11 @@ async fn update_address_entry(
 
 #[tauri::command]
 async fn list_address_entries(
-  pool: State<'_, SqlitePool>,
+  pool: State<'_, AppDb>,
   limit: i64,
   offset: i64,
 ) -> Result<Vec<AddressEntryDto>, String> {
+  let pool = pool.read().await?;
   if limit < 1 || limit > MAX_PAGE_LIMIT {
     return Err(
       AppError::Validation(format!("limit must be between 1 and {}", MAX_PAGE_LIMIT))
@@ -596,7 +604,7 @@ async fn list_address_entries(
     return Err(AppError::Validation("offset must be >= 0".to_string()).to_string());
   }
 
-  let repo = SqlxAddressEntryRepository::new(pool.inner().clone());
+  let repo = SqlxAddressEntryRepository::new(pool.clone());
   let entries = repo
     .list_active(Pagination { limit, offset })
     .await
@@ -613,7 +621,7 @@ const DEFAULT_SEARCH_OFFSET: i64 = 0;
 
 #[tauri::command]
 async fn search_address_entries(
-  pool: State<'_, SqlitePool>,
+  pool: State<'_, AppDb>,
   keyword: Option<String>,
   sort_key: String,
   sort_order: String,
@@ -621,6 +629,7 @@ async fn search_address_entries(
   limit: Option<i64>,
   offset: Option<i64>,
 ) -> Result<AddressEntrySearchResult, String> {
+  let pool = pool.read().await?;
   let sort_key = match sort_key.as_str() {
     "updated_at" => SortKey::UpdatedAt,
     _ => SortKey::NameKana,
@@ -650,7 +659,7 @@ async fn search_address_entries(
     pagination: Some(pagination),
   };
 
-  let repo = SqlxAddressEntryRepository::new(pool.inner().clone());
+  let repo = SqlxAddressEntryRepository::new(pool.clone());
   let (entries, total) = repo
     .search(query)
     .await
@@ -667,13 +676,14 @@ async fn search_address_entries(
 
 #[tauri::command]
 async fn archive_address_entry(
-  pool: State<'_, SqlitePool>,
+  pool: State<'_, AppDb>,
   id: String,
 ) -> Result<(), String> {
+  let pool = pool.read().await?;
   let uuid =
     Uuid::parse_str(&id).map_err(|e| AppError::Validation(e.to_string()).to_string())?;
   let id = AddressEntryId::from_uuid(uuid);
-  let repo = SqlxAddressEntryRepository::new(pool.inner().clone());
+  let repo = SqlxAddressEntryRepository::new(pool.clone());
 
   repo
     .archive(&id)
@@ -687,13 +697,14 @@ async fn archive_address_entry(
 
 #[tauri::command]
 async fn get_address_entry(
-  pool: State<'_, SqlitePool>,
+  pool: State<'_, AppDb>,
   id: String,
 ) -> Result<AddressEntryDto, String> {
+  let pool = pool.read().await?;
   let uuid =
     Uuid::parse_str(&id).map_err(|e| AppError::Validation(e.to_string()).to_string())?;
   let id = AddressEntryId::from_uuid(uuid);
-  let repo = SqlxAddressEntryRepository::new(pool.inner().clone());
+  let repo = SqlxAddressEntryRepository::new(pool.clone());
 
   let entry = repo
     .find_by_id(&id)
@@ -737,10 +748,11 @@ fn nenga_target_review_item_from(entry: AddressEntry) -> NengaTargetReviewItem {
 
 #[tauri::command]
 async fn list_nenga_target_review(
-  pool: State<'_, SqlitePool>,
+  pool: State<'_, AppDb>,
   year: i32,
 ) -> Result<Vec<NengaTargetReviewItem>, String> {
-  list_nenga_target_review_impl(pool.inner(), year).await
+  let pool = pool.read().await?;
+  list_nenga_target_review_impl(&pool, year).await
 }
 
 async fn list_nenga_target_review_impl(
@@ -770,10 +782,11 @@ async fn list_nenga_target_review_impl(
 
 #[tauri::command]
 async fn disable_nenga_send_targets(
-  pool: State<'_, SqlitePool>,
+  pool: State<'_, AppDb>,
   ids: Vec<String>,
 ) -> Result<DisableNengaSendTargetsResult, String> {
-  disable_nenga_send_targets_impl(pool.inner(), ids).await
+  let pool = pool.read().await?;
+  disable_nenga_send_targets_impl(&pool, ids).await
 }
 
 async fn disable_nenga_send_targets_impl(
@@ -823,9 +836,10 @@ async fn disable_nenga_send_targets_impl(
 
 #[tauri::command]
 async fn list_nenga_send_excluded_address_entry_ids(
-  pool: State<'_, SqlitePool>,
+  pool: State<'_, AppDb>,
 ) -> Result<Vec<String>, String> {
-  list_nenga_send_excluded_address_entry_ids_impl(pool.inner()).await
+  let pool = pool.read().await?;
+  list_nenga_send_excluded_address_entry_ids_impl(&pool).await
 }
 
 async fn list_nenga_send_excluded_address_entry_ids_impl(
@@ -844,10 +858,11 @@ async fn list_nenga_send_excluded_address_entry_ids_impl(
 
 #[tauri::command]
 async fn create_sender_entry(
-  pool: State<'_, SqlitePool>,
+  pool: State<'_, AppDb>,
   dto: SenderEntryDtoInput,
 ) -> Result<(), String> {
-  create_sender_entry_impl(pool.inner(), dto).await
+  let pool = pool.read().await?;
+  create_sender_entry_impl(&pool, dto).await
 }
 
 async fn create_sender_entry_impl(pool: &SqlitePool, dto: SenderEntryDtoInput) -> Result<(), String> {
@@ -875,11 +890,12 @@ async fn create_sender_entry_impl(pool: &SqlitePool, dto: SenderEntryDtoInput) -
 
 #[tauri::command]
 async fn update_sender_entry(
-  pool: State<'_, SqlitePool>,
+  pool: State<'_, AppDb>,
   id: String,
   dto: SenderEntryDtoInput,
 ) -> Result<(), String> {
-  update_sender_entry_impl(pool.inner(), id, dto).await
+  let pool = pool.read().await?;
+  update_sender_entry_impl(&pool, id, dto).await
 }
 
 async fn update_sender_entry_impl(
@@ -939,10 +955,11 @@ async fn update_sender_entry_impl(
 
 #[tauri::command]
 async fn list_sender_entries(
-  pool: State<'_, SqlitePool>,
+  pool: State<'_, AppDb>,
   limit: i64,
   offset: i64,
 ) -> Result<Vec<SenderEntryDto>, String> {
+  let pool = pool.read().await?;
   if limit < 1 || limit > MAX_PAGE_LIMIT {
     return Err(
       AppError::Validation(format!("limit must be between 1 and {}", MAX_PAGE_LIMIT))
@@ -953,7 +970,7 @@ async fn list_sender_entries(
     return Err(AppError::Validation("offset must be >= 0".to_string()).to_string());
   }
 
-  let repo = SqlxSenderEntryRepository::new(pool.inner().clone());
+  let repo = SqlxSenderEntryRepository::new(pool.clone());
   let entries = repo
     .list_active(SenderPagination { limit, offset })
     .await
@@ -967,13 +984,14 @@ async fn list_sender_entries(
 
 #[tauri::command]
 async fn archive_sender_entry(
-  pool: State<'_, SqlitePool>,
+  pool: State<'_, AppDb>,
   id: String,
 ) -> Result<(), String> {
+  let pool = pool.read().await?;
   let uuid =
     Uuid::parse_str(&id).map_err(|e| AppError::Validation(e.to_string()).to_string())?;
   let id = SenderEntryId::from_uuid(uuid);
-  let repo = SqlxSenderEntryRepository::new(pool.inner().clone());
+  let repo = SqlxSenderEntryRepository::new(pool.clone());
   repo
     .archive(&id)
     .await
@@ -986,13 +1004,14 @@ async fn archive_sender_entry(
 
 #[tauri::command]
 async fn get_sender_entry(
-  pool: State<'_, SqlitePool>,
+  pool: State<'_, AppDb>,
   id: String,
 ) -> Result<SenderEntryDto, String> {
+  let pool = pool.read().await?;
   let uuid =
     Uuid::parse_str(&id).map_err(|e| AppError::Validation(e.to_string()).to_string())?;
   let id = SenderEntryId::from_uuid(uuid);
-  let repo = SqlxSenderEntryRepository::new(pool.inner().clone());
+  let repo = SqlxSenderEntryRepository::new(pool.clone());
   let entry = repo
     .find_by_id(&id)
     .await
@@ -1006,11 +1025,12 @@ async fn get_sender_entry(
 
 #[tauri::command]
 async fn update_sender_entry_links(
-  pool: State<'_, SqlitePool>,
+  pool: State<'_, AppDb>,
   sender_id: String,
   address_entry_ids: Vec<String>,
 ) -> Result<(), String> {
-  update_sender_entry_links_impl(pool.inner(), sender_id, address_entry_ids).await
+  let pool = pool.read().await?;
+  update_sender_entry_links_impl(&pool, sender_id, address_entry_ids).await
 }
 
 async fn update_sender_entry_links_impl(
@@ -1060,10 +1080,11 @@ async fn update_sender_entry_links_impl(
 
 #[tauri::command]
 async fn list_sender_linked_addresses(
-  pool: State<'_, SqlitePool>,
+  pool: State<'_, AppDb>,
   sender_id: String,
 ) -> Result<Vec<AddressEntryDto>, String> {
-  list_sender_linked_addresses_impl(pool.inner(), sender_id).await
+  let pool = pool.read().await?;
+  list_sender_linked_addresses_impl(&pool, sender_id).await
 }
 
 async fn list_sender_linked_addresses_impl(
@@ -1100,12 +1121,13 @@ async fn list_sender_linked_addresses_impl(
 
 #[tauri::command]
 async fn get_sender_id_by_address_entry_id(
-  pool: State<'_, SqlitePool>,
+  pool: State<'_, AppDb>,
   address_entry_id: String,
 ) -> Result<Option<String>, String> {
+  let pool = pool.read().await?;
   let address_uuid =
     Uuid::parse_str(&address_entry_id).map_err(|e| AppError::Validation(e.to_string()).to_string())?;
-  let repo = SqlxSenderEntryRepository::new(pool.inner().clone());
+  let repo = SqlxSenderEntryRepository::new(pool.clone());
   let sender_id = repo
     .find_sender_id_by_address_entry_id(address_uuid)
     .await
@@ -1119,11 +1141,12 @@ async fn get_sender_id_by_address_entry_id(
 
 #[tauri::command]
 async fn set_sender_for_address_entry(
-  pool: State<'_, SqlitePool>,
+  pool: State<'_, AppDb>,
   address_entry_id: String,
   sender_id: Option<String>,
 ) -> Result<(), String> {
-  set_sender_for_address_entry_impl(pool.inner(), address_entry_id, sender_id).await
+  let pool = pool.read().await?;
+  set_sender_for_address_entry_impl(&pool, address_entry_id, sender_id).await
 }
 
 async fn set_sender_for_address_entry_impl(
@@ -1421,10 +1444,11 @@ async fn build_postcard_receipt_values_from_input(
 
 #[tauri::command]
 async fn create_postcard_receipt(
-  pool: State<'_, SqlitePool>,
+  pool: State<'_, AppDb>,
   dto: PostcardReceiptDtoInput,
 ) -> Result<String, String> {
-  create_postcard_receipt_impl(pool.inner(), dto).await
+  let pool = pool.read().await?;
+  create_postcard_receipt_impl(&pool, dto).await
 }
 
 async fn create_postcard_receipt_impl(
@@ -1454,10 +1478,11 @@ async fn create_postcard_receipt_impl(
 
 #[tauri::command]
 async fn create_postcard_receipts_batch(
-  pool: State<'_, SqlitePool>,
+  pool: State<'_, AppDb>,
   input: CreatePostcardReceiptsBatchInput,
 ) -> Result<Vec<String>, String> {
-  create_postcard_receipts_batch_impl(pool.inner(), input).await
+  let pool = pool.read().await?;
+  create_postcard_receipts_batch_impl(&pool, input).await
 }
 
 async fn create_postcard_receipts_batch_impl(
@@ -1523,12 +1548,13 @@ async fn create_postcard_receipts_batch_impl(
 
 #[tauri::command]
 async fn update_postcard_receipt(
-  pool: State<'_, SqlitePool>,
+  pool: State<'_, AppDb>,
   id: String,
   dto: PostcardReceiptDtoInput,
   expected_updated_at: String,
 ) -> Result<(), String> {
-  update_postcard_receipt_impl(pool.inner(), id, dto, expected_updated_at).await
+  let pool = pool.read().await?;
+  update_postcard_receipt_impl(&pool, id, dto, expected_updated_at).await
 }
 
 async fn update_postcard_receipt_impl(
@@ -1595,10 +1621,11 @@ async fn update_postcard_receipt_impl(
 
 #[tauri::command]
 async fn get_postcard_receipt(
-  pool: State<'_, SqlitePool>,
+  pool: State<'_, AppDb>,
   id: String,
 ) -> Result<PostcardReceiptDto, String> {
-  get_postcard_receipt_impl(pool.inner(), id).await
+  let pool = pool.read().await?;
+  get_postcard_receipt_impl(&pool, id).await
 }
 
 async fn get_postcard_receipt_impl(pool: &SqlitePool, id: String) -> Result<PostcardReceiptDto, String> {
@@ -1627,7 +1654,7 @@ async fn get_postcard_receipt_impl(pool: &SqlitePool, id: String) -> Result<Post
 
 #[tauri::command]
 async fn search_postcard_receipts(
-  pool: State<'_, SqlitePool>,
+  pool: State<'_, AppDb>,
   keyword: Option<String>,
   year: Option<i32>,
   category: Option<String>,
@@ -1636,8 +1663,9 @@ async fn search_postcard_receipts(
   offset: Option<i64>,
   sort_order: Option<String>,
 ) -> Result<PostcardReceiptSearchResult, String> {
+  let pool = pool.read().await?;
   search_postcard_receipts_impl(
-    pool.inner(),
+    &pool,
     keyword,
     year,
     category,
@@ -1722,8 +1750,9 @@ async fn search_postcard_receipts_impl(
 }
 
 #[tauri::command]
-async fn list_postcard_receipt_years(pool: State<'_, SqlitePool>) -> Result<Vec<i32>, String> {
-  list_postcard_receipt_years_impl(pool.inner()).await
+async fn list_postcard_receipt_years(pool: State<'_, AppDb>) -> Result<Vec<i32>, String> {
+  let pool = pool.read().await?;
+  list_postcard_receipt_years_impl(&pool).await
 }
 
 async fn list_postcard_receipt_years_impl(pool: &SqlitePool) -> Result<Vec<i32>, String> {
@@ -1736,10 +1765,11 @@ async fn list_postcard_receipt_years_impl(pool: &SqlitePool) -> Result<Vec<i32>,
 
 #[tauri::command]
 async fn list_mochu_receipt_address_entry_ids(
-  pool: State<'_, SqlitePool>,
+  pool: State<'_, AppDb>,
   receipt_year: i32,
 ) -> Result<Vec<String>, String> {
-  list_mochu_receipt_address_entry_ids_impl(pool.inner(), receipt_year).await
+  let pool = pool.read().await?;
+  list_mochu_receipt_address_entry_ids_impl(&pool, receipt_year).await
 }
 
 async fn list_mochu_receipt_address_entry_ids_impl(
@@ -1779,8 +1809,9 @@ async fn resolve_send_year_impl(postcard_type: String) -> Result<ResolveSendYear
 }
 
 #[tauri::command]
-async fn delete_postcard_receipt(pool: State<'_, SqlitePool>, id: String) -> Result<(), String> {
-  delete_postcard_receipt_impl(pool.inner(), id).await
+async fn delete_postcard_receipt(pool: State<'_, AppDb>, id: String) -> Result<(), String> {
+  let pool = pool.read().await?;
+  delete_postcard_receipt_impl(&pool, id).await
 }
 
 async fn delete_postcard_receipt_impl(pool: &SqlitePool, id: String) -> Result<(), String> {
@@ -2088,10 +2119,11 @@ fn address_entry_display_name(entry: &AddressEntry) -> String {
 
 #[tauri::command]
 async fn filter_active_address_entry_ids(
-  pool: State<'_, SqlitePool>,
+  pool: State<'_, AppDb>,
   address_entry_ids: Vec<String>,
 ) -> Result<Vec<String>, String> {
-  filter_active_address_entry_ids_impl(pool.inner(), address_entry_ids).await
+  let pool = pool.read().await?;
+  filter_active_address_entry_ids_impl(&pool, address_entry_ids).await
 }
 
 /// 入力順を保った非 archived 存在 ID の subset。
@@ -2151,10 +2183,11 @@ async fn filter_active_address_entry_ids_impl(
 
 #[tauri::command]
 async fn resolve_print_job_items(
-  pool: State<'_, SqlitePool>,
+  pool: State<'_, AppDb>,
   address_entry_ids: Vec<String>,
 ) -> Result<ResolvePrintJobItemsResult, String> {
-  resolve_print_job_items_impl(pool.inner(), address_entry_ids).await
+  let pool = pool.read().await?;
+  resolve_print_job_items_impl(&pool, address_entry_ids).await
 }
 
 async fn resolve_print_job_items_impl(
@@ -2328,10 +2361,11 @@ async fn resolve_print_job_items_impl(
 
 #[tauri::command]
 async fn build_address_print_snapshot(
-  pool: State<'_, SqlitePool>,
+  pool: State<'_, AppDb>,
   address_entry_id: String,
 ) -> Result<AddressPrintSnapshotDto, String> {
-  build_address_print_snapshot_impl(pool.inner(), address_entry_id).await
+  let pool = pool.read().await?;
+  build_address_print_snapshot_impl(&pool, address_entry_id).await
 }
 
 async fn build_address_print_snapshot_impl(
@@ -2363,10 +2397,11 @@ async fn build_address_print_snapshot_impl(
 
 #[tauri::command]
 async fn build_sender_print_snapshot(
-  pool: State<'_, SqlitePool>,
+  pool: State<'_, AppDb>,
   sender_entry_id: String,
 ) -> Result<SenderPrintSnapshotDto, String> {
-  build_sender_print_snapshot_impl(pool.inner(), sender_entry_id).await
+  let pool = pool.read().await?;
+  build_sender_print_snapshot_impl(&pool, sender_entry_id).await
 }
 
 async fn build_sender_print_snapshot_impl(
@@ -2397,10 +2432,11 @@ async fn build_sender_print_snapshot_impl(
 
 #[tauri::command]
 async fn list_print_layout_preferences(
-  pool: State<'_, SqlitePool>,
+  pool: State<'_, AppDb>,
   postcard_type: String,
 ) -> Result<Vec<PrintLayoutPreferenceDto>, String> {
-  list_print_layout_preferences_impl(pool.inner(), postcard_type).await
+  let pool = pool.read().await?;
+  list_print_layout_preferences_impl(&pool, postcard_type).await
 }
 
 async fn list_print_layout_preferences_impl(
@@ -2428,11 +2464,12 @@ async fn list_print_layout_preferences_impl(
 
 #[tauri::command]
 async fn save_print_layout_preferences(
-  pool: State<'_, SqlitePool>,
+  pool: State<'_, AppDb>,
   postcard_type: String,
   offsets: Vec<PrintLayoutPreferenceDto>,
 ) -> Result<(), String> {
-  save_print_layout_preferences_impl(pool.inner(), postcard_type, offsets).await
+  let pool = pool.read().await?;
+  save_print_layout_preferences_impl(&pool, postcard_type, offsets).await
 }
 
 async fn save_print_layout_preferences_impl(
@@ -2487,10 +2524,11 @@ async fn save_print_layout_preferences_impl(
 
 #[tauri::command]
 async fn create_postcard_sends_batch(
-  pool: State<'_, SqlitePool>,
+  pool: State<'_, AppDb>,
   input: CreatePostcardSendsBatchInput,
 ) -> Result<CreatePostcardSendsBatchResult, String> {
-  create_postcard_sends_batch_impl(pool.inner(), input, PostcardSend::local_today()).await
+  let pool = pool.read().await?;
+  create_postcard_sends_batch_impl(&pool, input, PostcardSend::local_today()).await
 }
 
 async fn create_postcard_sends_batch_impl(
@@ -2794,10 +2832,11 @@ async fn validate_active_sender_for_send(pool: &SqlitePool, sender_entry_id: Uui
 
 #[tauri::command]
 async fn create_postcard_sends_manual_batch(
-  pool: State<'_, SqlitePool>,
+  pool: State<'_, AppDb>,
   input: CreatePostcardSendsManualBatchInput,
 ) -> Result<CreatePostcardSendsManualBatchResult, String> {
-  create_postcard_sends_manual_batch_impl(pool.inner(), input).await
+  let pool = pool.read().await?;
+  create_postcard_sends_manual_batch_impl(&pool, input).await
 }
 
 async fn create_postcard_sends_manual_batch_impl(
@@ -2916,10 +2955,11 @@ async fn create_postcard_sends_manual_batch_impl(
 
 #[tauri::command]
 async fn get_postcard_send(
-  pool: State<'_, SqlitePool>,
+  pool: State<'_, AppDb>,
   id: String,
 ) -> Result<PostcardSendDto, String> {
-  get_postcard_send_impl(pool.inner(), id).await
+  let pool = pool.read().await?;
+  get_postcard_send_impl(&pool, id).await
 }
 
 async fn get_postcard_send_impl(pool: &SqlitePool, id: String) -> Result<PostcardSendDto, String> {
@@ -2949,7 +2989,7 @@ async fn get_postcard_send_impl(pool: &SqlitePool, id: String) -> Result<Postcar
 
 #[tauri::command]
 async fn search_postcard_sends(
-  pool: State<'_, SqlitePool>,
+  pool: State<'_, AppDb>,
   keyword: Option<String>,
   year: Option<i32>,
   postcard_type: Option<String>,
@@ -2960,8 +3000,9 @@ async fn search_postcard_sends(
   offset: Option<i64>,
   sort_order: Option<String>,
 ) -> Result<PostcardSendSearchResult, String> {
+  let pool = pool.read().await?;
   search_postcard_sends_impl(
-    pool.inner(),
+    &pool,
     keyword,
     year,
     postcard_type,
@@ -3055,8 +3096,9 @@ async fn search_postcard_sends_impl(
 }
 
 #[tauri::command]
-async fn list_postcard_send_years(pool: State<'_, SqlitePool>) -> Result<Vec<i32>, String> {
-  list_postcard_send_years_impl(pool.inner()).await
+async fn list_postcard_send_years(pool: State<'_, AppDb>) -> Result<Vec<i32>, String> {
+  let pool = pool.read().await?;
+  list_postcard_send_years_impl(&pool).await
 }
 
 async fn list_postcard_send_years_impl(pool: &SqlitePool) -> Result<Vec<i32>, String> {
@@ -3069,11 +3111,12 @@ async fn list_postcard_send_years_impl(pool: &SqlitePool) -> Result<Vec<i32>, St
 
 #[tauri::command]
 async fn update_postcard_send(
-  pool: State<'_, SqlitePool>,
+  pool: State<'_, AppDb>,
   id: String,
   input: UpdatePostcardSendInput,
 ) -> Result<(), String> {
-  update_postcard_send_impl(pool.inner(), id, input).await
+  let pool = pool.read().await?;
+  update_postcard_send_impl(&pool, id, input).await
 }
 
 async fn update_postcard_send_impl(
@@ -3143,8 +3186,9 @@ async fn update_postcard_send_impl(
 }
 
 #[tauri::command]
-async fn delete_postcard_send(pool: State<'_, SqlitePool>, id: String) -> Result<(), String> {
-  delete_postcard_send_impl(pool.inner(), id).await
+async fn delete_postcard_send(pool: State<'_, AppDb>, id: String) -> Result<(), String> {
+  let pool = pool.read().await?;
+  delete_postcard_send_impl(&pool, id).await
 }
 
 async fn delete_postcard_send_impl(pool: &SqlitePool, id: String) -> Result<(), String> {
@@ -3166,7 +3210,7 @@ async fn delete_postcard_send_impl(pool: &SqlitePool, id: String) -> Result<(), 
 
 #[tauri::command]
 async fn search_send_status(
-  pool: State<'_, SqlitePool>,
+  pool: State<'_, AppDb>,
   year: i32,
   postcard_type: Option<String>,
   status: String,
@@ -3175,8 +3219,9 @@ async fn search_send_status(
   limit: Option<i64>,
   offset: Option<i64>,
 ) -> Result<SendStatusSearchResult, String> {
+  let pool = pool.read().await?;
   search_send_status_impl(
-    pool.inner(),
+    &pool,
     year,
     postcard_type,
     status,
