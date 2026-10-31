@@ -27,6 +27,12 @@ const SENDER_ADDRESS_START_Y_MM = POSTCARD_SIZE_MM.height / 2 - 10
 /** 差出人住所1 の X（右へ 4mm: 28→32）。列間隔は SENDER_ADDRESS_COL_GAP_MM。 */
 const SENDER_ADDRESS1_X_MM = 32
 
+/**
+ * 宛名住所の折り返し下端。
+ * 官製年賀はがき見本の下部赤線は上端から約 129.3mm。字形が線と年賀表記に乗らないよう、その直前で改行する。
+ */
+export const NENGA_RECIPIENT_ADDRESS_BOTTOM_MM = 128
+
 /** 宛名氏名・連名（左へ 3mm: 63.5→60.5 / 51.5→48.5）。連名開始 Y は描画時に「名」へ合わせる */
 const RECIPIENT_NAME_X_MM = 60.5
 const RECIPIENT_CO_X_MM = 48.5
@@ -95,5 +101,6 @@ export const nengaLayoutSpec: PostcardLayoutSpec = {
   postcard: POSTCARD_SIZE_MM,
   marginMm: POSTCARD_MARGIN_MM,
   printable: PRINTABLE_AREA_MM,
+  recipientAddressBottomMm: NENGA_RECIPIENT_ADDRESS_BOTTOM_MM,
   layers: nengaLayers,
 }

@@ -42,6 +42,9 @@ export const SENDER_POSTAL_LAYOUT = {
   fontSizePt: 8,
 } as const
 
+/** 差出人住所の折り返し下端は、郵便番号枠の上端よりこの分だけ上。 */
+export const SENDER_ADDRESS_POSTAL_CLEARANCE_MM = 1
+
 /** @deprecated kept for tests — prefer slot layout above */
 export const POSTAL_DIGIT_GAP_MM = 2
 export const RECIPIENT_POSTAL_GROUP_GAP_MM = 4

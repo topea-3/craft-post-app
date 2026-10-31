@@ -360,6 +360,8 @@ src/features/print/
 
 Validation: 宛名連名 ≤ 3、差出人連名 ≤ 4（`SenderEntry::MAX_CO_RECIPIENTS`）。
 
+現行実装の住所は 3 分割（都道府県+市区町村 / 町名番地 / 建物）である。長い宛名住所が下端の枠を超えるときの折り返しは [address-print-overflow-wrap-design.md](./address-print-overflow-wrap-design.md)（TOP-41）を正とする。
+
 ### 5.4 フロー
 
 ```mermaid
