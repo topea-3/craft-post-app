@@ -1,5 +1,6 @@
 import { render } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
+import { mochuLayoutSpec } from '../layout/mochuLayoutSpec'
 import { nengaLayoutSpec } from '../layout/nengaLayoutSpec'
 import {
   createDefaultLayerVisibility,
@@ -8,7 +9,11 @@ import {
 } from '../types'
 import { PostcardPreviewCanvas } from './PostcardPreviewCanvas'
 
-function item(addressLine1: string, senderLine1 = '差出人住所'): PrintJobItem {
+function item(
+  addressLine1: string,
+  senderLine1 = '差出人住所',
+  sender: Partial<PrintJobItem['sender']> = {},
+): PrintJobItem {
   return {
     address: {
       addressEntryId: 'addr-1',
@@ -30,16 +35,24 @@ function item(addressLine1: string, senderLine1 = '差出人住所'): PrintJobIt
       primaryLast: '佐藤',
       primaryFirst: '花子',
       coRecipients: [],
+      ...sender,
     },
     layerVisibility: createDefaultLayerVisibility(),
   }
 }
 
-function renderCanvas(addressLine1: string, senderLine1?: string) {
+function renderCanvas(
+  addressLine1: string,
+  senderLine1?: string,
+  options?: {
+    layoutSpec?: typeof nengaLayoutSpec
+    sender?: Partial<PrintJobItem['sender']>
+  },
+) {
   return render(
     <PostcardPreviewCanvas
-      item={item(addressLine1, senderLine1)}
-      layoutSpec={nengaLayoutSpec}
+      item={item(addressLine1, senderLine1, options?.sender)}
+      layoutSpec={options?.layoutSpec ?? nengaLayoutSpec}
       layoutOffsets={createDefaultLayoutOffsets()}
       selectedLayerId={null}
       onSelectLayer={() => {}}
@@ -96,5 +109,32 @@ describe('PostcardPreviewCanvas recipient address wrap', () => {
     expect(columns?.[1]).toHaveStyle({ left: '0mm' })
     expect(sender2).toHaveStyle({ left: '24mm' })
     expect(senderName).toHaveStyle({ left: '10mm' })
+  })
+
+  it('keeps a full-size wrap for a long sender building when a co-recipient is present', () => {
+    const building = 'パークシティ渋谷ザタワー301'
+    const { container } = renderCanvas('東京都千代田区', '茨城県水戸市', {
+      sender: {
+        addressLine2: '差出2-1-1',
+        addressLine3: building,
+        coRecipients: [{ last: '太郎', first: '花子', omitLast: false }],
+      },
+    })
+    const line3 = container.querySelector('[data-print-layer="sender.address3"]')
+    const coName = container.querySelector('[data-print-layer="sender.coLast.1"]')
+
+    expect(line3?.querySelectorAll('[data-address-column]')).toHaveLength(2)
+    expect(line3?.textContent).toBe(building)
+    expect(parseFloat((line3 as HTMLElement).style.fontSize)).toBeCloseTo(9.6)
+    expect(coName).toHaveStyle({ left: '4mm' })
+  })
+
+  it('keeps an 18 character recipient address on one column for mochu', () => {
+    const { container } = renderCanvas('あ'.repeat(18), '差出人住所', {
+      layoutSpec: mochuLayoutSpec,
+    })
+    const address = container.querySelector('[data-print-layer="recipient.address1"]')
+    expect(address?.querySelectorAll('[data-address-column]')).toHaveLength(1)
+    expect(address).toHaveStyle({ left: '87.5mm' })
   })
 })

@@ -76,7 +76,6 @@ function placeColumns(
   fontSizePt: number,
   pitchMm: number,
   bottomYMm: number,
-  nameLeftMm: number | null,
 ): PlacedColumns {
   const columns: Partial<Record<PrintLayerId, AddressColumnPlacement[]>> = {}
   let extraBefore = 0
@@ -99,12 +98,7 @@ function placeColumns(
     extraBefore += Math.max(0, parts.length - 1)
   }
 
-  const nameShiftLeftMm = extraBefore * pitchMm
-  if (nameLeftMm != null && extraBefore > 0) {
-    leftmost = Math.min(leftmost, nameLeftMm - nameShiftLeftMm)
-  }
-
-  return { columns, nameShiftLeftMm, leftmostMm: leftmost }
+  return { columns, nameShiftLeftMm: extraBefore * pitchMm, leftmostMm: leftmost }
 }
 
 /**
@@ -116,7 +110,6 @@ function maxPitchWithinLeftLimit(
   fontSizePt: number,
   bottomYMm: number,
   leftLimitMm: number,
-  nameLeftMm: number | null,
   pitchBase: number,
 ): number {
   let extraBefore = 0
@@ -135,9 +128,6 @@ function maxPitchWithinLeftLimit(
     }
     extraBefore += Math.max(0, parts.length - 1)
   }
-  if (nameLeftMm != null && extraBefore > 0) {
-    limit = Math.min(limit, (nameLeftMm - leftLimitMm) / extraBefore)
-  }
   return limit
 }
 
@@ -154,22 +144,23 @@ export function layoutRecipientAddressColumns(input: {
   specPitchMm: number
   bottomYMm: number
   leftLimitMm: number
+  /** 呼び出し側の氏名左端。余白判定には使わない（氏名だけのはみ出しでは縮小しない）。 */
   nameLeftMm: number | null
   initialFontSizePt: number
 }): RecipientAddressLayout {
-  const { fields, specPitchMm, bottomYMm, leftLimitMm, nameLeftMm, initialFontSizePt } = input
+  const { fields, specPitchMm, bottomYMm, leftLimitMm, initialFontSizePt } = input
   const fallbackPitch =
     verticalCharAdvanceMm(initialFontSizePt) + ADDRESS_COLUMN_MIN_GAP_MM
   const pitchBase = specPitchMm > 0 ? specPitchMm : fallbackPitch
 
   let fontSizePt = initialFontSizePt
   let columnPitchMm = pitchBase
-  let placed = placeColumns(fields, fontSizePt, columnPitchMm, bottomYMm, nameLeftMm)
+  let placed = placeColumns(fields, fontSizePt, columnPitchMm, bottomYMm)
 
   while (!fitsLeft(placed.leftmostMm, leftLimitMm) && fontSizePt > MIN_RECIPIENT_ADDRESS_FONT_PT + 1e-6) {
     const next = Math.round((fontSizePt - ADDRESS_FONT_STEP_PT) * 10) / 10
     fontSizePt = Math.max(MIN_RECIPIENT_ADDRESS_FONT_PT, next)
-    placed = placeColumns(fields, fontSizePt, columnPitchMm, bottomYMm, nameLeftMm)
+    placed = placeColumns(fields, fontSizePt, columnPitchMm, bottomYMm)
   }
 
   if (!fitsLeft(placed.leftmostMm, leftLimitMm)) {
@@ -179,13 +170,12 @@ export function layoutRecipientAddressColumns(input: {
       fontSizePt,
       bottomYMm,
       leftLimitMm,
-      nameLeftMm,
       pitchBase,
     )
     const compressed = Math.min(pitchBase, Math.max(minPitch, limitPitch))
     if (compressed < columnPitchMm - 1e-6) {
       columnPitchMm = compressed
-      placed = placeColumns(fields, fontSizePt, columnPitchMm, bottomYMm, nameLeftMm)
+      placed = placeColumns(fields, fontSizePt, columnPitchMm, bottomYMm)
     }
   }
 

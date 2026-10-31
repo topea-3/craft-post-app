@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import { mochuLayoutSpec } from './mochuLayoutSpec'
 import { nengaLayoutSpec } from './nengaLayoutSpec'
-import { scaledFontSizePt, verticalCharAdvanceMm } from './printTypography'
+import {
+  scaledFontSizePt,
+  scaledSenderContentFontSizePt,
+  SENDER_ADDRESS_POSTAL_CLEARANCE_MM,
+  SENDER_POSTAL_LAYOUT,
+  verticalCharAdvanceMm,
+} from './printTypography'
 import {
   ADDRESS_COLUMN_MIN_GAP_MM,
   MIN_RECIPIENT_ADDRESS_FONT_PT,
@@ -179,59 +185,73 @@ describe('layoutRecipientAddressColumns', () => {
     )
   })
 
-  it('shrinks the address font until the shifted name stays inside the margin', () => {
+  it('keeps a full-size wrap when only the sender co-name crosses the margin', () => {
+    const building = 'パークシティ渋谷ザタワー301'
+    const senderFont = scaledSenderContentFontSizePt(spec.layers['sender.address3'].fontSizePt)
+    const bottomYMm = Math.min(
+      spec.recipientAddressBottomMm,
+      SENDER_POSTAL_LAYOUT.originMm.y - SENDER_ADDRESS_POSTAL_CLEARANCE_MM,
+    )
     const result = layout(
       [
-        {
-          id: 'recipient.address1',
-          text: 'あいう',
-          shown: true,
-          anchorMm: { x: 80, y: 0 },
-        },
+        field('sender.address1', '茨城県水戸市', true, spec.layers['sender.address1'].originMm),
+        field('sender.address2', '差出2-1-1', true, spec.layers['sender.address2'].originMm),
+        field('sender.address3', building, true, spec.layers['sender.address3'].originMm),
       ],
       {
-        bottomYMm: 10,
-        leftLimitMm: 5,
-        nameLeftMm: 20,
-        specPitchMm: 8,
+        specPitchMm:
+          spec.layers['sender.address1'].originMm.x - spec.layers['sender.address2'].originMm.x,
+        bottomYMm,
+        nameLeftMm: spec.layers['sender.coLast.1'].originMm.x,
+        initialFontSizePt: senderFont,
       },
     )
 
-    expect(result.fontSizePt).toBeLessThan(font)
-    expect(result.fontSizePt).toBeGreaterThanOrEqual(MIN_RECIPIENT_ADDRESS_FONT_PT)
-    const nameEdge = 20 - result.nameShiftLeftMm
-    expect(nameEdge).toBeGreaterThanOrEqual(5 - 1e-4)
-    expect(placedAddressText(result, 'recipient.address1')).toBe('あいう')
+    expect([...building]).toHaveLength(15)
+    expect(result.fontSizePt).toBeCloseTo(senderFont)
+    expect(result.columns['sender.address3']).toHaveLength(2)
+    expect(result.nameShiftLeftMm).toBeCloseTo(
+      spec.layers['sender.address1'].originMm.x - spec.layers['sender.address2'].originMm.x,
+    )
+    expect(placedAddressText(result, 'sender.address3')).toBe(building)
   })
 
-  it('compresses column pitch at the minimum font when spec pitch cannot fit', () => {
+  it('uses one column on mochu and two on nenga for an 18 character address', () => {
+    const text = 'あ'.repeat(18)
+    expect(layout([field('recipient.address1', text)]).columns['recipient.address1']).toHaveLength(
+      2,
+    )
+    expect(
+      layout([field('recipient.address1', text)], {
+        bottomYMm: mochuLayoutSpec.recipientAddressBottomMm,
+      }).columns['recipient.address1'],
+    ).toHaveLength(1)
+  })
+
+  it('compresses column pitch at the minimum font when address columns cannot fit', () => {
     const text = 'あ'.repeat(10)
-    const nameLeftMm = 30
     const leftLimitMm = 5
+    const anchorX = 20
     const result = layoutRecipientAddressColumns({
       fields: [
         {
           id: 'recipient.address1',
           text,
           shown: true,
-          anchorMm: { x: 80, y: 0 },
+          anchorMm: { x: anchorX, y: 0 },
         },
       ],
       specPitchMm: 8,
       bottomYMm: 1,
       leftLimitMm,
-      nameLeftMm,
+      nameLeftMm: 30,
       initialFontSizePt: font,
     })
 
     expect(result.fontSizePt).toBe(MIN_RECIPIENT_ADDRESS_FONT_PT)
-    const extra = 9
-    const fitted = (nameLeftMm - leftLimitMm) / extra
-    expect(result.columnPitchMm).toBeCloseTo(fitted)
-    expect(result.columnPitchMm).toBeGreaterThan(
-      verticalCharAdvanceMm(MIN_RECIPIENT_ADDRESS_FONT_PT) + ADDRESS_COLUMN_MIN_GAP_MM - 1e-6,
-    )
-    expect(nameLeftMm - result.nameShiftLeftMm).toBeGreaterThanOrEqual(leftLimitMm - 1e-4)
+    const minPitch =
+      verticalCharAdvanceMm(MIN_RECIPIENT_ADDRESS_FONT_PT) + ADDRESS_COLUMN_MIN_GAP_MM
+    expect(result.columnPitchMm).toBeCloseTo(minPitch)
     expect(placedAddressText(result, 'recipient.address1')).toBe(text)
   })
 
