@@ -1,4 +1,4 @@
-import type { PostcardLayoutSpec } from './layoutTypes'
+import { POSTCARD_MARGIN_MM, POSTCARD_SIZE_MM, type PostcardLayoutSpec } from './layoutTypes'
 import { nengaLayoutSpec } from './nengaLayoutSpec'
 
 /**
@@ -8,4 +8,6 @@ import { nengaLayoutSpec } from './nengaLayoutSpec'
 export const mochuLayoutSpec: PostcardLayoutSpec = {
   ...nengaLayoutSpec,
   layers: { ...nengaLayoutSpec.layers },
+  // 喪中はがきに年賀の下部表記はない。余白の手前まで使う。
+  recipientAddressBottomMm: POSTCARD_SIZE_MM.height - POSTCARD_MARGIN_MM,
 }
