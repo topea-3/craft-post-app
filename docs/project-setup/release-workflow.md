@@ -10,7 +10,7 @@
 flowchart LR
   Bump[chore/release-vX.Y.Z] -->|PR| D[develop]
   D -->|PR| M[main]
-  M -->|Release CI| Build[Windows NSIS .exe]
+  M -->|Release CI| Build[Windows NSIS .exe と latest.json]
   Build --> Tag[tag vX.Y.Z]
   Tag --> R[GitHub Releases]
 ```
@@ -23,7 +23,7 @@ flowchart LR
    - マージコミットを checkout し、PR 本文の Version と 3 マニフェストの一致を確認
    - Windows 上で NSIS インストーラ（`.exe`）をビルド
    - 成功後に `vX.Y.Z` タグを作成。**既存タグは HEAD と SHA 一致時のみスキップ**（不一致は失敗）
-   - GitHub Releases を作成／更新し、`.exe` とサマリを添付
+   - GitHub Releases を作成／更新し、`.exe`、署名（`.exe.sig`）、`latest.json`、サマリを添付（[app-updater-design.md](../design/app-updater-design.md)）
 
 ## 2. バージョニング
 
@@ -40,8 +40,8 @@ flowchart LR
 | 項目 | 内容 |
 |------|------|
 | OS | Windows のみ（初版） |
-| 形式 | Tauri NSIS インストーラ（`.exe`） |
-| 配布 | GitHub Releases |
+| 形式 | Tauri NSIS インストーラ（`.exe`）。アプリ内更新用に同じ `.exe` の `.sig` と `latest.json` |
+| 配布 | GitHub Releases。アプリからの確認先は `releases/latest/download/latest.json` |
 | 同梱ライセンス | `src-tauri/licenses/`（MIT + OFL 等。NSIS `licenseFile` 含む） |
 
 ## 4. 関連ファイル
@@ -52,6 +52,7 @@ flowchart LR
 | `.github/workflows/release.yml` | マージ時のビルド・タグ・Release |
 | `.github/workflows/ci.yml` | 通常の lint / test / build |
 | `docs/project-setup/tauri-updater-feasibility.md` | 自動アップデート可否の調査 |
+| `docs/design/app-updater-design.md` | アプリ内更新の設計（TOP-37） |
 
 ## 5. 初回リリース（例: v0.1.0）
 
@@ -68,3 +69,4 @@ flowchart LR
 |------|------|
 | 2026-09-12 | TOP-33。develop→main PR + マージ時 CI を正式運用として記録。 |
 | 2026-09-12 | bump を chore PR 経由に変更。ビルド後タグ・Version 一致確認・再実行耐性を追記。 |
+| 2026-11-01 | TOP-37。Release 成果物に `.exe.sig` と `latest.json` を追加する旨を記載。 |
