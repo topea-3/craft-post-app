@@ -8,7 +8,7 @@
 
 | ツール | 推奨バージョン | 用途 |
 |--------|----------------|------|
-| **Node.js** | 20.x LTS 以上（20.19+ または 22.12+） | フロントエンド（Vite / React）のビルド・開発サーバー |
+| **Node.js** | 22.23.4 以上（22 系の現行修正版。.nvmrc と同じ） | フロントエンド（Vite / React）のビルド・開発サーバー |
 | **npm** | 10.x 以上（v11.4.0+ 推奨） | パッケージ管理 |
 | **Rust** | 最新の安定版（rustup 推奨） | Tauri（Rust）バックエンドのビルド |
 | **Windows** | Windows 10 以降 | WebView2 は通常プリインストール。未導入の場合は [Microsoft Edge WebView2](https://developer.microsoft.com/en-us/microsoft-edge/webview2/) を参照 |
