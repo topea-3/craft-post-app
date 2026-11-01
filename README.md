@@ -31,7 +31,7 @@
    cd craft-post-app
    ```
 
-2. **前提条件**: Node.js（20.x LTS 以上）、Rust（rustup）、Windows の場合は WebView2。
+2. **前提条件**: Node.js 22.23.4（.nvmrc と同じ。nvm / fnm 推奨）、Rust（rustup）、Windows の場合は WebView2。
 
 3. **初回セットアップ**
 
