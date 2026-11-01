@@ -166,9 +166,9 @@ flowchart LR
 
 | 項目 | 方針 |
 |------|------|
-| **Tauri Updater** | 要件では「アップデートの取得は必要最小限」（要件・制約）とある。Tauri の **Updater** を有効にすると、アプリ内から新バージョンの検知・ダウンロードが可能。導入する場合は Tauri の updater 設定とサーバ側の更新情報（JSON）の配置が必要。 |
-| **署名** | Updater 用の署名は Tauri の仕組みで無料で利用可能。OS レベル（Windows の Authenticode 等）の署名は有料のため、必要に応じて別途検討（desktop-tech-comparison-and-decision.md を参照）。 |
-| **今回の範囲** | 初版リリースでは「手動で新しいビルドをダウンロードして入れ替え」でも可。Updater は後から追加可能。 |
+| **Tauri Updater** | アプリ内更新は [app-updater-design.md](../design/app-updater-design.md)（TOP-37）。公開 GitHub Releases の `latest.json` と `tauri-plugin-updater`。日常利用のオフライン方針は維持し、通信は更新確認と取得に限る。 |
+| **署名** | Updater 用の署名は Tauri の仕組みで必須。秘密鍵は GitHub Actions secret のみ。OS レベル（Windows の Authenticode 等）の署名は有料のため、TOP-37 では扱わない。 |
+| **手動配布** | GitHub Releases の NSIS `.exe` は残す。Updater を含む版より前のインストールは、その版を一度手動で入れる。 |
 
 ### 4.5 リリースの流れ（確定運用）
 
@@ -193,7 +193,7 @@ flowchart LR
 | **バージョニング** | SemVer（MAJOR.MINOR.PATCH）。タグは `v1.0.0` 形式。 |
 | **ビルド** | リリース CI は Windows NSIS（`.exe`）のみ。ローカルでは Tauri 標準ビルドも可。 |
 | **配布** | GitHub Releases でタグに成果物とリリースノートを添付。 |
-| **アップデート** | 初版は手動配布で可。Tauri Updater は必要に応じて後から導入（[tauri-updater-feasibility.md](./tauri-updater-feasibility.md)）。 |
+| **アップデート** | アプリ内更新は [app-updater-design.md](../design/app-updater-design.md)。調査メモは [tauri-updater-feasibility.md](./tauri-updater-feasibility.md)。 |
 
 ---
 
@@ -204,4 +204,5 @@ flowchart LR
 | 2026-03-08 | 初版。TOP-13「リポジトリ構成・ブランチ戦略の方針決定」に基づき作成。モノレポ・ディレクトリ構成・ブランチ戦略を整理した。 |
 | 2026-03-08 | 4. リリース方法を追加。バージョニング（SemVer）・ビルド・配布（GitHub Releases）・アップデート方針・リリースの流れを記載。5. まとめにリリース関連項目を追加。 |
 | 2026-09-12 | TOP-33。4.5 をスキル + マージ時 CI の確定運用に更新。詳細は release-workflow.md。 |
+| 2026-11-01 | TOP-37。4.4 とまとめのアップデート行をアプリ内更新の設計へ差し替え。 |
 
