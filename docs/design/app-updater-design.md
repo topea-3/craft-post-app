@@ -136,7 +136,7 @@ Windows ではインストール段階でアプリが終了する。`relaunch()`
 - `tauri_plugin_updater::Builder::new().build()`
 - `tauri_plugin_process::init()`
 
-依存の版は、既存の Tauri 2.10 系に合うものを `npm run tauri add updater` と process プラグインの追加で入れる。Tauri 本体のメジャーは上げない。
+依存は Tauri 2 系のまま、updater は CVE-2026-95625 の修正が入った版にする。`tauri` と `@tauri-apps/cli` は `~2.12.4`、`tauri-plugin-updater` と `@tauri-apps/plugin-updater` は `~2.14.1`。`rust-version` は 1.90。Tauri 本体のメジャーは上げない。
 
 `capabilities/default.json` に次を足す。
 
@@ -153,6 +153,7 @@ Windows ではインストール段階でアプリが終了する。`relaunch()`
   "plugins": {
     "updater": {
       "pubkey": "<tauri signer generate が出力する公開鍵文字列>",
+      "requireSignedVersion": true,
       "endpoints": [
         "https://github.com/topea-3/craft-post-app/releases/latest/download/latest.json"
       ],
@@ -164,7 +165,7 @@ Windows ではインストール段階でアプリが終了する。`relaunch()`
 }
 ```
 
-`pubkey` はファイルパスにしない。`dangerousInsecureTransportProtocol` は置かない。
+`pubkey` はファイルパスにしない。`dangerousInsecureTransportProtocol` は置かない。`requireSignedVersion` は最初の updater 対応版から true にする。署名の trusted comment に版が無い成果物は拒否する。CLI は 2.12 以上でないと、その comment を付けられない。
 
 `bundle.targets` と CI の `--bundles nsis` は維持する。MSI は Release に載せない。
 
@@ -367,3 +368,4 @@ Release YAML 自体の結合テストは作らない。署名鍵が必要な `ta
 | 日付 | 内容 |
 |------|------|
 | 2026-11-01 | TOP-37。初版。起動時と手動の確認、公開 GitHub の `latest.json`、NSIS 署名成果物を設計。 |
+| 2026-11-01 | CVE-2026-95625 対応。updater 2.14、Tauri / CLI 2.12、`requireSignedVersion`、Rust 1.90。 |

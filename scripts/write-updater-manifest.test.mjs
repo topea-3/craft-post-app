@@ -5,7 +5,7 @@ import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
-import { buildUpdaterManifest } from './write-updater-manifest.mjs'
+import { buildUpdaterManifest, runUpdaterManifestCli } from './write-updater-manifest.mjs'
 
 const scriptPath = fileURLToPath(new URL('./write-updater-manifest.mjs', import.meta.url))
 
@@ -38,6 +38,12 @@ describe('buildUpdaterManifest', () => {
     assert.throws(() => buildUpdaterManifest({ ...base, signature: ' \n' }), /signature is empty/)
     assert.throws(() => buildUpdaterManifest({ ...base, assetName: '  ' }), /asset name is empty/)
     assert.throws(() => buildUpdaterManifest({ ...base, version: 'v0.2.0' }), /SemVer/)
+  })
+
+  it('rejects an empty tag, an empty repo, and a non-RFC3339 date', () => {
+    assert.throws(() => buildUpdaterManifest({ ...base, tag: '  ' }), /tag is empty/)
+    assert.throws(() => buildUpdaterManifest({ ...base, repo: '' }), /repo is empty/)
+    assert.throws(() => buildUpdaterManifest({ ...base, pubDate: '2026-11-01' }), /RFC3339/)
   })
 })
 
@@ -80,6 +86,10 @@ describe('write-updater-manifest cli', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
+  })
+
+  it('rejects a missing CLI option before reading files', () => {
+    assert.throws(() => runUpdaterManifestCli(['--version', '0.2.0']), /missing --signature-file/)
   })
 
   it('exits non-zero when the signature is empty', () => {

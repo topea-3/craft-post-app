@@ -39,7 +39,8 @@ async function runCheck(): Promise<UpdateCheckResult> {
     const update = await check({ timeout: UPDATE_CHECK_TIMEOUT_MS })
     if (!update) return { kind: 'up-to-date', currentVersion }
     return { kind: 'available', update, currentVersion }
-  } catch {
+  } catch (error) {
+    console.error('checkForUpdate failed:', error)
     return { kind: 'failed' }
   }
 }

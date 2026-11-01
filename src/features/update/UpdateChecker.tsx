@@ -112,7 +112,8 @@ export function UpdateChecker({ enabled = import.meta.env.PROD }: Props) {
         }
       })
       await relaunch()
-    } catch {
+    } catch (error) {
+      console.error('update install failed:', error)
       setInstallError('アップデートをインストールできませんでした。あとでもう一度試せます。')
       setInstalling(false)
       setProgressLabel(null)
