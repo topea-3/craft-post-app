@@ -8,16 +8,17 @@
 
 | ツール | 推奨バージョン | 用途 |
 |--------|----------------|------|
-| **Node.js** | 22.23.4 以上（22 系の現行修正版。.nvmrc と同じ） | フロントエンド（Vite / React）のビルド・開発サーバー |
-| **npm** | 10.x 以上（v11.4.0+ 推奨） | パッケージ管理 |
+| **Node.js** | 22.23.4（.nvmrc と同じ） | フロントエンド（Vite / React）のビルド・開発サーバー |
+| **npm** | 10.9 以上（22.23.4 同梱の 10.9.x でよい） | パッケージ管理 |
 | **Rust** | 最新の安定版（rustup 推奨） | Tauri（Rust）バックエンドのビルド |
 | **Windows** | Windows 10 以降 | WebView2 は通常プリインストール。未導入の場合は [Microsoft Edge WebView2](https://developer.microsoft.com/en-us/microsoft-edge/webview2/) を参照 |
 | **Windows: MSVC ビルドツール** | Visual Studio 2022 Build Tools または Visual Studio 2022 | Rust が Windows でネイティブビルドする際に `link.exe` と C ランタイム（msvcrt.lib 等）を使用するため必須。通常の PowerShell からビルドする場合は「開発者用シェル」で環境変数（LIB, INCLUDE, PATH）を読み込む必要あり（後述）。 |
 
 ### 1.1 Node.js のインストール
 
-- [nodejs.org](https://nodejs.org/) から LTS をインストールするか、`nvm` / `fnm` でインストール。
-- 確認: `node -v` と `npm -v`
+- `.nvmrc` の **22.23.4** に合わせる。`nvm install`、または `fnm install` のあと `fnm use`。
+- [nodejs.org](https://nodejs.org/) から入れる場合は、最新の Active LTS ではなく **22.23.4** を指定する。
+- 確認: `node -v` が `v22.23.4` であること。別のメジャーでは `.npmrc` の `engine-strict` により `npm install` が失敗する。
 
 ### 1.2 Rust のインストール
 
