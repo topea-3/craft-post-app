@@ -43,3 +43,5 @@ subtle = "2"
 hex = "0.4"
 libsqlite3-sys = { version = "0.30", features = ["bundled"] }
 tokio = { version = "1", features = ["macros", "rt", "sync", "time"] }
+tauri-plugin-updater = "~2.10.1"
+tauri-plugin-process = "~2.3.1"

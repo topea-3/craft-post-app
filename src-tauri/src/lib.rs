@@ -153,6 +153,8 @@ fn map_sender_write_error(e: SenderRepositoryError, log_context: &str, fallback_
 pub fn run() {
   tauri::Builder::default()
     .plugin(tauri_plugin_dialog::init())
+    .plugin(tauri_plugin_process::init())
+    .plugin(tauri_plugin_updater::Builder::new().build())
     .setup(|app| {
       let api_logger = crate::infrastructure::logging::init_api_logger().map_err(|msg| {
         Box::new(std::io::Error::new(std::io::ErrorKind::Other, msg)) as Box<dyn std::error::Error>

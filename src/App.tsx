@@ -23,6 +23,7 @@ import { PrintTypePage } from './features/print/pages/PrintTypePage'
 import { PrintConfirmPage } from './features/print/pages/PrintConfirmPage'
 import { PrintPreviewPage } from './features/print/pages/PrintPreviewPage'
 import { BackupPage } from './features/backup/BackupPage'
+import { UpdateChecker } from './features/update/UpdateChecker'
 
 function AppLayout() {
   const navigationItems = [
@@ -54,6 +55,7 @@ function AppLayout() {
             </NavLink>
           ))}
         </nav>
+        <UpdateChecker />
       </aside>
       <main className="app-main">
         <Outlet />
