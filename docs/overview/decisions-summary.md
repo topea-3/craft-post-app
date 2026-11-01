@@ -37,8 +37,8 @@
 | **実装** | Rust 側で rusqlite または sqlx によりアクセス。Tauri コマンド経由でフロントから参照・更新。 |
 | **配置** | Tauri のアプリデータディレクトリ配下に SQLite ファイル（例: `craft_post.db`）を 1 つ配置。 |
 | **設定など** | キー単位の小さいデータは **tauri-plugin-store** の併用を検討可能（アーキテクチャ設計時に判断）。 |
-| **バックアップ・リストア** | 手動エクスポート（JSON/CSV）、ローカル自動バックアップ（詳細は機能設計時）、リストアはインポートで対応。 |
-| **詳細** | [data-persistence-decision.md](../tech-decisions/data-persistence-decision.md)（TOP-9） |
+| **バックアップ・リストア** | 手動は SQLite 一貫コピー + マニフェスト（`.cpbak`）、任意パスワード、全置換リストア。自動バックアップは別 Issue。クラウドは用意しない。 |
+| **詳細** | [backup-restore-design.md](../design/backup-restore-design.md)（TOP-40）。永続化方式そのものは [data-persistence-decision.md](../tech-decisions/data-persistence-decision.md)（TOP-9） |
 
 ### 3.2 主要エンティティ（ラフ）
 
@@ -136,6 +136,7 @@ flowchart TB
 | [desktop-tech-comparison-and-decision.md](../tech-decisions/desktop-tech-comparison-and-decision.md) | デスクトップ技術の候補比較・Tauri 採用理由 |
 | [language-and-framework-decision.md](../tech-decisions/language-and-framework-decision.md) | 言語・フレームワークの候補比較・TypeScript+React 採用理由 |
 | [data-persistence-decision.md](../tech-decisions/data-persistence-decision.md) | データ永続化の候補比較・SQLite 採用理由・エンティティラフ |
+| [backup-restore-design.md](../design/backup-restore-design.md) | 手動バックアップ・リストア（`.cpbak`）の仕様（TOP-40） |
 | [printing-layout-decision.md](../tech-decisions/printing-layout-decision.md) | 印刷・レイアウトの候補比較・@react-pdf/renderer 採用理由 |
 | [repository-and-branch-strategy.md](../project-setup/repository-and-branch-strategy.md) | リポジトリ構成（モノレポ）・ディレクトリ構成・ブランチ戦略（TOP-13） |
 | [github-setup.md](../project-setup/github-setup.md) | GitHub リポジトリ作成・プッシュ・ブランチ保護の設定手順 |
@@ -148,4 +149,5 @@ flowchart TB
 |------------|------|
 | 2026-03-08 | 初版。TOP-12「決定事項のドキュメント化」に基づき作成。技術スタック・永続化・印刷・アーキテクチャを 1 箇所にまとめた。 |
 | 2026-03-08 | 6. 関連ドキュメント一覧に repository-and-branch-strategy.md（TOP-13）を追加。 |
+| 2026-10-17 | バックアップ行を TOP-40 の決定（`.cpbak`、自動は別 Issue）に更新。 |
 

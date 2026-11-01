@@ -1,5 +1,7 @@
 # Tauri Updater + GitHub 公開リポジトリの実現可否（TOP-33）
 
+TOP-37 でこの方式を採用した。実装の仕様は [app-updater-design.md](../design/app-updater-design.md)。本書は調査メモのまま残す。
+
 結論から述べる。
 
 **実現可能。** 公式の `tauri-plugin-updater` と GitHub Releases 上の静的 JSON（`latest.json`）を組み合わせれば、**公開リポジトリ**でもアプリ内アップデートを構築できる。ただし初版（手動ダウンロード配布）とは別に、署名鍵・ビルド成果物・リポジトリ公開範囲の前提を整える必要がある。
@@ -72,3 +74,4 @@ https://github.com/<owner>/<repo>/releases/latest/download/latest.json
 | 日付 | 内容 |
 |------|------|
 | 2026-09-12 | TOP-33。公開 GitHub + Tauri Updater が構築可能である旨を文書化。 |
+| 2026-11-01 | TOP-37 の設計書への参照を追加。 |

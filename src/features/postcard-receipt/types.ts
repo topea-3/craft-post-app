@@ -65,8 +65,8 @@ export type PostcardReceiptFormValues = {
   category: PostcardReceiptCategory
   memo: string
   linkMode: SenderLinkMode
-  addressEntryId: string | null
-  addressEntryDisplayName: string | null
+  /** 住所録から選ぶ（複数可）。編集時は 0〜1 件 */
+  addressEntries: { id: string; displayName: string }[]
   senderDisplayName: string
 }
 
@@ -134,7 +134,8 @@ export function fromPostcardReceiptDtoToDetail(dto: PostcardReceiptDto): Postcar
 }
 
 export function toPostcardReceiptDtoInput(values: PostcardReceiptFormValues): PostcardReceiptDtoInput {
-  const address_entry_id = values.linkMode === 'address' ? values.addressEntryId : null
+  const address_entry_id =
+    values.linkMode === 'address' ? (values.addressEntries[0]?.id ?? null) : null
   const sender_display_name =
     values.linkMode === 'displayName' ? values.senderDisplayName.trim() || null : null
 
@@ -148,18 +149,12 @@ export function toPostcardReceiptDtoInput(values: PostcardReceiptFormValues): Po
 }
 
 export function createInitialPostcardReceiptFormValues(): PostcardReceiptFormValues {
-  const today = new Date()
-  const month = today.getMonth() + 1
-  const defaultCategory: PostcardReceiptCategory =
-    month === 1 || month === 2 ? 'nenga' : 'other'
-
   return {
-    receivedAt: formatLocalDate(today),
-    category: defaultCategory,
+    receivedAt: formatLocalDate(new Date()),
+    category: 'nenga',
     memo: '',
     linkMode: 'address',
-    addressEntryId: null,
-    addressEntryDisplayName: null,
+    addressEntries: [],
     senderDisplayName: '',
   }
 }
@@ -171,8 +166,12 @@ export function formValuesFromDetail(detail: PostcardReceiptDetail): PostcardRec
       category: detail.category,
       memo: detail.memo ?? '',
       linkMode: 'address',
-      addressEntryId: detail.addressEntryId,
-      addressEntryDisplayName: detail.addressEntryDisplayName,
+      addressEntries: [
+        {
+          id: detail.addressEntryId,
+          displayName: detail.addressEntryDisplayName ?? detail.addressEntryId,
+        },
+      ],
       senderDisplayName: detail.senderDisplayName ?? '',
     }
   }
@@ -181,8 +180,7 @@ export function formValuesFromDetail(detail: PostcardReceiptDetail): PostcardRec
     category: detail.category,
     memo: detail.memo ?? '',
     linkMode: 'displayName',
-    addressEntryId: null,
-    addressEntryDisplayName: null,
+    addressEntries: [],
     senderDisplayName: detail.senderDisplayName ?? '',
   }
 }

@@ -346,7 +346,7 @@ function HistoryTab({ active }: { active: boolean }) {
           <p>
             <Link to="/sends/new">新規作成</Link>
             {' / '}
-            <Link to="/print/select">宛名印刷</Link>
+            <Link to="/print/type">宛名印刷</Link>
           </p>
         </div>
       ) : null}
@@ -560,7 +560,7 @@ function StatusTab({ active }: { active: boolean }) {
     if (postcardType === 'nenga' || postcardType === 'mochu') {
       syncPrintPostcardType(postcardType)
     }
-    navigate('/print/select')
+    navigate('/print/type')
   }
 
   const handleBulk = () => {

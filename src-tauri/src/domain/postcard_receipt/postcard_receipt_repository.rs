@@ -1,4 +1,4 @@
-use chrono::{DateTime, NaiveDate, Utc};
+use chrono::{DateTime, Datelike, NaiveDate, Utc};
 use uuid::Uuid;
 
 use crate::domain::postcard_receipt::postcard_receipt::{PostcardReceipt, PostcardReceiptId};
@@ -63,6 +63,7 @@ pub struct DbPostcardReceiptRow {
   pub address_entry_id: Option<String>,
   pub sender_display_name: Option<String>,
   pub received_at: String,
+  pub receipt_year: i32,
   pub category: String,
   pub memo: Option<String>,
   pub deleted_at: Option<String>,
@@ -87,6 +88,13 @@ pub fn map_db_row_to_receipt(row: DbPostcardReceiptRow) -> Result<PostcardReceip
   };
   let received_at = NaiveDate::parse_from_str(&row.received_at, "%Y-%m-%d")
     .map_err(|e| PostcardReceiptRepositoryError::InvalidPersistedData(e.to_string()))?;
+  if row.receipt_year != received_at.year() {
+    return Err(PostcardReceiptRepositoryError::InvalidPersistedData(format!(
+      "receipt_year {} does not match received_at year {}",
+      row.receipt_year,
+      received_at.year()
+    )));
+  }
   let category = PostcardReceiptCategory::parse(&row.category)
     .map_err(|e| PostcardReceiptRepositoryError::InvalidPersistedData(e.to_string()))?;
   let memo = match row.memo {
@@ -158,4 +166,16 @@ pub trait PostcardReceiptRepository {
 
   /// 有効な受取履歴に存在する受取年（降順）
   async fn list_received_years(&self) -> Result<Vec<i32>, PostcardReceiptRepositoryError>;
+
+  /// 指定受取年の喪中受取に紐づく宛名 ID（active・distinct）
+  async fn list_mochu_address_entry_ids(
+    &self,
+    receipt_year: i32,
+  ) -> Result<Vec<Uuid>, PostcardReceiptRepositoryError>;
+
+  /// 複数件を同一トランザクションで INSERT。途中失敗は rollback。
+  async fn create_batch(
+    &self,
+    receipts: &[PostcardReceipt],
+  ) -> Result<(), PostcardReceiptRepositoryError>;
 }

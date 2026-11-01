@@ -11,15 +11,23 @@ type Props = {
   form: UsePostcardReceiptFormResult
   onCancel: () => void
   submitLabel?: string
+  /** 新規作成時は複数選択可 */
+  allowMultiAddress?: boolean
 }
 
-export function PostcardReceiptForm({ form, onCancel, submitLabel = '保存' }: Props) {
+export function PostcardReceiptForm({
+  form,
+  onCancel,
+  submitLabel = '保存',
+  allowMultiAddress = false,
+}: Props) {
   const {
     values,
     errors,
     isSubmitting,
     setLinkMode,
     setAddressEntry,
+    setAddressEntries,
     clearAddressEntry,
     updateReceivedAt,
     updateCategory,
@@ -44,6 +52,22 @@ export function PostcardReceiptForm({ form, onCancel, submitLabel = '保存' }: 
     setAddressEntry(item.id, displayName)
     setAddressDialogOpen(false)
   }
+
+  const handleSelectMany = (items: AddressEntryListItem[]) => {
+    setAddressEntries(
+      items.map((item) => ({
+        id: item.id,
+        displayName: formatAddressEntryLabel(item.primaryName, item.coRecipients, item.honorific),
+      })),
+    )
+  }
+
+  const selectedLabel =
+    values.addressEntries.length === 0
+      ? null
+      : values.addressEntries.length === 1
+        ? values.addressEntries[0].displayName
+        : `${values.addressEntries[0].displayName} 他 ${values.addressEntries.length - 1} 件`
 
   return (
     <form className="address-form" onSubmit={handleSubmit} noValidate>
@@ -104,8 +128,8 @@ export function PostcardReceiptForm({ form, onCancel, submitLabel = '保存' }: 
             id={POSTCARD_RECEIPT_FIELD_IDS.memo}
             value={values.memo}
             onChange={(e) => updateMemo(e.target.value)}
-            rows={4}
             disabled={isSubmitting}
+            rows={3}
             aria-invalid={Boolean(errors.memo)}
             aria-describedby={errors.memo ? `${POSTCARD_RECEIPT_FIELD_IDS.memo}-error` : undefined}
           />
@@ -123,7 +147,7 @@ export function PostcardReceiptForm({ form, onCancel, submitLabel = '保存' }: 
 
       <section className="address-form-section">
         <h2 className="address-form-section-title">送り主</h2>
-        <fieldset className="address-form-field address-form-radio-group" disabled={isSubmitting}>
+        <fieldset className="address-form-fieldset">
           <legend>紐付け方法</legend>
           <label>
             <input
@@ -164,9 +188,9 @@ export function PostcardReceiptForm({ form, onCancel, submitLabel = '保存' }: 
               >
                 宛名を選択
               </button>
-              {values.addressEntryDisplayName ? (
+              {selectedLabel ? (
                 <p>
-                  選択中: {values.addressEntryDisplayName}
+                  選択中: {selectedLabel}
                   <button type="button" onClick={clearAddressEntry} disabled={isSubmitting}>
                     クリア
                   </button>
@@ -236,7 +260,10 @@ export function PostcardReceiptForm({ form, onCancel, submitLabel = '保存' }: 
         <AddressEntrySelectDialog
           isOpen={isAddressDialogOpen}
           onClose={() => setAddressDialogOpen(false)}
-          onSelect={handleSelectAddress}
+          mode={allowMultiAddress ? 'multi' : 'single'}
+          initialSelectedIds={values.addressEntries.map((e) => e.id)}
+          onSelect={allowMultiAddress ? undefined : handleSelectAddress}
+          onSelectMany={allowMultiAddress ? handleSelectMany : undefined}
         />
       ) : null}
     </form>

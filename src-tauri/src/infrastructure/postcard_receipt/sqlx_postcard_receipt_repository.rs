@@ -13,7 +13,7 @@ use crate::domain::postcard_receipt::postcard_receipt_repository::{
   PostcardReceiptWithContext, SortOrder,
 };
 use crate::infrastructure::address::sqlx_address_entry_repository::{
-  build_entries_with_co_recipients, SqlxAddressEntryRepository,
+  build_entries_with_co_recipients, ADDRESS_ENTRY_SELECT_LIST, SqlxAddressEntryRepository,
 };
 use crate::infrastructure::sql_like::escape_like_pattern;
 
@@ -79,7 +79,7 @@ fn build_search_where_clause(query: &PostcardReceiptSearchQuery) -> String {
     s.push_str(" AND pr.deleted_at IS NULL");
   }
   if query.year.is_some() {
-    s.push_str(" AND pr.received_at >= ? AND pr.received_at <= ?");
+    s.push_str(" AND pr.receipt_year = ?");
   }
   if query.category.is_some() {
     s.push_str(" AND pr.category = ?");
@@ -117,6 +117,7 @@ fn map_search_row(row: &sqlx::sqlite::SqliteRow) -> DbPostcardReceiptSearchRow {
       address_entry_id: row.get("address_entry_id"),
       sender_display_name: row.get("sender_display_name"),
       received_at: row.get("received_at"),
+      receipt_year: row.get("receipt_year"),
       category: row.get("category"),
       memo: row.get("memo"),
       deleted_at: row.get("deleted_at"),
@@ -189,14 +190,7 @@ async fn load_address_contexts_batch(
       .collect::<Vec<_>>()
       .join(",");
     let sql = format!(
-      r#"
-        SELECT
-          id, primary_last, primary_first, primary_kana_last, primary_kana_first,
-          honorific, postal_code, prefecture, city, street, building, memo,
-          archived_at, created_at, updated_at
-        FROM address_entries
-        WHERE id IN ({placeholders})
-      "#
+      "SELECT {ADDRESS_ENTRY_SELECT_LIST} FROM address_entries WHERE id IN ({placeholders})"
     );
     let mut q = sqlx::query(&sql);
     for id in chunk {
@@ -261,6 +255,7 @@ impl PostcardReceiptRepository for SqlxPostcardReceiptRepository {
     let allow_archived = allow_archived_address_id.map(|u| u.to_string());
     let sender_display_name = receipt.sender_display_name().map(str::to_string);
     let received_at = receipt.received_at().format("%Y-%m-%d").to_string();
+    let receipt_year = receipt.receipt_year();
     let category = receipt.category().as_str().to_string();
     let memo = receipt.memo().map(|m| m.text().to_string());
     let deleted_at = receipt.deleted_at().map(|t| t.to_rfc3339());
@@ -270,10 +265,10 @@ impl PostcardReceiptRepository for SqlxPostcardReceiptRepository {
     let sql = format!(
       r#"
         INSERT INTO postcard_receipts (
-          id, address_entry_id, sender_display_name, received_at, category, memo,
+          id, address_entry_id, sender_display_name, received_at, receipt_year, category, memo,
           deleted_at, created_at, updated_at
         )
-        SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?
+        SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
         WHERE {pred}
       "#,
       pred = address_link_predicate_sql_for_create()
@@ -284,6 +279,7 @@ impl PostcardReceiptRepository for SqlxPostcardReceiptRepository {
       .bind(&address_entry_id)
       .bind(sender_display_name)
       .bind(received_at)
+      .bind(receipt_year)
       .bind(category)
       .bind(memo)
       .bind(deleted_at)
@@ -313,6 +309,7 @@ impl PostcardReceiptRepository for SqlxPostcardReceiptRepository {
     let allow_archived = allow_archived_address_id.map(|u| u.to_string());
     let sender_display_name = receipt.sender_display_name().map(str::to_string);
     let received_at = receipt.received_at().format("%Y-%m-%d").to_string();
+    let receipt_year = receipt.receipt_year();
     let category = receipt.category().as_str().to_string();
     let memo = receipt.memo().map(|m| m.text().to_string());
     let updated_at = receipt.updated_at().to_rfc3339();
@@ -324,6 +321,7 @@ impl PostcardReceiptRepository for SqlxPostcardReceiptRepository {
           address_entry_id = ?,
           sender_display_name = ?,
           received_at = ?,
+          receipt_year = ?,
           category = ?,
           memo = ?,
           updated_at = ?
@@ -337,6 +335,7 @@ impl PostcardReceiptRepository for SqlxPostcardReceiptRepository {
       .bind(&address_entry_id)
       .bind(sender_display_name)
       .bind(received_at)
+      .bind(receipt_year)
       .bind(category)
       .bind(memo)
       .bind(updated_at)
@@ -384,6 +383,7 @@ impl PostcardReceiptRepository for SqlxPostcardReceiptRepository {
           pr.address_entry_id,
           pr.sender_display_name,
           pr.received_at,
+          pr.receipt_year,
           pr.category,
           pr.memo,
           pr.deleted_at,
@@ -433,6 +433,7 @@ impl PostcardReceiptRepository for SqlxPostcardReceiptRepository {
           pr.address_entry_id,
           pr.sender_display_name,
           pr.received_at,
+          pr.receipt_year,
           pr.category,
           pr.memo,
           pr.deleted_at,
@@ -509,10 +510,9 @@ impl PostcardReceiptRepository for SqlxPostcardReceiptRepository {
   async fn list_received_years(&self) -> Result<Vec<i32>, PostcardReceiptRepositoryError> {
     let rows = sqlx::query(
       r#"
-        SELECT DISTINCT CAST(substr(received_at, 1, 4) AS INTEGER) AS y
+        SELECT DISTINCT receipt_year AS y
         FROM postcard_receipts
         WHERE deleted_at IS NULL
-          AND length(received_at) >= 4
         ORDER BY y DESC
       "#,
     )
@@ -521,6 +521,97 @@ impl PostcardReceiptRepository for SqlxPostcardReceiptRepository {
 
     Ok(rows.iter().map(|row| row.get::<i32, _>("y")).collect())
   }
+
+  async fn list_mochu_address_entry_ids(
+    &self,
+    receipt_year: i32,
+  ) -> Result<Vec<Uuid>, PostcardReceiptRepositoryError> {
+    let rows = sqlx::query(
+      r#"
+        SELECT DISTINCT address_entry_id
+        FROM postcard_receipts
+        WHERE deleted_at IS NULL
+          AND category = 'mochu'
+          AND address_entry_id IS NOT NULL
+          AND receipt_year = ?
+        ORDER BY address_entry_id ASC
+      "#,
+    )
+    .bind(receipt_year)
+    .fetch_all(&self.pool)
+    .await?;
+
+    let mut ids = Vec::with_capacity(rows.len());
+    for row in rows {
+      let id_str: String = row.get("address_entry_id");
+      let uuid = Uuid::parse_str(&id_str).map_err(|e| {
+        PostcardReceiptRepositoryError::InvalidPersistedData(e.to_string())
+      })?;
+      ids.push(uuid);
+    }
+    Ok(ids)
+  }
+
+  async fn create_batch(
+    &self,
+    receipts: &[PostcardReceipt],
+  ) -> Result<(), PostcardReceiptRepositoryError> {
+    if receipts.is_empty() {
+      return Ok(());
+    }
+
+    let mut tx = self.pool.begin().await?;
+    let sql = format!(
+      r#"
+        INSERT INTO postcard_receipts (
+          id, address_entry_id, sender_display_name, received_at, receipt_year, category, memo,
+          deleted_at, created_at, updated_at
+        )
+        SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+        WHERE {pred}
+      "#,
+      pred = address_link_predicate_sql_for_create()
+    );
+
+    for receipt in receipts {
+      let id = receipt.id().as_uuid().to_string();
+      let address_entry_id = receipt.address_entry_id().map(|u| u.to_string());
+      let sender_display_name = receipt.sender_display_name().map(str::to_string);
+      let received_at = receipt.received_at().format("%Y-%m-%d").to_string();
+      let receipt_year = receipt.receipt_year();
+      let category = receipt.category().as_str().to_string();
+      let memo = receipt.memo().map(|m| m.text().to_string());
+      let deleted_at = receipt.deleted_at().map(|t| t.to_rfc3339());
+      let created_at = receipt.created_at().to_rfc3339();
+      let updated_at = receipt.updated_at().to_rfc3339();
+
+      let result = sqlx::query(&sql)
+        .bind(&id)
+        .bind(&address_entry_id)
+        .bind(sender_display_name)
+        .bind(received_at)
+        .bind(receipt_year)
+        .bind(category)
+        .bind(memo)
+        .bind(deleted_at)
+        .bind(created_at)
+        .bind(updated_at)
+        .bind(&address_entry_id)
+        .bind(&address_entry_id)
+        .bind(None::<String>)
+        .bind(None::<String>)
+        .execute(&mut *tx)
+        .await?;
+
+      if result.rows_affected() == 0 {
+        drop(tx);
+        return Err(PostcardReceiptRepositoryError::AddressLinkRejected);
+      }
+    }
+
+    tx.commit().await?;
+    Ok(())
+  }
 }
 
 fn bind_search_params<'q>(
@@ -528,9 +619,7 @@ fn bind_search_params<'q>(
   query: &PostcardReceiptSearchQuery,
 ) -> sqlx::query::Query<'q, sqlx::Sqlite, sqlx::sqlite::SqliteArguments<'q>> {
   if let Some(year) = query.year {
-    let start = format!("{year:04}-01-01");
-    let end = format!("{year:04}-12-31");
-    q = q.bind(start).bind(end);
+    q = q.bind(year);
   }
   if let Some(category) = query.category {
     q = q.bind(category.as_str().to_string());

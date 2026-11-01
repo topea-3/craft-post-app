@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Craft Post",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "identifier": "com.topea.craftpost",
   "build": {
     "frontendDist": "../dist",
@@ -34,6 +34,7 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
+    "createUpdaterArtifacts": true,
     "licenseFile": "licenses/LICENSE",
     "resources": [
       "licenses/LICENSE",
@@ -41,5 +42,17 @@
       "licenses/noto-serif-jp-OFL.txt",
       "licenses/noto-serif-jp-README.md"
     ]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEU4NkJEMzRERDE4M0MwREMKUldUY3dJUFJUZE5yNkVkWnZQdVk1Wi9uRWpZZ0E4NTIvUlJRd0dYaHZ3aXk1N2Yzd0o4ZXptVDgK",
+      "requireSignedVersion": true,
+      "endpoints": [
+        "https://github.com/topea-3/craft-post-app/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
   }
 }

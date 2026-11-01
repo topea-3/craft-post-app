@@ -51,6 +51,7 @@ type UseAddressEntryFormResult = {
   removeCoRecipient: (index: number) => void
   updateHonorific: (value: string) => void
   updateMemo: (value: string) => void
+  updateNengaSendTarget: (value: boolean) => void
   submit: () => Promise<boolean>
 }
 
@@ -267,6 +268,10 @@ const useAddressEntryFormBase = (
     setValue({ memo: value })
   }
 
+  const updateNengaSendTarget = (value: boolean) => {
+    setValue({ nengaSendTarget: value })
+  }
+
   return {
     values,
     errors,
@@ -279,6 +284,7 @@ const useAddressEntryFormBase = (
     removeCoRecipient,
     updateHonorific,
     updateMemo,
+    updateNengaSendTarget,
     submit,
   }
 }

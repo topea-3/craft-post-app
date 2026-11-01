@@ -21,6 +21,7 @@ export type AddressEntryFormValues = {
   honorific: string
   address: AddressFormValues
   memo?: string
+  nengaSendTarget: boolean
 }
 
 export type AddressEntryListItem = {
@@ -31,6 +32,7 @@ export type AddressEntryListItem = {
   postalCode: string
   address: AddressFormValues
   memo?: string
+  nengaSendTarget: boolean
   updatedAt: string
   archived: boolean
 }
@@ -47,6 +49,7 @@ export type AddressEntryDto = {
   postal_code: string
   address: AddressDto
   memo?: string | null
+  nenga_send_target: boolean
   archived: boolean
   created_at: string
   updated_at: string
@@ -75,6 +78,7 @@ export type AddressEntryDtoInput = {
   postal_code: string
   address: AddressDto
   memo?: string | null
+  nenga_send_target: boolean
 }
 
 export const HONORIFIC_OPTIONS: { value: string; label: string }[] = [
@@ -154,6 +158,7 @@ export const createInitialAddressEntryFormValues = (): AddressEntryFormValues =>
     building: '',
   },
   memo: '',
+  nengaSendTarget: true,
 })
 
 /** 送信前の正規化: 前後空白を除去し、空のオプション文字列は null にする */
@@ -189,6 +194,7 @@ export const toAddressEntryDtoInput = (form: AddressEntryFormValues): AddressEnt
     building: trimOptional(form.address.building),
   },
   memo: trimOptional(form.memo),
+  nenga_send_target: form.nengaSendTarget,
 })
 
 export const fromAddressEntryDto = (dto: AddressEntryDto): AddressEntryListItem => ({
@@ -215,6 +221,7 @@ export const fromAddressEntryDto = (dto: AddressEntryDto): AddressEntryListItem 
     building: dto.address.building ?? undefined,
   },
   memo: dto.memo ?? undefined,
+  nengaSendTarget: dto.nenga_send_target,
   updatedAt: dto.updated_at,
   archived: dto.archived,
 })

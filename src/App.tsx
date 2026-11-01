@@ -4,6 +4,7 @@ import { AddressEntryCreatePage } from './features/address/AddressEntryCreatePag
 import { AddressEntryListPage } from './features/address/AddressEntryListPage'
 import { AddressEntryDetailPage } from './features/address/AddressEntryDetailPage'
 import { AddressEntryEditPage } from './features/address/AddressEntryEditPage'
+import { NengaTargetReviewPage } from './features/address/NengaTargetReviewPage'
 import { SenderEntryCreatePage } from './features/sender/SenderEntryCreatePage'
 import { SenderEntryListPage } from './features/sender/SenderEntryListPage'
 import { SenderEntryDetailPage } from './features/sender/SenderEntryDetailPage'
@@ -18,8 +19,11 @@ import { PostcardSendDetailPage } from './features/postcard-send/PostcardSendDet
 import { PostcardSendEditPage } from './features/postcard-send/PostcardSendEditPage'
 import { PostcardSendBulkPage } from './features/postcard-send/PostcardSendBulkPage'
 import { PrintSelectPage } from './features/print/pages/PrintSelectPage'
+import { PrintTypePage } from './features/print/pages/PrintTypePage'
 import { PrintConfirmPage } from './features/print/pages/PrintConfirmPage'
 import { PrintPreviewPage } from './features/print/pages/PrintPreviewPage'
+import { BackupPage } from './features/backup/BackupPage'
+import { UpdateChecker } from './features/update/UpdateChecker'
 
 function AppLayout() {
   const navigationItems = [
@@ -30,7 +34,8 @@ function AppLayout() {
     { to: '/receipts', label: '受取履歴一覧' },
     { to: '/receipts/new', label: '受取履歴新規作成' },
     { to: '/sends', label: '送付履歴' },
-    { to: '/print/select', label: '宛名印刷' },
+    { to: '/print/type', label: '宛名印刷' },
+    { to: '/settings/backup', label: 'バックアップ' },
   ]
 
   return (
@@ -50,6 +55,7 @@ function AppLayout() {
             </NavLink>
           ))}
         </nav>
+        <UpdateChecker />
       </aside>
       <main className="app-main">
         <Outlet />
@@ -66,6 +72,7 @@ const router = createBrowserRouter([
       { index: true, element: <AddressEntryListPage /> },
       { path: 'addresses', element: <AddressEntryListPage /> },
       { path: 'addresses/new', element: <AddressEntryCreatePage /> },
+      { path: 'addresses/nenga-target-review', element: <NengaTargetReviewPage /> },
       { path: 'addresses/:id', element: <AddressEntryDetailPage /> },
       { path: 'addresses/:id/edit', element: <AddressEntryEditPage /> },
       { path: 'senders', element: <SenderEntryListPage /> },
@@ -81,9 +88,11 @@ const router = createBrowserRouter([
       { path: 'sends/bulk', element: <PostcardSendBulkPage /> },
       { path: 'sends/:id', element: <PostcardSendDetailPage /> },
       { path: 'sends/:id/edit', element: <PostcardSendEditPage /> },
+      { path: 'print/type', element: <PrintTypePage /> },
       { path: 'print/select', element: <PrintSelectPage /> },
       { path: 'print/confirm', element: <PrintConfirmPage /> },
       { path: 'print/preview', element: <PrintPreviewPage /> },
+      { path: 'settings/backup', element: <BackupPage /> },
     ],
   },
 ])

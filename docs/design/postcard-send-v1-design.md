@@ -3,9 +3,9 @@
 - **Linear Issue**: [TOP-18](https://linear.app/topea-3/issue/TOP-18/v1-はがき送付情報管理の機能設計) v1 はがき送付情報管理の機能設計
 - **親 Issue**: [TOP-14](https://linear.app/topea-3/issue/TOP-14/v1-機能設計) v1 機能設計
 - **後続実装 Issue**: [TOP-27](https://linear.app/topea-3/issue/TOP-27/v1-はがき送付情報管理機能の実装)
-- **関連設計**: [postcard-address-print-v1-design.md](./postcard-address-print-v1-design.md)（`PostcardSend` 最小定義・印刷時作成）、[postcard-receipt-v1-design.md](./postcard-receipt-v1-design.md)（受取連携 IF）
+- **関連設計**: [postcard-address-print-v1-design.md](./postcard-address-print-v1-design.md)（`PostcardSend` 最小定義・印刷時作成）、[postcard-receipt-v1-design.md](./postcard-receipt-v1-design.md)（受取連携 IF）、[mochu-print-exclusion-v1-design.md](./mochu-print-exclusion-v1-design.md)（TOP-34: `send_year`・送付年決定ルール）
 - **ステータス**: Reviewed
-- **最終更新**: 2026-09-10
+- **最終更新**: 2026-09-19
 
 ---
 
@@ -58,7 +58,7 @@ v1.0.0 では、年賀状等の**送付事実**を記録し、「今年送った
 - オフライン完結（`requirements-and-constraints.md`）
 - 個人利用規模（数千件）で一覧・送付状況照会が実用的な応答時間
 - 送付履歴は **`deleted_at IS NULL` を active 条件**（受取履歴と同方針。住所録の `archived_at` とは別）
-- 年度は `sent_on`（`YYYY-MM-DD`）の暦年。端末ローカル日付規約は印刷・受取と同一
+- 年度は **`send_year` カラム**（TOP-34）。作成時は送付年決定ルールを適用。旧設計の「`sent_on` の暦年」は backfill 近似のみ
 - Tauri コマンド + SQLite（sqlx）+ React の既存レイヤー構成に従う
 - 既存 `postcard_sends` テーブル・印刷用 `create_postcard_sends_batch` と破壊的に矛盾しない
 
@@ -475,7 +475,7 @@ sequenceDiagram
 | 同一年・同一相手・同一種別の複数送付 | 許可（再送・誤記録修正前・手動連打再実行など）。status は「送った」 |
 | 印刷の誤記録 | SND001 から論理削除（印刷設計の方針どおり） |
 | 手動一括で 1 件でも差出人なし | **事前 UI ブロック + コマンド all-or-nothing**。印刷の `resolve_print_job_items`（差出人側は除外して継続）とは意図的に異なる |
-| タイムゾーンと年度 | `sent_on` は日付文字列のみ。年フィルタは文字列範囲比較 |
+| タイムゾーンと年度 | `sent_on` は日付文字列のみ。年フィルタは **`send_year`**（TOP-34） |
 | 空の送付状況 | 空状態 + 印刷/登録導線 |
 | `update` で種別変更 | スナップショットは印刷レイアウトと一致しなくなる可能性あり。許容（履歴の事実修正）。再印刷は別レコード。status の sent/unsent は新種別で再判定 |
 | 手動 batch の UNIQUE Conflict | エラー（印刷の冪等成功契約を流用しない） |

@@ -12,8 +12,7 @@ function createForm(overrides: Partial<UsePostcardReceiptFormResult> = {}): UseP
     category: 'nenga',
     memo: '',
     linkMode: 'displayName',
-    addressEntryId: null,
-    addressEntryDisplayName: null,
+    addressEntries: [],
     senderDisplayName: '',
   }
   return {
@@ -23,6 +22,7 @@ function createForm(overrides: Partial<UsePostcardReceiptFormResult> = {}): UseP
     isDirty: false,
     setLinkMode: vi.fn(),
     setAddressEntry: vi.fn(),
+    setAddressEntries: vi.fn(),
     clearAddressEntry: vi.fn(),
     updateReceivedAt: vi.fn(),
     updateCategory: vi.fn(),

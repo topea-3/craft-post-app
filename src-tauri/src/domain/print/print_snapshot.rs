@@ -176,6 +176,7 @@ mod tests {
       sample_postal(),
       sample_address(),
       None,
+      true,
     );
     let snap = AddressPrintSnapshot::from_address_entry(&entry).unwrap();
     assert_eq!(snap.honorific_print, "");
@@ -190,6 +191,7 @@ mod tests {
       sample_postal(),
       sample_address(),
       None,
+      true,
     );
     let snap = AddressPrintSnapshot::from_address_entry(&entry).unwrap();
     assert_eq!(snap.honorific_print, "様");
@@ -204,6 +206,7 @@ mod tests {
       sample_postal(),
       sample_address(),
       None,
+      true,
     );
     let snap = AddressPrintSnapshot::from_address_entry(&entry).unwrap();
     assert!(snap.co_recipients[0].omit_last);
@@ -219,6 +222,7 @@ mod tests {
       sample_postal(),
       sample_address(),
       None,
+      true,
     );
     let snap = AddressPrintSnapshot::from_address_entry(&entry).unwrap();
     assert_eq!(snap.postal_code, "123-4567");
@@ -243,6 +247,7 @@ mod tests {
       sample_postal(),
       addr,
       None,
+      true,
     );
     let snap = AddressPrintSnapshot::from_address_entry(&entry).unwrap();
     assert_eq!(snap.address_line1, "北海道テスト市");
@@ -265,6 +270,7 @@ mod tests {
       sample_postal(),
       sample_address(),
       None,
+      true,
     );
     let err = AddressPrintSnapshot::from_address_entry(&entry).unwrap_err();
     assert_eq!(

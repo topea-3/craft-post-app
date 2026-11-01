@@ -96,6 +96,14 @@ export function AddressEntryListPage() {
       <div className="address-list-header">
         <h1 className="address-list-title">住所録一覧</h1>
         <div className="address-list-header-actions">
+          <Button
+            type="button"
+            onClick={() => {
+              navigate('/addresses/nenga-target-review')
+            }}
+          >
+            年賀状送付対象の見直し
+          </Button>
           <IconButton
             label={
               isFilterOpen

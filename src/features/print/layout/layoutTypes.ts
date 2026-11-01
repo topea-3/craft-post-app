@@ -29,6 +29,11 @@ export type PostcardLayoutSpec = {
   postcard: SizeMm
   marginMm: number
   printable: RectMm
+  /**
+   * 宛名住所の縦書きが超えてはいけない下端（top-left、mm）。
+   * 年賀状は下部の年賀表記より上。喪中は余白の手前。
+   */
+  recipientAddressBottomMm: number
   layers: Record<PrintLayerId, LayerLayoutSpec>
 }
 

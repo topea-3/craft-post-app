@@ -2,6 +2,10 @@ import type { CSSProperties, PointerEvent as ReactPointerEvent, ReactNode } from
 import { useCallback, useMemo, useRef } from 'react'
 import '@fontsource/noto-serif-jp/japanese-400.css'
 import officialPostcardSample from '../../../assets/print/official-postcard-sample.png'
+import {
+  layoutRecipientAddressColumns,
+  type AddressColumnPlacement,
+} from '../layout/addressColumnWrap'
 import type { PostcardLayoutSpec } from '../layout/layoutTypes'
 import { MM_TO_PT, resultPositionMm, toMm } from '../layout/layoutMath'
 import type { PrintLayerId } from '../layout/printLayers'
@@ -15,6 +19,7 @@ import {
   RECIPIENT_POSTAL_LAYOUT,
   scaledFontSizePt,
   scaledSenderContentFontSizePt,
+  SENDER_ADDRESS_POSTAL_CLEARANCE_MM,
   SENDER_POSTAL_LAYOUT,
   splitPostalDigits,
   verticalTextAdvanceMm,
@@ -104,6 +109,76 @@ function isLayerShown(
   visibility: LayerVisibility,
 ): layer is LayerContent {
   return Boolean(layer && !layer.hiddenByRule && layer.text && visibility[layer.id] !== false)
+}
+
+function isRecipientNameLayer(id: PrintLayerId): boolean {
+  return (
+    id === 'recipient.honorific' ||
+    id.startsWith('recipient.primary') ||
+    id.startsWith('recipient.co')
+  )
+}
+
+function isSenderNameLayer(id: PrintLayerId): boolean {
+  return id.startsWith('sender.primary') || id.startsWith('sender.co')
+}
+
+const RECIPIENT_ADDRESS_IDS: PrintLayerId[] = [
+  'recipient.address1',
+  'recipient.address2',
+  'recipient.address3',
+]
+
+const SENDER_ADDRESS_IDS: PrintLayerId[] = [
+  'sender.address1',
+  'sender.address2',
+  'sender.address3',
+]
+
+function leftmostNameMm(
+  positions: Map<PrintLayerId, { x: number; y: number }>,
+  include: (id: PrintLayerId) => boolean,
+): number | null {
+  let left: number | null = null
+  for (const [id, pos] of positions) {
+    if (!include(id)) continue
+    left = left == null ? pos.x : Math.min(left, pos.x)
+  }
+  return left
+}
+
+function shiftNameColumns(
+  positions: Map<PrintLayerId, { x: number; y: number }>,
+  include: (id: PrintLayerId) => boolean,
+  shiftLeftMm: number,
+) {
+  if (shiftLeftMm === 0) return
+  for (const id of [...positions.keys()]) {
+    if (!include(id)) continue
+    const pos = positions.get(id)
+    if (!pos) continue
+    positions.set(id, { x: pos.x - shiftLeftMm, y: pos.y })
+  }
+}
+
+function addressColumnBox(
+  columns: AddressColumnPlacement[] | undefined,
+  fontSizePt: number,
+): { leftMm: number; topMm: number; widthMm: number; heightMm: number } | null {
+  if (!columns || columns.length === 0) return null
+  const leftMm = Math.min(...columns.map((column) => column.xMm))
+  const rightMm = Math.max(...columns.map((column) => column.xMm))
+  const glyphMm = toMm(fontSizePt)
+  const heightMm = Math.max(
+    ...columns.map((column) => verticalTextAdvanceMm(column.text, fontSizePt)),
+    glyphMm,
+  )
+  return {
+    leftMm,
+    topMm: columns[0].yMm,
+    widthMm: rightMm - leftMm + glyphMm,
+    heightMm,
+  }
 }
 
 type StackPart = { id: PrintLayerId; text: string; fontSizePt: number; dx: number; dy: number }
@@ -217,7 +292,7 @@ export function PostcardPreviewCanvas({
     return map
   }, [layers])
 
-  const stackedPositions = useMemo(() => {
+  const placement = useMemo(() => {
     const result = new Map<PrintLayerId, { x: number; y: number }>()
 
     const buildParts = (ids: PrintLayerId[]): StackPart[] =>
@@ -338,8 +413,47 @@ export function PostcardPreviewCanvas({
       }
     }
 
-    return result
-  }, [item.layerVisibility, layerById, layoutOffsets, layoutSpec.layers])
+    const addressFields = (ids: PrintLayerId[]) =>
+      ids.map((id) => {
+        const layer = layerById.get(id)
+        const offset = layoutOffsets[id] ?? { dx: 0, dy: 0 }
+        return {
+          id,
+          text: layer?.text ?? '',
+          shown: isLayerShown(layer, item.layerVisibility),
+          anchorMm: resultPositionMm(layoutSpec.layers[id].originMm, offset),
+        }
+      })
+
+    const address1 = layoutSpec.layers['recipient.address1']
+    const address2 = layoutSpec.layers['recipient.address2']
+    const addressLayout = layoutRecipientAddressColumns({
+      fields: addressFields(RECIPIENT_ADDRESS_IDS),
+      specPitchMm: address1.originMm.x - address2.originMm.x,
+      bottomYMm: layoutSpec.recipientAddressBottomMm,
+      leftLimitMm: layoutSpec.marginMm,
+      nameLeftMm: leftmostNameMm(result, isRecipientNameLayer),
+      initialFontSizePt: scaledFontSizePt(address1.fontSizePt),
+    })
+    shiftNameColumns(result, isRecipientNameLayer, addressLayout.nameShiftLeftMm)
+
+    const senderAddress1 = layoutSpec.layers['sender.address1']
+    const senderAddress2 = layoutSpec.layers['sender.address2']
+    const senderAddressLayout = layoutRecipientAddressColumns({
+      fields: addressFields(SENDER_ADDRESS_IDS),
+      specPitchMm: senderAddress1.originMm.x - senderAddress2.originMm.x,
+      bottomYMm: Math.min(
+        layoutSpec.recipientAddressBottomMm,
+        SENDER_POSTAL_LAYOUT.originMm.y - SENDER_ADDRESS_POSTAL_CLEARANCE_MM,
+      ),
+      leftLimitMm: layoutSpec.marginMm,
+      nameLeftMm: leftmostNameMm(result, isSenderNameLayer),
+      initialFontSizePt: scaledSenderContentFontSizePt(senderAddress1.fontSizePt),
+    })
+    shiftNameColumns(result, isSenderNameLayer, senderAddressLayout.nameShiftLeftMm)
+
+    return { stackedPositions: result, addressLayout, senderAddressLayout }
+  }, [item, layerById, layoutOffsets, layoutSpec])
 
   const handlePointerDown = useCallback(
     (e: ReactPointerEvent<HTMLDivElement>, layerId: PrintLayerId) => {
@@ -458,20 +572,30 @@ export function PostcardPreviewCanvas({
           const defaultPos = postalLayout
             ? resultPositionMm(postalLayout.originMm, offset)
             : resultPositionMm(spec.originMm, offset)
-          const stacked = stackedPositions.get(layer.id)
-          const leftMm = stacked?.x ?? defaultPos.x
-          const topMm = stacked?.y ?? defaultPos.y
+          const stacked = placement.stackedPositions.get(layer.id)
+          const addressColumns =
+            placement.addressLayout.columns[layer.id] ??
+            placement.senderAddressLayout.columns[layer.id]
+          const addressFontPt = placement.addressLayout.columns[layer.id]
+            ? placement.addressLayout.fontSizePt
+            : placement.senderAddressLayout.fontSizePt
+          const addressBox = addressColumnBox(addressColumns, addressFontPt)
+          const leftMm = addressBox?.leftMm ?? stacked?.x ?? defaultPos.x
+          const topMm = addressBox?.topMm ?? stacked?.y ?? defaultPos.y
           const fontSizePt = postalLayout
             ? postalLayout.fontSizePt
-            : isSenderContentLayer(layer.id)
-              ? scaledSenderContentFontSizePt(spec.fontSizePt)
-              : scaledFontSizePt(spec.fontSizePt)
+            : addressBox
+              ? addressFontPt
+              : isSenderContentLayer(layer.id)
+                ? scaledSenderContentFontSizePt(spec.fontSizePt)
+                : scaledFontSizePt(spec.fontSizePt)
           const postal = isPostalLayer(layer.id)
           const selected = !captureMode && selectedLayerId === layer.id
 
           return (
             <div
               key={layer.id}
+              data-print-layer={layer.id}
               className={`print-preview-layer${selected ? ' print-preview-layer-selected' : ''}${
                 postal ? ' print-preview-layer-postal' : ' print-preview-layer-vertical'
               }`}
@@ -479,6 +603,9 @@ export function PostcardPreviewCanvas({
                 left: `${leftMm}mm`,
                 top: `${topMm}mm`,
                 fontSize: `${fontSizePt}pt`,
+                ...(addressBox
+                  ? { width: `${addressBox.widthMm}mm`, height: `${addressBox.heightMm}mm` }
+                  : {}),
               }}
               onPointerDown={(e) => handlePointerDown(e, layer.id)}
               onPointerMove={handlePointerMove}
@@ -487,7 +614,23 @@ export function PostcardPreviewCanvas({
               role={captureMode ? undefined : 'button'}
               tabIndex={captureMode ? undefined : 0}
             >
-              {renderLayerBody(layer)}
+              {addressBox ? (
+                addressColumns?.map((column, index) => (
+                  <span
+                    key={`${layer.id}-${index}`}
+                    data-address-column={index}
+                    style={{
+                      position: 'absolute',
+                      left: `${column.xMm - addressBox.leftMm}mm`,
+                      top: 0,
+                    }}
+                  >
+                    <VerticalText text={column.text} />
+                  </span>
+                ))
+              ) : (
+                renderLayerBody(layer)
+              )}
             </div>
           )
         })}

@@ -30,6 +30,7 @@ function addressDto(id: string, last: string): AddressEntryDto {
       building: null,
     },
     memo: null,
+    nenga_send_target: true,
     archived: false,
     created_at: '2024-01-01T00:00:00Z',
     updated_at: '2024-01-01T00:00:00Z',
@@ -50,6 +51,15 @@ describe('PrintSelectPage bulk selection', () => {
     )
 
     invokeMock.mockImplementation(async (cmd: string, args?: unknown) => {
+      if (cmd === 'resolve_send_year') {
+        return { kind: 'test_print', year: null }
+      }
+      if (cmd === 'list_mochu_receipt_address_entry_ids') {
+        return []
+      }
+      if (cmd === 'list_nenga_send_excluded_address_entry_ids') {
+        return []
+      }
       if (cmd === 'search_address_entries') {
         return {
           items: [addressDto('a1', '山田'), addressDto('a2', '佐藤'), addressDto('a3', '鈴木')],
@@ -112,6 +122,15 @@ describe('PrintSelectPage bulk selection', () => {
     })
 
     invokeMock.mockImplementation(async (cmd: string, args?: unknown) => {
+      if (cmd === 'resolve_send_year') {
+        return { kind: 'test_print', year: null }
+      }
+      if (cmd === 'list_mochu_receipt_address_entry_ids') {
+        return []
+      }
+      if (cmd === 'list_nenga_send_excluded_address_entry_ids') {
+        return []
+      }
       if (cmd === 'search_address_entries') {
         return {
           items: [addressDto('a1', '山田')],
@@ -166,6 +185,15 @@ describe('PrintSelectPage bulk selection', () => {
     sessionStorage.setItem('printJobDraft', JSON.stringify({ addressEntryIds: preselected }))
 
     invokeMock.mockImplementation(async (cmd: string, args?: unknown) => {
+      if (cmd === 'resolve_send_year') {
+        return { kind: 'test_print', year: null }
+      }
+      if (cmd === 'list_mochu_receipt_address_entry_ids') {
+        return []
+      }
+      if (cmd === 'list_nenga_send_excluded_address_entry_ids') {
+        return []
+      }
       if (cmd === 'search_address_entries') {
         return {
           items: [addressDto('a1', '山田')],
@@ -198,5 +226,268 @@ describe('PrintSelectPage bulk selection', () => {
       expect(screen.getByText('最大 200 件まで選択できます。')).toBeInTheDocument()
     })
     expect(screen.getByText(/選択: 200 \/ /)).toBeInTheDocument()
+  })
+})
+
+describe('PrintSelectPage mourning gate', () => {
+  beforeEach(() => {
+    sessionStorage.clear()
+    invokeMock.mockReset()
+  })
+
+  function mockNengaYear(opts: {
+    mochuIds?: string[]
+    mochuReject?: boolean
+    items?: AddressEntryDto[]
+  }) {
+    invokeMock.mockImplementation(async (cmd: string, args?: unknown) => {
+      if (cmd === 'resolve_send_year') {
+        return { kind: 'year', year: 2026 }
+      }
+      if (cmd === 'list_mochu_receipt_address_entry_ids') {
+        if (opts.mochuReject) throw new Error('mochu lookup failed')
+        return opts.mochuIds ?? []
+      }
+      if (cmd === 'list_nenga_send_excluded_address_entry_ids') {
+        return []
+      }
+      if (cmd === 'search_address_entries') {
+        return {
+          items: opts.items ?? [
+            addressDto('a1', '山田'),
+            addressDto('a2', '佐藤'),
+          ],
+          total: opts.items?.length ?? 2,
+        }
+      }
+      if (cmd === 'get_sender_id_by_address_entry_id') {
+        return `sender-${(args as { addressEntryId: string }).addressEntryId}`
+      }
+      if (cmd === 'get_sender_entry') {
+        return { label: '自宅', archived: false }
+      }
+      if (cmd === 'filter_active_address_entry_ids') {
+        return (args as { addressEntryIds: string[] }).addressEntryIds
+      }
+      throw new Error(`unexpected command ${cmd}`)
+    })
+  }
+
+  it('marks mochu rows disabled and excludes them from page OK select', async () => {
+    const user = userEvent.setup()
+    mockNengaYear({ mochuIds: ['a1'] })
+
+    render(
+      <MemoryRouter>
+        <PrintSelectPage />
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText('喪中')).toBeInTheDocument()
+    })
+    const yamada = screen.getByRole('checkbox', { name: '山田 太郎 を選択' })
+    const sato = screen.getByRole('checkbox', { name: '佐藤 太郎 を選択' })
+    expect(yamada).toBeDisabled()
+    expect(sato).toBeEnabled()
+
+    await user.click(screen.getByRole('button', { name: 'このページのOKを選択' }))
+    await waitFor(() => {
+      expect(yamada).not.toBeChecked()
+      expect(sato).toBeChecked()
+    })
+    expect(screen.getByText(/選択: 1 \/ /)).toBeInTheDocument()
+  })
+
+  it('prunes mochu ids from draft after list loads', async () => {
+    sessionStorage.setItem(
+      'printJobDraft',
+      JSON.stringify({ addressEntryIds: ['a1', 'a2'] }),
+    )
+    mockNengaYear({ mochuIds: ['a1'] })
+
+    render(
+      <MemoryRouter>
+        <PrintSelectPage />
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText(/選択: 1 \/ /)).toBeInTheDocument()
+    })
+    expect(screen.getByRole('checkbox', { name: '山田 太郎 を選択' })).not.toBeChecked()
+    expect(screen.getByRole('checkbox', { name: '佐藤 太郎 を選択' })).toBeChecked()
+  })
+
+  it('blocks proceed when mochu list fails', async () => {
+    mockNengaYear({ mochuReject: true })
+
+    render(
+      <MemoryRouter>
+        <PrintSelectPage />
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(
+          '喪中情報の取得に失敗しました。年賀状の選択を続行できません。時間をおいて再度お試しください。',
+        ),
+      ).toBeInTheDocument()
+    })
+    expect(screen.getByRole('button', { name: '確認へ進む →' })).toBeDisabled()
+  })
+})
+
+describe('PrintSelectPage nenga send target', () => {
+  beforeEach(() => {
+    sessionStorage.clear()
+    invokeMock.mockReset()
+  })
+
+  function mockRows(postcardType: 'nenga' | 'mochu', excluded: string[]) {
+    sessionStorage.setItem('printPostcardType', postcardType)
+    invokeMock.mockImplementation(async (cmd: string, args?: unknown) => {
+      if (cmd === 'resolve_send_year') {
+        return postcardType === 'nenga'
+          ? { kind: 'test_print', year: null }
+          : { kind: 'year', year: 2026 }
+      }
+      if (cmd === 'list_mochu_receipt_address_entry_ids') {
+        return []
+      }
+      if (cmd === 'list_nenga_send_excluded_address_entry_ids') {
+        if (postcardType !== 'nenga') throw new Error('mochu print must not load the flag')
+        return excluded
+      }
+      if (cmd === 'search_address_entries') {
+        return {
+          items: [addressDto('a1', '山田'), addressDto('a2', '佐藤')],
+          total: 2,
+        }
+      }
+      if (cmd === 'get_sender_id_by_address_entry_id') {
+        return `sender-${(args as { addressEntryId: string }).addressEntryId}`
+      }
+      if (cmd === 'get_sender_entry') {
+        return { label: '自宅', archived: false }
+      }
+      if (cmd === 'filter_active_address_entry_ids') {
+        return (args as { addressEntryIds: string[] }).addressEntryIds
+      }
+      throw new Error(`unexpected command ${cmd}`)
+    })
+  }
+
+  it('disables excluded rows for nenga including test print', async () => {
+    mockRows('nenga', ['a1'])
+    render(
+      <MemoryRouter>
+        <PrintSelectPage />
+      </MemoryRouter>,
+    )
+    await waitFor(() => {
+      expect(screen.getByText('対象外')).toBeInTheDocument()
+    })
+    expect(screen.getByRole('checkbox', { name: '山田 太郎 を選択' })).toBeDisabled()
+    expect(screen.getByRole('checkbox', { name: '佐藤 太郎 を選択' })).toBeEnabled()
+    expect(screen.getByText('OK')).toBeInTheDocument()
+  })
+
+  it('does not apply the flag when printing mochu', async () => {
+    mockRows('mochu', [])
+    render(
+      <MemoryRouter>
+        <PrintSelectPage />
+      </MemoryRouter>,
+    )
+    await waitFor(() => {
+      expect(screen.getByRole('checkbox', { name: '山田 太郎 を選択' })).toBeEnabled()
+    })
+    expect(screen.queryByText('対象外')).not.toBeInTheDocument()
+  })
+
+  it('blocks nenga selection when the excluded list fails', async () => {
+    sessionStorage.setItem('printPostcardType', 'nenga')
+    sessionStorage.setItem('printJobDraft', JSON.stringify({ addressEntryIds: ['a1'] }))
+    invokeMock.mockImplementation(async (cmd: string) => {
+      if (cmd === 'resolve_send_year') return { kind: 'test_print', year: null }
+      if (cmd === 'list_mochu_receipt_address_entry_ids') return []
+      if (cmd === 'list_nenga_send_excluded_address_entry_ids') {
+        throw new Error('target lookup failed')
+      }
+      if (cmd === 'search_address_entries') {
+        return { items: [addressDto('a1', '山田')], total: 1 }
+      }
+      if (cmd === 'get_sender_id_by_address_entry_id') return 'sender-a1'
+      if (cmd === 'get_sender_entry') return { label: '自宅', archived: false }
+      if (cmd === 'filter_active_address_entry_ids') return ['a1']
+      throw new Error(`unexpected command ${cmd}`)
+    })
+    render(
+      <MemoryRouter>
+        <PrintSelectPage />
+      </MemoryRouter>,
+    )
+    await waitFor(() => {
+      expect(
+        screen.getByText(
+          '年賀状送付対象の取得に失敗しました。年賀状の選択を続行できません。時間をおいて再度お試しください。',
+        ),
+      ).toBeInTheDocument()
+    })
+    expect(screen.getByRole('button', { name: 'このページのOKを選択' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '確認へ進む →' })).toBeDisabled()
+  })
+
+  it('keeps proceed disabled while the excluded list is pending when a draft exists', async () => {
+    sessionStorage.setItem('printPostcardType', 'nenga')
+    sessionStorage.setItem('printJobDraft', JSON.stringify({ addressEntryIds: ['a2'] }))
+    let release: (ids: string[]) => void = () => {}
+    const pending = new Promise<string[]>((resolve) => {
+      release = resolve
+    })
+    invokeMock.mockImplementation(async (cmd: string, args?: unknown) => {
+      if (cmd === 'resolve_send_year') return { kind: 'test_print', year: null }
+      if (cmd === 'list_mochu_receipt_address_entry_ids') return []
+      if (cmd === 'list_nenga_send_excluded_address_entry_ids') return pending
+      if (cmd === 'search_address_entries') {
+        return { items: [addressDto('a2', '佐藤')], total: 1 }
+      }
+      if (cmd === 'get_sender_id_by_address_entry_id') {
+        return `sender-${(args as { addressEntryId: string }).addressEntryId}`
+      }
+      if (cmd === 'get_sender_entry') return { label: '自宅', archived: false }
+      if (cmd === 'filter_active_address_entry_ids') {
+        return (args as { addressEntryIds: string[] }).addressEntryIds
+      }
+      throw new Error(`unexpected command ${cmd}`)
+    })
+
+    render(
+      <MemoryRouter>
+        <PrintSelectPage />
+      </MemoryRouter>,
+    )
+    expect(screen.getByRole('button', { name: '確認へ進む →' })).toBeDisabled()
+    release([])
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: '確認へ進む →' })).toBeEnabled()
+    })
+  })
+
+  it('reports how many draft rows were removed as nenga excluded', async () => {
+    sessionStorage.setItem('printJobDraft', JSON.stringify({ addressEntryIds: ['a1', 'a2'] }))
+    mockRows('nenga', ['a1'])
+    render(
+      <MemoryRouter>
+        <PrintSelectPage />
+      </MemoryRouter>,
+    )
+    expect(
+      await screen.findByText('1 件は年賀状送付対象外のため選択から外しました。'),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: '山田 太郎 を選択' })).not.toBeChecked()
+    expect(screen.getByRole('checkbox', { name: '佐藤 太郎 を選択' })).toBeChecked()
   })
 })

@@ -31,7 +31,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20.19'
+          node-version-file: '.nvmrc'
           cache: 'npm'
 
       - name: Parse version and notes from PR body
@@ -90,7 +90,17 @@ jobs:
           workspaces: src-tauri -> target
 
       - name: Build Windows installer (.exe / NSIS)
-        run: npm run tauri build -- --bundles nsis
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "${TAURI_SIGNING_PRIVATE_KEY}" ] || [ -z "${TAURI_SIGNING_PRIVATE_KEY_PASSWORD}" ]; then
+            echo "::error::TAURI_SIGNING_PRIVATE_KEY と TAURI_SIGNING_PRIVATE_KEY_PASSWORD が必要です。"
+            exit 1
+          fi
+          npm run tauri build -- --bundles nsis
 
       - name: Locate NSIS artifact
         id: artifact
@@ -98,14 +108,45 @@ jobs:
         run: |
           set -euo pipefail
           mapfile -t EXES < <(find src-tauri/target/release/bundle/nsis -type f -name '*.exe' | sort)
-          if [ "${#EXES[@]}" -eq 0 ]; then
-            echo "::error::NSIS .exe 成果物が見つかりません。"
+          if [ "${#EXES[@]}" -ne 1 ]; then
+            echo "::error::NSIS .exe は 1 つである必要があります (found ${#EXES[@]})."
             find src-tauri/target/release/bundle -type f || true
             exit 1
           fi
           EXE="${EXES[0]}"
+          SIG="${EXE}.sig"
+          if [ ! -f "$SIG" ]; then
+            echo "::error::署名ファイルが見つかりません: ${SIG}"
+            exit 1
+          fi
           echo "path=${EXE}" >> "$GITHUB_OUTPUT"
+          echo "sig=${SIG}" >> "$GITHUB_OUTPUT"
           echo "Found ${EXE}"
+
+      - name: Write updater manifest
+        id: manifest
+        shell: bash
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+          TAG: ${{ steps.meta.outputs.tag }}
+          NOTES: ${{ steps.meta.outputs.NOTES }}
+          EXE: ${{ steps.artifact.outputs.path }}
+          SIG: ${{ steps.artifact.outputs.sig }}
+        run: |
+          set -euo pipefail
+          NOTES_FILE="$RUNNER_TEMP/updater-notes.txt"
+          printf '%s' "$NOTES" > "$NOTES_FILE"
+          OUT="src-tauri/target/release/bundle/nsis/latest.json"
+          node scripts/write-updater-manifest.mjs \
+            --version "$VERSION" \
+            --tag "$TAG" \
+            --notes-file "$NOTES_FILE" \
+            --signature-file "$SIG" \
+            --asset-name "$(basename -- "$EXE")" \
+            --repo topea-3/craft-post-app \
+            --pub-date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --output "$OUT"
+          echo "manifest=${OUT}" >> "$GITHUB_OUTPUT"
 
       - name: Create tag if missing (SHA must match HEAD)
         id: tag
@@ -132,13 +173,16 @@ jobs:
             echo "Created ${TAG} at ${HEAD}"
           fi
 
-      - name: Create GitHub Release and upload .exe
+      - name: Create GitHub Release and upload installer
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           tag_name: ${{ steps.meta.outputs.tag }}
           name: Craft Post ${{ steps.meta.outputs.tag }}
           body: ${{ steps.meta.outputs.NOTES }}
-          files: ${{ steps.artifact.outputs.path }}
+          files: |
+            ${{ steps.artifact.outputs.path }}
+            ${{ steps.artifact.outputs.sig }}
+            ${{ steps.manifest.outputs.manifest }}
           fail_on_unmatched_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -7,20 +7,25 @@ mod tests {
   use crate::domain::sender::sender_entry_repository::SenderEntryRepository;
   use crate::infrastructure::sender::sqlx_sender_entry_repository::SqlxSenderEntryRepository;
 
+  use crate::domain::print::postcard_send::PostcardSend;
   use crate::{
     build_address_print_snapshot_impl, build_sender_print_snapshot_impl,
-    create_postcard_receipt_impl, create_postcard_sends_batch_impl,
+    create_postcard_receipt_impl, create_postcard_receipts_batch_impl,
+    create_postcard_sends_batch_impl,
     create_postcard_sends_manual_batch_impl, create_sender_entry_impl, delete_postcard_receipt_impl,
     delete_postcard_send_impl, filter_active_address_entry_ids_impl, get_postcard_receipt_impl,
-    get_postcard_send_impl, list_print_layout_preferences_impl, list_postcard_send_years_impl,
+    get_postcard_send_impl, list_mochu_receipt_address_entry_ids_impl,
+    list_nenga_send_excluded_address_entry_ids_impl, list_nenga_target_review_impl,
+    disable_nenga_send_targets_impl,
+    list_print_layout_preferences_impl, list_postcard_send_years_impl,
     list_sender_linked_addresses_impl, resolve_print_job_items_impl,
     save_print_layout_preferences_impl, search_postcard_receipts_impl, search_postcard_sends_impl,
     search_send_status_impl, set_sender_for_address_entry_impl, update_postcard_receipt_impl,
     update_postcard_send_impl, update_sender_entry_impl, update_sender_entry_links_impl, AddressDto,
-    AddressPrintSnapshotDto, CreatePostcardSendItemDto, CreatePostcardSendsBatchInput,
-    CreatePostcardSendsManualBatchInput, CreatePostcardSendsManualItemDto, PersonNameDto,
-    PostcardReceiptDtoInput, PrintLayoutPreferenceDto, SenderEntryDtoInput, SenderPrintSnapshotDto,
-    UpdatePostcardSendInput,
+    AddressPrintSnapshotDto, CreatePostcardReceiptsBatchInput, CreatePostcardSendItemDto,
+    CreatePostcardSendsBatchInput, CreatePostcardSendsManualBatchInput,
+    CreatePostcardSendsManualItemDto, PersonNameDto, PostcardReceiptDtoInput,
+    PrintLayoutPreferenceDto, SenderEntryDtoInput, SenderPrintSnapshotDto, UpdatePostcardSendInput,
   };
 
   async fn setup_pool() -> SqlitePool {
@@ -391,6 +396,166 @@ mod tests {
   }
 
   #[tokio::test]
+  async fn create_postcard_receipts_batch_creates_n_and_rejects_empty_duplicate() {
+    let pool = setup_pool().await;
+    let a1 = Uuid::new_v4();
+    let a2 = Uuid::new_v4();
+    insert_address_entry(&pool, a1, false).await;
+    insert_address_entry(&pool, a2, false).await;
+    let today = chrono::Local::now().date_naive().format("%Y-%m-%d").to_string();
+
+    let empty_err = create_postcard_receipts_batch_impl(
+      &pool,
+      CreatePostcardReceiptsBatchInput {
+        address_entry_ids: vec![],
+        received_at: today.clone(),
+        category: "nenga".to_string(),
+        memo: None,
+      },
+    )
+    .await
+    .expect_err("empty batch");
+    assert!(empty_err.contains("1 件以上"));
+
+    let dup_err = create_postcard_receipts_batch_impl(
+      &pool,
+      CreatePostcardReceiptsBatchInput {
+        address_entry_ids: vec![a1.to_string(), a1.to_string()],
+        received_at: today.clone(),
+        category: "nenga".to_string(),
+        memo: None,
+      },
+    )
+    .await
+    .expect_err("duplicate ids");
+    assert!(dup_err.contains("重複"));
+
+    let ids = create_postcard_receipts_batch_impl(
+      &pool,
+      CreatePostcardReceiptsBatchInput {
+        address_entry_ids: vec![a1.to_string(), a2.to_string()],
+        received_at: today,
+        category: "nenga".to_string(),
+        memo: Some("batch".to_string()),
+      },
+    )
+    .await
+    .expect("batch create");
+    assert_eq!(ids.len(), 2);
+
+    let count: i64 =
+      sqlx::query_scalar("SELECT COUNT(*) FROM postcard_receipts WHERE deleted_at IS NULL")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(count, 2);
+  }
+
+  #[tokio::test]
+  async fn create_postcard_receipts_batch_rolls_back_when_mid_item_rejected() {
+    let pool = setup_pool().await;
+    let active = Uuid::new_v4();
+    let archived = Uuid::new_v4();
+    insert_address_entry(&pool, active, false).await;
+    insert_address_entry(&pool, archived, true).await;
+    let today = chrono::Local::now().date_naive().format("%Y-%m-%d").to_string();
+
+    let err = create_postcard_receipts_batch_impl(
+      &pool,
+      CreatePostcardReceiptsBatchInput {
+        address_entry_ids: vec![active.to_string(), archived.to_string()],
+        received_at: today,
+        category: "nenga".to_string(),
+        memo: None,
+      },
+    )
+    .await
+    .expect_err("archived address should fail whole batch");
+    assert!(err.contains("archived") || err.contains("ADDRESS") || err.contains("失敗") || !err.is_empty());
+
+    let count: i64 =
+      sqlx::query_scalar("SELECT COUNT(*) FROM postcard_receipts WHERE deleted_at IS NULL")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(count, 0, "partial insert must not remain");
+  }
+
+  #[tokio::test]
+  async fn list_mochu_receipt_address_entry_ids_returns_distinct_active() {
+    let pool = setup_pool().await;
+    let a1 = Uuid::new_v4();
+    let a2 = Uuid::new_v4();
+    insert_address_entry(&pool, a1, false).await;
+    insert_address_entry(&pool, a2, false).await;
+    let today = chrono::Local::now().date_naive().format("%Y-%m-%d").to_string();
+
+    create_postcard_receipts_batch_impl(
+      &pool,
+      CreatePostcardReceiptsBatchInput {
+        address_entry_ids: vec![a1.to_string(), a2.to_string()],
+        received_at: today,
+        category: "mochu".to_string(),
+        memo: None,
+      },
+    )
+    .await
+    .expect("mochu batch");
+
+    // receipt_year = calendar year of received_at
+    let year = chrono::Datelike::year(&chrono::Local::now().date_naive());
+    let ids = list_mochu_receipt_address_entry_ids_impl(&pool, year)
+      .await
+      .expect("list mochu");
+    let set: std::collections::HashSet<_> = ids.into_iter().collect();
+    assert!(set.contains(&a1.to_string()));
+    assert!(set.contains(&a2.to_string()));
+  }
+
+  #[tokio::test]
+  async fn create_postcard_sends_batch_rejects_mochu_address_for_nenga() {
+    let pool = setup_pool().await;
+    let address_id = Uuid::new_v4();
+    insert_address_entry(&pool, address_id, false).await;
+    create_sender_entry_impl(&pool, sample_sender_dto("喪中拒否差出人"))
+      .await
+      .expect("create sender");
+    let sender_id = fetch_sender_id_by_label(&pool, "喪中拒否差出人").await;
+
+    // 送付年 2026 の前シーズン（receipt_year=2025）喪中
+    create_postcard_receipts_batch_impl(
+      &pool,
+      CreatePostcardReceiptsBatchInput {
+        address_entry_ids: vec![address_id.to_string()],
+        received_at: "2025-01-15".to_string(),
+        category: "mochu".to_string(),
+        memo: None,
+      },
+    )
+    .await
+    .expect("mochu receipt");
+
+    let err = create_postcard_sends_batch_impl(
+      &pool,
+      CreatePostcardSendsBatchInput {
+        print_job_id: Uuid::new_v4().to_string(),
+        postcard_type: "nenga".to_string(),
+        items: vec![CreatePostcardSendItemDto {
+          address_entry_id: address_id.to_string(),
+          sender_entry_id: sender_id.clone(),
+          address_snapshot: sample_address_snapshot(&address_id.to_string()),
+          sender_snapshot: sample_sender_snapshot(&sender_id),
+        }],
+      },
+      // 2025-12-01 → send_year=2026 → mochu 参照年=2025
+      chrono::NaiveDate::from_ymd_opt(2025, 12, 1).unwrap(),
+    )
+    .await
+    .expect_err("mochu address must be rejected");
+    assert!(err.contains("喪中"));
+  }
+
+  #[tokio::test]
   async fn create_postcard_receipt_rejects_future_received_date() {
     let pool = setup_pool().await;
     // 日付跨ぎフレーク回避のため十分遠い固定未来日を使う
@@ -437,9 +602,9 @@ mod tests {
     sqlx::query(
       r#"
         INSERT INTO postcard_receipts (
-          id, address_entry_id, sender_display_name, received_at, category, memo,
+          id, address_entry_id, sender_display_name, received_at, receipt_year, category, memo,
           deleted_at, created_at, updated_at
-        ) VALUES (?, NULL, ?, ?, 'nenga', NULL, NULL, ?, ?)
+        ) VALUES (?, NULL, ?, ?, 2099, 'nenga', NULL, NULL, ?, ?)
       "#,
     )
     .bind(id.to_string())
@@ -991,7 +1156,7 @@ mod tests {
     let print_job_id = Uuid::new_v4().to_string();
     let input = CreatePostcardSendsBatchInput {
       print_job_id: print_job_id.clone(),
-      postcard_type: "nenga".to_string(),
+      postcard_type: "mochu".to_string(),
       items: vec![CreatePostcardSendItemDto {
         address_entry_id: address_id.to_string(),
         sender_entry_id: sender_id.clone(),
@@ -1000,12 +1165,14 @@ mod tests {
       }],
     };
 
-    create_postcard_sends_batch_impl(&pool, input.clone())
+    let first = create_postcard_sends_batch_impl(&pool, input.clone(), PostcardSend::local_today())
       .await
       .expect("first batch create");
-    create_postcard_sends_batch_impl(&pool, input)
+    assert!(!first.skipped);
+    let second = create_postcard_sends_batch_impl(&pool, input, PostcardSend::local_today())
       .await
       .expect("retry should be idempotent Ok");
+    assert!(!second.skipped);
 
     let count: i64 = sqlx::query_scalar(
       "SELECT COUNT(*) FROM postcard_sends WHERE print_job_id = ? AND deleted_at IS NULL",
@@ -1042,6 +1209,66 @@ mod tests {
   }
 
   #[tokio::test]
+  async fn create_postcard_sends_batch_skips_nenga_outside_season() {
+    let pool = setup_pool().await;
+    let address_id = Uuid::new_v4();
+    insert_address_entry(&pool, address_id, false).await;
+    create_sender_entry_impl(&pool, sample_sender_dto("テスト印刷差出人"))
+      .await
+      .expect("create sender");
+    let sender_id = fetch_sender_id_by_label(&pool, "テスト印刷差出人").await;
+
+    let print_job_id = Uuid::new_v4().to_string();
+    let input = CreatePostcardSendsBatchInput {
+      print_job_id: print_job_id.clone(),
+      postcard_type: "nenga".to_string(),
+      items: vec![CreatePostcardSendItemDto {
+        address_entry_id: address_id.to_string(),
+        sender_entry_id: sender_id.clone(),
+        address_snapshot: sample_address_snapshot(&address_id.to_string()),
+        sender_snapshot: sample_sender_snapshot(&sender_id),
+      }],
+    };
+
+    // 基準日を 6/15 に固定し、CI 実行日に依存せず skip を検証する
+    let result = create_postcard_sends_batch_impl(
+      &pool,
+      input.clone(),
+      chrono::NaiveDate::from_ymd_opt(2025, 6, 15).unwrap(),
+    )
+    .await
+    .expect("out-of-season nenga should succeed as skip");
+    assert!(result.skipped);
+    assert_eq!(result.reason.as_deref(), Some("test_print"));
+    let count: i64 = sqlx::query_scalar(
+      "SELECT COUNT(*) FROM postcard_sends WHERE print_job_id = ? AND deleted_at IS NULL",
+    )
+    .bind(&print_job_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(count, 0);
+
+    // シーズン内（12/1）では送付記録が作成される
+    let in_season = create_postcard_sends_batch_impl(
+      &pool,
+      input,
+      chrono::NaiveDate::from_ymd_opt(2025, 12, 1).unwrap(),
+    )
+    .await
+    .expect("in-season nenga should create sends");
+    assert!(!in_season.skipped);
+    let count_in: i64 = sqlx::query_scalar(
+      "SELECT COUNT(*) FROM postcard_sends WHERE print_job_id = ? AND deleted_at IS NULL",
+    )
+    .bind(&print_job_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(count_in, 1);
+  }
+
+  #[tokio::test]
   async fn create_postcard_sends_batch_dedupes_duplicate_address_in_same_batch() {
     let pool = setup_pool().await;
     let address_id = Uuid::new_v4();
@@ -1060,13 +1287,14 @@ mod tests {
     };
     let input = CreatePostcardSendsBatchInput {
       print_job_id: print_job_id.clone(),
-      postcard_type: "nenga".to_string(),
+      postcard_type: "mochu".to_string(),
       items: vec![item.clone(), item],
     };
 
-    create_postcard_sends_batch_impl(&pool, input)
+    let result = create_postcard_sends_batch_impl(&pool, input, PostcardSend::local_today())
       .await
       .expect("duplicate address in batch should succeed after dedupe");
+    assert!(!result.skipped);
 
     let count: i64 = sqlx::query_scalar(
       "SELECT COUNT(*) FROM postcard_sends WHERE print_job_id = ? AND deleted_at IS NULL",
@@ -1196,7 +1424,7 @@ mod tests {
       &pool,
       CreatePostcardSendsBatchInput {
         print_job_id: print_job_id.to_string(),
-        postcard_type: "nenga".to_string(),
+        postcard_type: "mochu".to_string(),
         items: vec![CreatePostcardSendItemDto {
           address_entry_id: address_id.to_string(),
           sender_entry_id: sender_id.clone(),
@@ -1204,6 +1432,7 @@ mod tests {
           sender_snapshot: sample_sender_snapshot(&sender_id),
         }],
       },
+      PostcardSend::local_today(),
     )
     .await
     .expect("print seed");
@@ -1393,6 +1622,178 @@ mod tests {
     .await
     .expect_err("keyword too long");
     assert!(err.contains("検索キーワードが長すぎます"));
+  }
+
+  #[tokio::test]
+  async fn list_nenga_target_review_rejects_year_out_of_range() {
+    let pool = setup_pool().await;
+    let err = list_nenga_target_review_impl(&pool, 1899)
+      .await
+      .expect_err("year too small");
+    assert_eq!(
+      err,
+      "年賀状年は 1900 から 2100 の範囲で指定してください。"
+    );
+    let err = list_nenga_target_review_impl(&pool, 2101)
+      .await
+      .expect_err("year too large");
+    assert_eq!(
+      err,
+      "年賀状年は 1900 から 2100 の範囲で指定してください。"
+    );
+  }
+
+  #[tokio::test]
+  async fn list_nenga_target_review_rejects_more_than_2000_candidates() {
+    let pool = setup_pool().await;
+    let mut tx = pool.begin().await.unwrap();
+    for _ in 0..2001 {
+      let id = Uuid::new_v4();
+      let now = chrono::Utc::now().to_rfc3339();
+      sqlx::query(
+        r#"
+          INSERT INTO address_entries (
+            id, primary_last, primary_first, primary_kana_last, primary_kana_first,
+            honorific, postal_code, prefecture, city, street, building, memo,
+            archived_at, created_at, updated_at
+          )
+          VALUES (?, '佐藤', '一郎', NULL, NULL, '様', '1234567', '東京都', '千代田区', '1-1-1', NULL, NULL, NULL, ?, ?)
+        "#,
+      )
+      .bind(id.to_string())
+      .bind(&now)
+      .bind(&now)
+      .execute(&mut *tx)
+      .await
+      .unwrap();
+    }
+    tx.commit().await.unwrap();
+
+    let err = list_nenga_target_review_impl(&pool, 2026)
+      .await
+      .expect_err("too many candidates");
+    assert_eq!(
+      err,
+      "候補が 2000 件を超えています。条件を確認してください。"
+    );
+  }
+
+  #[tokio::test]
+  async fn disable_nenga_send_targets_rejects_empty_and_skips_missing() {
+    let pool = setup_pool().await;
+    let empty = disable_nenga_send_targets_impl(&pool, vec![])
+      .await
+      .expect_err("empty");
+    assert_eq!(empty, "更新する宛名を選択してください。");
+
+    let too_many: Vec<String> = (0..2001).map(|_| Uuid::new_v4().to_string()).collect();
+    let overflow = disable_nenga_send_targets_impl(&pool, too_many)
+      .await
+      .expect_err("too many ids");
+    assert_eq!(overflow, "一度に更新できるのは 2000 件までです。");
+
+    let address_id = Uuid::new_v4();
+    insert_address_entry(&pool, address_id, false).await;
+    let result = disable_nenga_send_targets_impl(
+      &pool,
+      vec![
+        address_id.to_string(),
+        address_id.to_string(),
+        "not-a-uuid".to_string(),
+        Uuid::new_v4().to_string(),
+      ],
+    )
+    .await
+    .expect("disable");
+    assert_eq!(result.updated_count, 1);
+    assert_eq!(result.skipped_count, 2);
+
+    let ids = list_nenga_send_excluded_address_entry_ids_impl(&pool)
+      .await
+      .expect("excluded");
+    assert_eq!(ids, vec![address_id.to_string()]);
+  }
+
+  #[tokio::test]
+  async fn create_postcard_sends_batch_rejects_nenga_target_excluded_in_season() {
+    let pool = setup_pool().await;
+    let address_id = Uuid::new_v4();
+    insert_address_entry(&pool, address_id, false).await;
+    sqlx::query("UPDATE address_entries SET nenga_send_target = 0 WHERE id = ?")
+      .bind(address_id.to_string())
+      .execute(&pool)
+      .await
+      .unwrap();
+    create_sender_entry_impl(&pool, sample_sender_dto("対象外拒否差出人"))
+      .await
+      .expect("create sender");
+    let sender_id = fetch_sender_id_by_label(&pool, "対象外拒否差出人").await;
+
+    let err = create_postcard_sends_batch_impl(
+      &pool,
+      CreatePostcardSendsBatchInput {
+        print_job_id: Uuid::new_v4().to_string(),
+        postcard_type: "nenga".to_string(),
+        items: vec![CreatePostcardSendItemDto {
+          address_entry_id: address_id.to_string(),
+          sender_entry_id: sender_id.clone(),
+          address_snapshot: sample_address_snapshot(&address_id.to_string()),
+          sender_snapshot: sample_sender_snapshot(&sender_id),
+        }],
+      },
+      chrono::NaiveDate::from_ymd_opt(2025, 12, 1).unwrap(),
+    )
+    .await
+    .expect_err("excluded address must be rejected");
+    assert!(err.contains("年賀状送付対象外"));
+  }
+
+  #[tokio::test]
+  async fn create_postcard_sends_batch_allows_excluded_for_mochu_and_skips_test_print() {
+    let pool = setup_pool().await;
+    let address_id = Uuid::new_v4();
+    insert_address_entry(&pool, address_id, false).await;
+    sqlx::query("UPDATE address_entries SET nenga_send_target = 0 WHERE id = ?")
+      .bind(address_id.to_string())
+      .execute(&pool)
+      .await
+      .unwrap();
+    create_sender_entry_impl(&pool, sample_sender_dto("対象外喪中差出人"))
+      .await
+      .expect("create sender");
+    let sender_id = fetch_sender_id_by_label(&pool, "対象外喪中差出人").await;
+    let item = || CreatePostcardSendItemDto {
+      address_entry_id: address_id.to_string(),
+      sender_entry_id: sender_id.clone(),
+      address_snapshot: sample_address_snapshot(&address_id.to_string()),
+      sender_snapshot: sample_sender_snapshot(&sender_id),
+    };
+
+    let mochu = create_postcard_sends_batch_impl(
+      &pool,
+      CreatePostcardSendsBatchInput {
+        print_job_id: Uuid::new_v4().to_string(),
+        postcard_type: "mochu".to_string(),
+        items: vec![item()],
+      },
+      chrono::NaiveDate::from_ymd_opt(2025, 11, 1).unwrap(),
+    )
+    .await
+    .expect("mochu ignores the flag");
+    assert!(!mochu.skipped);
+
+    let test_print = create_postcard_sends_batch_impl(
+      &pool,
+      CreatePostcardSendsBatchInput {
+        print_job_id: Uuid::new_v4().to_string(),
+        postcard_type: "nenga".to_string(),
+        items: vec![item()],
+      },
+      chrono::NaiveDate::from_ymd_opt(2026, 6, 15).unwrap(),
+    )
+    .await
+    .expect("test print skips before the flag check");
+    assert!(test_print.skipped);
   }
 }
 

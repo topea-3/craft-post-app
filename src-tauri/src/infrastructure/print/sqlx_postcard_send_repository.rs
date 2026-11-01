@@ -97,7 +97,7 @@ fn build_search_where_clause(query: &PostcardSendSearchQuery) -> String {
     s.push_str(" AND ps.deleted_at IS NULL");
   }
   if query.year.is_some() {
-    s.push_str(" AND ps.sent_on >= ? AND ps.sent_on <= ?");
+    s.push_str(" AND ps.send_year = ?");
   }
   if query.postcard_type.is_some() {
     s.push_str(" AND ps.postcard_type = ?");
@@ -154,6 +154,7 @@ fn map_row_to_db(row: &sqlx::sqlite::SqliteRow) -> DbPostcardSendRow {
     address_snapshot: row.get("address_snapshot"),
     postcard_type: row.get("postcard_type"),
     sent_on: row.get("sent_on"),
+    send_year: row.get("send_year"),
     source: row.get("source"),
     memo: row.get("memo"),
     created_at: row.get("created_at"),
@@ -233,9 +234,7 @@ fn bind_search_params<'q>(
   query: &PostcardSendSearchQuery,
 ) -> sqlx::query::Query<'q, sqlx::Sqlite, sqlx::sqlite::SqliteArguments<'q>> {
   if let Some(year) = query.year {
-    let start = format!("{year:04}-01-01");
-    let end = format!("{year:04}-12-31");
-    q = q.bind(start).bind(end);
+    q = q.bind(year);
   }
   if let Some(postcard_type) = query.postcard_type {
     q = q.bind(postcard_type.as_str());
@@ -265,13 +264,6 @@ fn bind_search_params<'q>(
   q
 }
 
-fn year_range(year: i32) -> (String, String) {
-  (
-    format!("{year:04}-01-01"),
-    format!("{year:04}-12-31"),
-  )
-}
-
 fn build_status_where(query: &SendStatusQuery) -> (String, String) {
   let display = address_display_name_sql("ae");
   let address_line = address_line_sql("ae");
@@ -286,7 +278,7 @@ fn build_status_where(query: &SendStatusQuery) -> (String, String) {
         WHERE pr.address_entry_id = ae.id
           AND pr.deleted_at IS NULL
           AND pr.address_entry_id IS NOT NULL
-          AND pr.received_at >= ? AND pr.received_at <= ?
+          AND pr.receipt_year = ?
       )
     "#,
     );
@@ -311,7 +303,7 @@ fn build_status_where(query: &SendStatusQuery) -> (String, String) {
         SELECT 1 FROM postcard_sends ps
         WHERE ps.address_entry_id = ae.id
           AND ps.deleted_at IS NULL
-          AND ps.sent_on >= ? AND ps.sent_on <= ?
+          AND ps.send_year = ?
           {type_pred}
       )
     "#
@@ -322,7 +314,7 @@ fn build_status_where(query: &SendStatusQuery) -> (String, String) {
         SELECT 1 FROM postcard_sends ps
         WHERE ps.address_entry_id = ae.id
           AND ps.deleted_at IS NULL
-          AND ps.sent_on >= ? AND ps.sent_on <= ?
+          AND ps.send_year = ?
           {type_pred}
       )
     "#
@@ -374,15 +366,13 @@ fn bind_status_params<'q>(
     }
   }
   if let Some(receipt_year) = query.receipt_year {
-    let (start, end) = year_range(receipt_year);
-    q = q.bind(start).bind(end);
+    q = q.bind(receipt_year);
   }
   if let Some(keyword) = &query.keyword {
     let pattern = escape_like_pattern(keyword);
     q = q.bind(pattern.clone()).bind(pattern);
   }
-  let (start, end) = year_range(query.year);
-  q = q.bind(start).bind(end);
+  q = q.bind(query.year);
   if let Some(postcard_type) = query.postcard_type {
     q = q.bind(postcard_type.as_str());
   }
@@ -410,6 +400,7 @@ impl PostcardSendRepository for SqlxPostcardSendRepository {
       let address_snapshot = send.address_snapshot();
       let postcard_type = send.postcard_type().as_str();
       let sent_on = send.sent_on().format("%Y-%m-%d").to_string();
+      let send_year = send.send_year();
       let source = send.source().as_str();
       let memo = send.memo().map(|m| m.text().to_string());
       let created_at = send.created_at().to_rfc3339();
@@ -421,9 +412,9 @@ impl PostcardSendRepository for SqlxPostcardSendRepository {
           INSERT INTO postcard_sends (
             id, print_job_id, address_entry_id, sender_entry_id,
             sender_snapshot, address_snapshot, postcard_type,
-            sent_on, source, memo, created_at, updated_at, deleted_at
+            sent_on, send_year, source, memo, created_at, updated_at, deleted_at
           )
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         "#,
       )
       .bind(&id)
@@ -434,6 +425,7 @@ impl PostcardSendRepository for SqlxPostcardSendRepository {
       .bind(address_snapshot)
       .bind(postcard_type)
       .bind(&sent_on)
+      .bind(send_year)
       .bind(source)
       .bind(memo)
       .bind(&created_at)
@@ -493,7 +485,7 @@ impl PostcardSendRepository for SqlxPostcardSendRepository {
         SELECT
           ps.id, ps.print_job_id, ps.address_entry_id, ps.sender_entry_id,
           ps.sender_snapshot, ps.address_snapshot, ps.postcard_type,
-          ps.sent_on, ps.source, ps.memo,
+          ps.sent_on, ps.send_year, ps.source, ps.memo,
           ps.created_at, ps.updated_at, ps.deleted_at
         FROM postcard_sends ps
         WHERE ps.id = ?
@@ -539,7 +531,7 @@ impl PostcardSendRepository for SqlxPostcardSendRepository {
         SELECT
           ps.id, ps.print_job_id, ps.address_entry_id, ps.sender_entry_id,
           ps.sender_snapshot, ps.address_snapshot, ps.postcard_type,
-          ps.sent_on, ps.source, ps.memo,
+          ps.sent_on, ps.send_year, ps.source, ps.memo,
           ps.created_at, ps.updated_at, ps.deleted_at
         FROM postcard_sends ps
         LEFT JOIN address_entries ae ON ps.address_entry_id = ae.id
@@ -587,6 +579,7 @@ impl PostcardSendRepository for SqlxPostcardSendRepository {
     let id = send.id().as_uuid().to_string();
     let postcard_type = send.postcard_type().as_str();
     let sent_on = send.sent_on().format("%Y-%m-%d").to_string();
+    let send_year = send.send_year();
     let memo = send.memo().map(|m| m.text().to_string());
     let updated_at = send.updated_at().to_rfc3339();
 
@@ -595,6 +588,7 @@ impl PostcardSendRepository for SqlxPostcardSendRepository {
         UPDATE postcard_sends
         SET
           sent_on = ?,
+          send_year = ?,
           postcard_type = ?,
           memo = ?,
           updated_at = ?
@@ -602,6 +596,7 @@ impl PostcardSendRepository for SqlxPostcardSendRepository {
       "#,
     )
     .bind(&sent_on)
+    .bind(send_year)
     .bind(postcard_type)
     .bind(memo)
     .bind(&updated_at)
@@ -657,10 +652,9 @@ impl PostcardSendRepository for SqlxPostcardSendRepository {
   async fn list_sent_years(&self) -> Result<Vec<i32>, PostcardSendRepositoryError> {
     let rows = sqlx::query(
       r#"
-        SELECT DISTINCT CAST(substr(sent_on, 1, 4) AS INTEGER) AS y
+        SELECT DISTINCT send_year AS y
         FROM postcard_sends
         WHERE deleted_at IS NULL
-          AND length(sent_on) >= 4
         ORDER BY y DESC
       "#,
     )

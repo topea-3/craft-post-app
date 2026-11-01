@@ -11,6 +11,32 @@ use crate::domain::address::address_entry_repository::{
 };
 use crate::infrastructure::sql_like::escape_like_pattern;
 
+pub(crate) const ADDRESS_ENTRY_SELECT_LIST: &str = "\
+id, primary_last, primary_first, primary_kana_last, primary_kana_first, \
+honorific, postal_code, prefecture, city, street, building, memo, \
+nenga_send_target, archived_at, created_at, updated_at";
+
+pub(crate) fn db_address_entry_row_from(row: &sqlx::sqlite::SqliteRow) -> DbAddressEntryRow {
+  DbAddressEntryRow {
+    id: row.get("id"),
+    primary_last: row.get("primary_last"),
+    primary_first: row.get("primary_first"),
+    primary_kana_last: row.get("primary_kana_last"),
+    primary_kana_first: row.get("primary_kana_first"),
+    honorific: row.get("honorific"),
+    postal_code: row.get("postal_code"),
+    prefecture: row.get("prefecture"),
+    city: row.get("city"),
+    street: row.get("street"),
+    building: row.get("building"),
+    memo: row.get("memo"),
+    nenga_send_target: row.get("nenga_send_target"),
+    archived_at: row.get("archived_at"),
+    created_at: row.get("created_at"),
+    updated_at: row.get("updated_at"),
+  }
+}
+
 fn build_search_where_clause(query: &AddressSearchQuery) -> String {
   let mut s = String::new();
   if !query.include_archived {
@@ -85,11 +111,12 @@ impl AddressEntryRepository for SqlxAddressEntryRepository {
           street,
           building,
           memo,
+          nenga_send_target,
           archived_at,
           created_at,
           updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       "#,
     )
     .bind(&id)
@@ -104,6 +131,7 @@ impl AddressEntryRepository for SqlxAddressEntryRepository {
     .bind(addr.street())
     .bind(addr.building())
     .bind(memo_text)
+    .bind(if entry.nenga_send_target() { 1i64 } else { 0i64 })
     .bind(archived_at)
     .bind(created_at.to_rfc3339())
     .bind(updated_at.to_rfc3339())
@@ -174,6 +202,7 @@ impl AddressEntryRepository for SqlxAddressEntryRepository {
           street = ?,
           building = ?,
           memo = ?,
+          nenga_send_target = ?,
           archived_at = ?,
           created_at = ?,
           updated_at = ?
@@ -191,6 +220,7 @@ impl AddressEntryRepository for SqlxAddressEntryRepository {
     .bind(addr.street())
     .bind(addr.building())
     .bind(memo_text)
+    .bind(if entry.nenga_send_target() { 1i64 } else { 0i64 })
     .bind(archived_at)
     .bind(created_at.to_rfc3339())
     .bind(updated_at.to_rfc3339())
@@ -246,28 +276,9 @@ impl AddressEntryRepository for SqlxAddressEntryRepository {
   ) -> Result<Option<AddressEntry>, AddressRepositoryError> {
     let id_str = id.as_uuid().to_string();
 
-    let row = sqlx::query(
-      r#"
-        SELECT
-          id,
-          primary_last,
-          primary_first,
-          primary_kana_last,
-          primary_kana_first,
-          honorific,
-          postal_code,
-          prefecture,
-          city,
-          street,
-          building,
-          memo,
-          archived_at,
-          created_at,
-          updated_at
-        FROM address_entries
-        WHERE id = ?
-      "#,
-    )
+    let row = sqlx::query(&format!(
+      "SELECT {ADDRESS_ENTRY_SELECT_LIST} FROM address_entries WHERE id = ?"
+    ))
     .bind(&id_str)
     .fetch_optional(&self.pool)
     .await?;
@@ -276,23 +287,7 @@ impl AddressEntryRepository for SqlxAddressEntryRepository {
       return Ok(None);
     };
 
-    let entry_row = DbAddressEntryRow {
-      id: row.get("id"),
-      primary_last: row.get("primary_last"),
-      primary_first: row.get("primary_first"),
-      primary_kana_last: row.get("primary_kana_last"),
-      primary_kana_first: row.get("primary_kana_first"),
-      honorific: row.get("honorific"),
-      postal_code: row.get("postal_code"),
-      prefecture: row.get("prefecture"),
-      city: row.get("city"),
-      street: row.get("street"),
-      building: row.get("building"),
-      memo: row.get("memo"),
-      archived_at: row.get("archived_at"),
-      created_at: row.get("created_at"),
-      updated_at: row.get("updated_at"),
-    };
+    let entry_row = db_address_entry_row_from(&row);
 
     let co_rows = sqlx::query(
       r#"
@@ -338,33 +333,16 @@ impl AddressEntryRepository for SqlxAddressEntryRepository {
     &self,
     pagination: Pagination,
   ) -> Result<Vec<AddressEntry>, AddressRepositoryError> {
-    let rows = sqlx::query(
-      r#"
-        SELECT
-          id,
-          primary_last,
-          primary_first,
-          primary_kana_last,
-          primary_kana_first,
-          honorific,
-          postal_code,
-          prefecture,
-          city,
-          street,
-          building,
-          memo,
-          archived_at,
-          created_at,
-          updated_at
-        FROM address_entries
-        WHERE archived_at IS NULL
-        ORDER BY
-          COALESCE(primary_kana_last, primary_last) ASC,
-          COALESCE(primary_kana_first, primary_first) ASC,
-          id ASC
-        LIMIT ? OFFSET ?
-      "#,
-    )
+    let rows = sqlx::query(&format!(
+      "SELECT {ADDRESS_ENTRY_SELECT_LIST} \
+       FROM address_entries \
+       WHERE archived_at IS NULL \
+       ORDER BY \
+         COALESCE(primary_kana_last, primary_last) ASC, \
+         COALESCE(primary_kana_first, primary_first) ASC, \
+         id ASC \
+       LIMIT ? OFFSET ?"
+    ))
     .bind(pagination.limit)
     .bind(pagination.offset)
     .fetch_all(&self.pool)
@@ -395,30 +373,7 @@ impl AddressEntryRepository for SqlxAddressEntryRepository {
       .get("cnt");
 
     let mut sql = format!(
-      r#"
-        SELECT
-          id,
-          primary_last,
-          primary_first,
-          primary_kana_last,
-          primary_kana_first,
-          honorific,
-          postal_code,
-          prefecture,
-          city,
-          street,
-          building,
-          memo,
-          archived_at,
-          created_at,
-          updated_at
-        FROM address_entries
-        WHERE 1 = 1
-        {}
-        {}
-      "#,
-      where_clause,
-      order_clause,
+      "SELECT {ADDRESS_ENTRY_SELECT_LIST} FROM address_entries WHERE 1 = 1 {where_clause} {order_clause}"
     );
 
     if query.pagination.is_some() {
@@ -465,6 +420,100 @@ impl AddressEntryRepository for SqlxAddressEntryRepository {
 
     Ok(())
   }
+
+  async fn list_nenga_target_review(
+    &self,
+    nenga_year: i32,
+    limit: i64,
+  ) -> Result<Vec<AddressEntry>, AddressRepositoryError> {
+    let mochu_year = nenga_year - 1;
+    let sql = format!(
+      "SELECT {ADDRESS_ENTRY_SELECT_LIST} \
+       FROM address_entries \
+       WHERE archived_at IS NULL \
+         AND nenga_send_target = 1 \
+         AND NOT EXISTS ( \
+           SELECT 1 FROM postcard_receipts r \
+           WHERE r.address_entry_id = address_entries.id \
+             AND r.deleted_at IS NULL \
+             AND r.category = 'mochu' \
+             AND r.receipt_year = ? \
+         ) \
+         AND NOT EXISTS ( \
+           SELECT 1 FROM postcard_receipts r \
+           WHERE r.address_entry_id = address_entries.id \
+             AND r.deleted_at IS NULL \
+             AND r.category = 'nenga' \
+             AND r.receipt_year = ? \
+         ) \
+       ORDER BY \
+         COALESCE(primary_kana_last, primary_last) ASC, \
+         COALESCE(primary_kana_first, primary_first) ASC, \
+         id ASC \
+       LIMIT ?"
+    );
+    let rows = sqlx::query(&sql)
+      .bind(mochu_year)
+      .bind(nenga_year)
+      .bind(limit)
+      .fetch_all(&self.pool)
+      .await?;
+    build_entries_with_co_recipients(rows, &self.pool).await
+  }
+
+  async fn disable_nenga_send_targets(
+    &self,
+    ids: &[String],
+    updated_at: &str,
+  ) -> Result<i64, AddressRepositoryError> {
+    if ids.is_empty() {
+      return Ok(0);
+    }
+
+    let mut tx = self.pool.begin().await?;
+    let mut updated: i64 = 0;
+    const IN_CHUNK_SIZE: usize = 100;
+    for chunk in ids.chunks(IN_CHUNK_SIZE) {
+      let placeholders = std::iter::repeat_n("?", chunk.len())
+        .collect::<Vec<_>>()
+        .join(",");
+      let sql = format!(
+        "UPDATE address_entries \
+         SET nenga_send_target = 0, updated_at = ? \
+         WHERE archived_at IS NULL \
+           AND nenga_send_target = 1 \
+           AND id IN ({placeholders})"
+      );
+      let mut q = sqlx::query(&sql).bind(updated_at);
+      for id in chunk {
+        q = q.bind(id);
+      }
+      let result = q.execute(&mut *tx).await?;
+      updated += i64::try_from(result.rows_affected()).unwrap_or(i64::MAX);
+    }
+    tx.commit().await?;
+    Ok(updated)
+  }
+
+  async fn list_nenga_send_excluded_ids(
+    &self,
+    active_only: bool,
+  ) -> Result<Vec<Uuid>, AddressRepositoryError> {
+    let sql = if active_only {
+      "SELECT id FROM address_entries WHERE archived_at IS NULL AND nenga_send_target = 0"
+    } else {
+      "SELECT id FROM address_entries WHERE nenga_send_target = 0"
+    };
+    let rows = sqlx::query(sql).fetch_all(&self.pool).await?;
+    let mut ids = Vec::with_capacity(rows.len());
+    for row in rows {
+      let id: String = row.get("id");
+      let uuid = Uuid::parse_str(&id)
+        .map_err(|e| AddressRepositoryError::InvalidPersistedData(e.to_string()))?;
+      ids.push(uuid);
+    }
+    Ok(ids)
+  }
 }
 
 pub(crate) async fn build_entries_with_co_recipients(
@@ -480,23 +529,7 @@ pub(crate) async fn build_entries_with_co_recipients(
   for row in rows {
     let id: String = row.get("id");
     ids.push(id.clone());
-    entry_rows.push(DbAddressEntryRow {
-      id,
-      primary_last: row.get("primary_last"),
-      primary_first: row.get("primary_first"),
-      primary_kana_last: row.get("primary_kana_last"),
-      primary_kana_first: row.get("primary_kana_first"),
-      honorific: row.get("honorific"),
-      postal_code: row.get("postal_code"),
-      prefecture: row.get("prefecture"),
-      city: row.get("city"),
-      street: row.get("street"),
-      building: row.get("building"),
-      memo: row.get("memo"),
-      archived_at: row.get("archived_at"),
-      created_at: row.get("created_at"),
-      updated_at: row.get("updated_at"),
-    });
+    entry_rows.push(db_address_entry_row_from(&row));
   }
 
   // 連名を一括取得（IN 句のバインド数上限を避けるためチャンク分割）。

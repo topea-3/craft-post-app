@@ -73,6 +73,26 @@ pub trait AddressEntryRepository {
   ) -> Result<(Vec<AddressEntry>, i64), AddressRepositoryError>;
 
   async fn archive(&self, id: &AddressEntryId) -> Result<(), AddressRepositoryError>;
+
+  /// 年賀状年 `nenga_year` の見直し候補。上限は呼び出し側が LIMIT で渡す。
+  async fn list_nenga_target_review(
+    &self,
+    nenga_year: i32,
+    limit: i64,
+  ) -> Result<Vec<AddressEntry>, AddressRepositoryError>;
+
+  /// 有効かつ現在対象の ID だけを対象外にする。更新行数を返す。
+  async fn disable_nenga_send_targets(
+    &self,
+    ids: &[String],
+    updated_at: &str,
+  ) -> Result<i64, AddressRepositoryError>;
+
+  /// `nenga_send_target = 0` の ID。`active_only` のときアーカイブ済みは除く。
+  async fn list_nenga_send_excluded_ids(
+    &self,
+    active_only: bool,
+  ) -> Result<Vec<Uuid>, AddressRepositoryError>;
 }
 
 /// DB 行用の素の構造体。
@@ -93,6 +113,8 @@ pub struct DbAddressEntryRow {
   pub street: String,
   pub building: Option<String>,
   pub memo: Option<String>,
+  /// 0 または 1。それ以外は不正な永続化データ。
+  pub nenga_send_target: i64,
   pub archived_at: Option<String>,
   pub created_at: String,
   pub updated_at: String,
@@ -152,6 +174,16 @@ impl DbAddressEntryRow {
       None => None,
     };
 
+    let nenga_send_target = match self.nenga_send_target {
+      0 => false,
+      1 => true,
+      other => {
+        return Err(AddressRepositoryError::InvalidPersistedData(format!(
+          "invalid nenga_send_target: {other}"
+        )));
+      }
+    };
+
     let created_at: DateTime<Utc> = match DateTime::parse_from_rfc3339(&self.created_at) {
       Ok(dt) => dt.with_timezone(&Utc),
       Err(e) => {
@@ -182,6 +214,7 @@ impl DbAddressEntryRow {
       postal_code,
       address,
       memo,
+      nenga_send_target,
       archived_at,
       created_at,
       updated_at,

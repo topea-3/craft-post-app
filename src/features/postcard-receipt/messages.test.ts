@@ -26,6 +26,12 @@ describe('mapPostcardReceiptInvokeError', () => {
     ).toBe(POSTCARD_RECEIPT_OPERATION_ERROR_MESSAGE)
   })
 
+  it('maps receipt batch limit message', () => {
+    expect(mapPostcardReceiptInvokeError('一度に登録できるのは 200 件までです。')).toBe(
+      '一度に登録できるのは 200 件までです。',
+    )
+  })
+
   it('falls back for unknown internal errors', () => {
     expect(mapPostcardReceiptInvokeError('RECEIPT_UPDATE_FAILED')).toBe(
       POSTCARD_RECEIPT_OPERATION_ERROR_MESSAGE,
